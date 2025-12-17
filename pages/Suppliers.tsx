@@ -76,10 +76,10 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
 
   const columns: Column<Supplier>[] = [
     { header: 'Company Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
-    { header: 'Contact Person', accessor: 'contactPerson', key: 'contactPerson' },
-    { header: 'Phone', accessor: 'phone', key: 'phone' },
-    { header: 'Email', accessor: 'email', key: 'email' },
-    { header: 'Address', accessor: 'address', key: 'address' },
+    { header: 'Contact Person', accessor: 'contactPerson', key: 'contactPerson', filterable: true },
+    { header: 'Phone', accessor: 'phone', key: 'phone', filterable: true },
+    { header: 'Email', accessor: 'email', key: 'email', filterable: true },
+    { header: 'Address', accessor: 'address', key: 'address', filterable: true },
     {
         header: 'Actions',
         accessor: (item: Supplier) => (

@@ -74,7 +74,7 @@ const Customers = () => {
     { header: 'Customer Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
     { header: 'Category', accessor: 'category', key: 'category', filterable: true, sortable: true },
     { header: 'Phone', accessor: 'phone', key: 'phone', filterable: true },
-    { header: 'Email', accessor: 'email', key: 'email' },
+    { header: 'Email', accessor: 'email', key: 'email', filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: Customer) => (

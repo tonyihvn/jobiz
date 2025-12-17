@@ -170,9 +170,9 @@ const Services = () => {
 
   const columns: Column<Product>[] = [
     { header: 'Service Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
-    { header: 'Category', accessor: 'categoryName', key: 'categoryName' },
-    { header: 'Rate/Price', accessor: (item: Product) => `${symbol}${fmt(item.price, 2)}`, key: 'price', sortable: true },
-    { header: 'Unit', accessor: 'unit', key: 'unit' },
+    { header: 'Category', accessor: 'categoryName', key: 'categoryName', filterable: true },
+    { header: 'Rate/Price', accessor: (item: Product) => `${symbol}${fmt(item.price, 2)}`, key: 'price', sortable: true, filterable: true },
+    { header: 'Unit', accessor: 'unit', key: 'unit', filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: Product) => (

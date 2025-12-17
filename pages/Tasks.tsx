@@ -103,8 +103,8 @@ const Tasks = () => {
       key: 'assignedTo', 
       filterable: true 
     },
-    { header: 'Type', accessor: 'type', key: 'type', sortable: true },
-    { header: 'Due Date', accessor: (t) => t.dateToComplete || '-', key: 'dateToComplete', sortable: true },
+    { header: 'Type', accessor: 'type', key: 'type', sortable: true, filterable: true },
+    { header: 'Due Date', accessor: (t) => t.dateToComplete || '-', key: 'dateToComplete', sortable: true, filterable: true },
     { 
       header: 'Status', 
       accessor: (t) => (
@@ -117,7 +117,8 @@ const Tasks = () => {
         </span>
       ), 
       key: 'status',
-      sortable: true
+      sortable: true,
+      filterable: true
     },
     {
       header: 'Actions',

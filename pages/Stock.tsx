@@ -168,14 +168,14 @@ const Stock: React.FC = () => {
                         })
                     )}
                 </div>
-            ), key: 'locations' },
+            ), key: 'locations', filterable: true },
         { header: 'Stock Level', accessor: (p: Product) => (
                 <div className="flex items-center gap-2">
                     <span className={`font-bold ${p.stock < 10 ? 'text-rose-600' : 'text-slate-700'}`}>{p.stock}</span>
                     {p.stock < 10 && <AlertTriangle size={14} className="text-rose-500" />}
                 </div>
-            ), key: 'stock', sortable: true },
-        { header: 'Supplier', accessor: (p: Product) => suppliers.find(s => s.id === p.supplierId)?.name || '-', key: 'supplierId' },
+            ), key: 'stock', sortable: true, filterable: true },
+        { header: 'Supplier', accessor: (p: Product) => suppliers.find(s => s.id === p.supplierId)?.name || '-', key: 'supplierId', filterable: true },
         { header: 'Actions', accessor: (p: Product) => (
                 <div className="flex gap-2">
                     <button onClick={(e) => { e.stopPropagation(); openEditProduct(p); }} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Edit2 size={16} /></button>
@@ -185,10 +185,10 @@ const Stock: React.FC = () => {
     ];
 
     const historyColumns: Column<Transaction>[] = [
-        { header: 'Date', accessor: (t) => new Date(t.date).toLocaleDateString(), key: 'date', sortable: true },
+        { header: 'Date', accessor: (t) => new Date(t.date).toLocaleDateString(), key: 'date', sortable: true, filterable: true },
         { header: 'Supplier', accessor: 'receivedBy', key: 'receivedBy', filterable: true },
         { header: 'Details (Ref Invoice & Items)', accessor: 'particulars', key: 'particulars', filterable: true },
-        { header: 'Total Cost', accessor: (t) => `${symbol}${t.amount.toFixed(2)}`, key: 'amount' },
+        { header: 'Total Cost', accessor: (t) => `${symbol}${t.amount.toFixed(2)}`, key: 'amount', filterable: true },
     ];
 
     return (

@@ -186,6 +186,16 @@ export interface CompanySettings {
   defaultLocationId?: string;
   // Optional mapping from roleId -> default route after login
   loginRedirects?: { [roleId: string]: string };
+  // Landing page content sections
+  landingContent?: {
+    hero?: { title?: string; subtitle?: string; backgroundImage?: string };
+    features?: Array<{ title?: string; text?: string }>;
+    testimonials?: Array<{ name?: string; quote?: string }>;
+    cta?: { heading?: string; subtext?: string; buttonText?: string; buttonUrl?: string };
+    footer?: { text?: string; image?: string };
+  };
+  // Notes to appear on invoices
+  invoiceNotes?: string;
 }
 
 export interface Task {
@@ -222,4 +232,13 @@ export interface AuditLog {
   resource: string;
   details: string;
   timestamp: string;
+}
+
+export interface Feedback {
+  id: string;
+  name: string;
+  email: string;
+  message: string;
+  date: string;
+  status: 'new' | 'reviewed' | 'resolved';
 }

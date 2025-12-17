@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ArrowUpDown, Search } from 'lucide-react';
+import { ArrowUpDown, Search, Download } from 'lucide-react';
 
 export interface Column<T> {
   header: string;
@@ -16,6 +16,50 @@ interface DataTableProps<T> {
   title?: string;
   actions?: React.ReactNode;
 }
+
+const exportToExcel = <T extends Record<string, any>>(data: T[], columns: Column<T>[], filename: string) => {
+  try {
+    // Get visible headers
+    const headers = columns.filter(col => col.key !== 'actions').map(col => col.header);
+    const keys = columns.filter(col => col.key !== 'actions').map(col => col.key);
+
+    let csv = headers.join(',') + '\n';
+    
+    data.forEach(row => {
+      const values = keys.map(key => {
+        const col = columns.find(c => c.key === key);
+        let val = row[key];
+        
+        if (col && typeof col.accessor === 'function') {
+          val = col.accessor(row);
+          // Remove HTML if present
+          if (typeof val === 'string') {
+            val = val.replace(/<[^>]*>/g, '');
+          }
+        }
+        
+        val = String(val || '');
+        // Escape quotes and wrap if contains comma
+        return val.includes(',') ? `"${val.replace(/"/g, '""')}"` : val;
+      });
+      csv += values.join(',') + '\n';
+    });
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (e) {
+    console.warn('Export failed', e);
+    alert('Failed to export data');
+  }
+};
 
 const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, title, actions }: DataTableProps<T>) => {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -40,7 +84,16 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
     processed = processed.filter(item => {
       return Object.entries(filters).every(([key, value]) => {
         if (!value) return true;
-        const rawValue = (item as any)[key];
+        const col = columns.find(c => c.key === key);
+        let rawValue = (item as any)[key];
+        
+        if (col && typeof col.accessor === 'function') {
+          rawValue = col.accessor(item);
+          if (typeof rawValue === 'string') {
+            rawValue = rawValue.replace(/<[^>]*>/g, '');
+          }
+        }
+        
         const itemValue = (rawValue !== null && rawValue !== undefined ? String(rawValue) : '').toLowerCase();
         return itemValue.includes(String(value).toLowerCase());
       });
@@ -66,6 +119,12 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
       <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
         <h2 className="text-lg font-semibold text-slate-800">{title || 'Data List'}</h2>
         <div className="flex gap-2">
+          <button
+            onClick={() => exportToExcel(processedData, columns, `${title || 'data'}_${new Date().toISOString().split('T')[0]}.csv`)}
+            className="bg-green-600 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-green-700 text-sm transition-colors"
+          >
+            <Download size={16} /> Export
+          </button>
           {actions}
         </div>
       </div>
@@ -83,7 +142,7 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
                       {col.header}
                       {col.sortable && <ArrowUpDown className="w-3 h-3" />}
                     </div>
-                    {col.filterable && (
+                    {(col.filterable !== false && col.key !== 'actions') && (
                       <div className="relative">
                         <Search className="w-3 h-3 absolute left-2 top-2.5 text-slate-400" />
                         <input

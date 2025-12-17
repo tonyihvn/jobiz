@@ -191,9 +191,10 @@ const SalesHistory = () => {
   ];
 
   // Flatten sales into enriched items (resolve name/category from products OR services)
+  // FILTER: Exclude service items (where is_service=1)
   const itemHistory = (() => {
     const items = sales.flatMap(sale =>
-        (sale.items || []).map(item => {
+        (sale.items || []).filter(item => !item.is_service).map(item => {
             const id = item.id || item.product_id;
             const prod = products.find(p => p.id === id);
             return {
@@ -213,23 +214,31 @@ const SalesHistory = () => {
     return items;
   })();
 
+  // Filter sales to only show those with product items (not services)
+  const salesWithProducts = (() => {
+    return sales.filter(sale => {
+      const hasProductItems = (sale.items || []).some(item => !item.is_service);
+      return hasProductItems;
+    });
+  })();
+
   const itemColumns: Column<any>[] = [
-      { header: 'Date', accessor: (i) => new Date(i.saleDate).toLocaleDateString(), key: 'saleDate', sortable: true },
+      { header: 'Date', accessor: (i) => new Date(i.saleDate).toLocaleDateString(), key: 'saleDate', sortable: true, filterable: true },
       { header: 'Item Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
       { header: 'Category', accessor: 'categoryGroup', key: 'categoryGroup', filterable: true },
-      { header: 'Qty', accessor: 'quantity', key: 'quantity' },
-    { header: 'Price', accessor: (i) => `${symbol}${fmt(i.price,2)}`, key: 'price' },
-    { header: 'Total', accessor: (i) => `${symbol}${fmt(Number(i.price) * Number(i.quantity),2)}`, key: 'itemTotal' },
-      { header: 'Ref Receipt', accessor: (i) => <span className="font-mono text-xs">{i.saleId.slice(-8)}</span>, key: 'saleId' },
+      { header: 'Qty', accessor: 'quantity', key: 'quantity', filterable: true },
+    { header: 'Price', accessor: (i) => `${symbol}${fmt(i.price,2)}`, key: 'price', filterable: true },
+    { header: 'Total', accessor: (i) => `${symbol}${fmt(Number(i.price) * Number(i.quantity),2)}`, key: 'itemTotal', filterable: true },
+      { header: 'Ref Receipt', accessor: (i) => <span className="font-mono text-xs">{i.saleId.slice(-8)}</span>, key: 'saleId', filterable: true },
   ];
 
   const stockHistoryColumns: Column<any>[] = [
-    { header: 'Date', accessor: (h) => new Date(h.timestamp).toLocaleString(), key: 'timestamp', sortable: true },
+    { header: 'Date', accessor: (h) => new Date(h.timestamp).toLocaleString(), key: 'timestamp', sortable: true, filterable: true },
     { header: 'Product', accessor: (h) => products.find(p => p.id === h.product_id)?.name || h.product_id, key: 'product_id', sortable: true, filterable: true },
     { header: 'Type', accessor: 'type', key: 'type', filterable: true },
-    { header: 'Change', accessor: (h) => h.change_amount, key: 'change_amount' },
-    { header: 'Reference', accessor: 'reference_id', key: 'reference_id' },
-    { header: 'Notes', accessor: 'notes', key: 'notes' },
+    { header: 'Change', accessor: (h) => h.change_amount, key: 'change_amount', filterable: true },
+    { header: 'Reference', accessor: 'reference_id', key: 'reference_id', filterable: true },
+    { header: 'Notes', accessor: 'notes', key: 'notes', filterable: true },
   ];
 
   return (
@@ -263,7 +272,7 @@ const SalesHistory = () => {
       </div>
 
       {activeTab === 'sales' ? (
-        <DataTable data={sales} columns={salesColumns} title="Completed Transactions" />
+        <DataTable data={salesWithProducts} columns={salesColumns} title="Completed Transactions" />
       ) : activeTab === 'items' ? (
         <DataTable data={itemHistory} columns={itemColumns} title="Itemized Sales Record" />
       ) : (

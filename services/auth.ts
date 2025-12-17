@@ -17,7 +17,6 @@ export async function login(email: string, password: string) {
     body: JSON.stringify({ email, password })
   });
   if (!res.ok) {
-    // Try to parse JSON error safely; fall back to text or default message
     let errMsg = 'Login failed';
     try {
       const payload = await res.json();
@@ -36,6 +35,31 @@ export async function login(email: string, password: string) {
   const data = await res.json();
   if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
   return data;
+}
+
+export async function register(companyName: string, adminName: string, email: string, password: string) {
+  const res = await fetch(withBase('/api/register'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ companyName, adminName, email, password })
+  });
+  if (!res.ok) {
+    let errMsg = 'Registration failed';
+    try {
+      const payload = await res.json();
+      if (payload && payload.error) errMsg = payload.error;
+      else if (typeof payload === 'string') errMsg = payload;
+    } catch {
+      try {
+        const txt = await res.text();
+        if (txt) errMsg = txt;
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(errMsg);
+  }
+  return res.json();
 }
 
 export function logout() {

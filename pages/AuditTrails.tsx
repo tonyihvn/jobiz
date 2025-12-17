@@ -24,11 +24,11 @@ const AuditTrails = () => {
   };
 
   const columns: Column<AuditLog>[] = [
-    { header: 'Time', accessor: (l) => new Date(l.timestamp).toLocaleString(), key: 'timestamp', sortable: true },
+    { header: 'Time', accessor: (l) => new Date(l.timestamp).toLocaleString(), key: 'timestamp', sortable: true, filterable: true },
     { header: 'User', accessor: 'userName', key: 'userName', filterable: true },
     { header: 'Action', accessor: 'action', key: 'action', filterable: true },
     { header: 'Resource', accessor: 'resource', key: 'resource', filterable: true },
-    { header: 'Details', accessor: (l) => <span className="truncate max-w-xs block text-slate-600">{String(l.details || '').substring(0, 50)}{String(l.details || '').length > 50 ? '...' : ''}</span>, key: 'details' },
+    { header: 'Details', accessor: (l) => <span className="truncate max-w-xs block text-slate-600">{String(l.details || '').substring(0, 50)}{String(l.details || '').length > 50 ? '...' : ''}</span>, key: 'details', filterable: true },
     { header: 'Action', accessor: (l) => <button onClick={() => handleViewDetails(l)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm font-medium">View</button>, key: 'view' },
   ];
 

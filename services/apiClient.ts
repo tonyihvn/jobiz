@@ -1,4 +1,4 @@
-import { authFetch, login as authLogin, logout as authLogout, getToken } from './auth';
+import { authFetch, login as authLogin, logout as authLogout, getToken, register as authRegister } from './auth';
 
 async function safeJson(res: Response) {
   if (!res.ok) {
@@ -22,6 +22,7 @@ function toSnake(obj: any, mapping: Record<string,string> = {}) {
 export const api = {
   auth: {
     login: (email: string, password: string) => authLogin(email, password),
+    register: (companyName: string, adminName: string, email: string, password: string) => authRegister(companyName, adminName, email, password),
     logout: () => authLogout(),
     getCurrentUser: () => authFetch('/api/me').then(r => r.ok ? r.json() : null)
   },
@@ -264,14 +265,19 @@ const db = {
       },
     log: (_: any) => Promise.resolve()
   },
-  // Super admin helpers (may not be implemented server-side) — return safe defaults
+  // Super admin helpers
   superAdmin: {
-    getBusinesses: () => Promise.resolve([] as any[]),
-    getPlans: () => Promise.resolve([] as any[]),
-    submitPaymentReceipt: (_: string) => Promise.resolve(),
-    updateBusinessStatus: (_id: string, status: string) => Promise.resolve(),
-    verifyPayment: (_id: string) => Promise.resolve(),
-    savePlan: (_: any) => Promise.resolve()
+    getBusinesses: () => authFetch('/api/businesses').then(safeJson).catch(() => []),
+    getPlans: () => authFetch('/api/plans').then(safeJson).catch(() => []),
+    submitPaymentReceipt: (url: string) => authFetch('/api/superadmin/verify-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ receiptUrl: url }) }).then(safeJson).catch(() => null),
+    updateBusinessStatus: (id: string, status: string) => authFetch(`/api/businesses/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }).then(safeJson).catch(() => null),
+    verifyPayment: (id: string) => authFetch(`/api/superadmin/verify-payment/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(safeJson).catch(() => null),
+    savePlan: (plan: any) => {
+      if (plan.id && !plan.id.startsWith('plan_')) {
+        return authFetch(`/api/plans/${plan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan) }).then(safeJson).catch(() => null);
+      }
+      return authFetch('/api/plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan) }).then(safeJson).catch(() => null);
+    }
   },
   // Settings compatibility: try to fetch /api/settings if exists, otherwise return empty
   settings: {
@@ -299,6 +305,13 @@ const db = {
         return res;
       } catch (e) { /* ignore */ return null; }
     }
+  },
+  // Feedbacks from landing page
+  feedbacks: {
+    getAll: () => authFetch('/api/feedbacks').then(safeJson).catch(() => []),
+    add: (f: any) => authFetch('/api/feedbacks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) }).then(safeJson).catch(() => null),
+    update: (id: string, f: any) => authFetch(`/api/feedbacks/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) }).then(safeJson).catch(() => null),
+    delete: (id: string) => authFetch(`/api/feedbacks/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
   }
 };
 

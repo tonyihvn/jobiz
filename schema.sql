@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
   product_id VARCHAR(64) NOT NULL,
   quantity INT DEFAULT 0,
   price DECIMAL(12,2) DEFAULT 0,
+  is_service TINYINT(1) DEFAULT 0,
   FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
@@ -173,7 +174,12 @@ CREATE TABLE IF NOT EXISTS settings (
   sms_sid VARCHAR(255) DEFAULT NULL,
   sms_token VARCHAR(255) DEFAULT NULL,
   sms_from VARCHAR(64) DEFAULT NULL,
-  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+  login_redirects JSON DEFAULT NULL,
+  landing_content JSON DEFAULT NULL,
+  invoice_notes TEXT DEFAULT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+  INDEX idx_updated_at (updated_at)
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -267,4 +273,27 @@ CREATE TABLE IF NOT EXISTS tasks (
   type VARCHAR(64),
   category VARCHAR(128),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+-- Feedbacks table for landing page inquiries
+CREATE TABLE IF NOT EXISTS feedbacks (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  status ENUM('new', 'reviewed', 'resolved') DEFAULT 'new',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (status),
+  INDEX (created_at)
+);
+
+-- Plans table for subscription management
+CREATE TABLE IF NOT EXISTS plans (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  price DECIMAL(12, 2) NOT NULL,
+  interval ENUM('monthly', 'yearly') DEFAULT 'monthly',
+  features JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (price)
 );

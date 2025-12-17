@@ -109,8 +109,8 @@ const CategoriesPage = () => {
           const cols: Column<Category>[] = [
             { header: 'Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
             { header: 'Group', accessor: 'group', key: 'group', sortable: true, filterable: true },
-            { header: 'Type', accessor: (c: Category) => (c.isProduct ? 'Product (stocked)' : 'Service (no stock)'), key: 'type' },
-            { header: 'Description', accessor: 'description', key: 'description' },
+            { header: 'Type', accessor: (c: Category) => (c.isProduct ? 'Product (stocked)' : 'Service (no stock)'), key: 'type', filterable: true },
+            { header: 'Description', accessor: 'description', key: 'description', filterable: true },
             {
               header: 'Actions',
               accessor: (c: Category) => (

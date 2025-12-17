@@ -23,16 +23,26 @@ const Register = () => {
                 return;
         }
 
+        if (formData.password.length < 6) {
+                setError("Password must be at least 6 characters");
+                return;
+        }
+
         (async () => {
             try {
-                if (db.auth && (db.auth as any).register) {
-                    await (db.auth as any).register(formData.companyName, '', formData.email, formData.password);
+                if (db.auth && db.auth.register) {
+                    const result = await db.auth.register(formData.companyName, '', formData.email, formData.password);
+                    if (result && result.success) {
+                        setStep(2);
+                    } else {
+                        setError(result?.message || 'Registration failed');
+                    }
                 } else {
-                    console.warn('Registration API not implemented on client; proceeding to success screen');
+                    setError('Registration service not available');
                 }
-                setStep(2);
             } catch (err: any) {
                 setError(err?.message || 'Registration failed');
+                console.error('Registration error:', err);
             }
         })();
   };
@@ -125,13 +135,25 @@ const Register = () => {
                  <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
                      <CheckCircle size={40} />
                  </div>
-                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Registration Successful!</h2>
-                 <p className="text-slate-500 mb-8">
-                     We have sent a verification email to <strong>{formData.email}</strong>. 
-                     <br/><br/>
-                     <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded">Note: Account requires Activation via Payment.</span>
-                 </p>
-                 <button onClick={() => navigate('/login')} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold">
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Registration Successful! 🎉</h2>
+                 <div className="text-slate-500 mb-8 space-y-3 text-sm">
+                     <p>
+                         Your account has been created and saved to our database.
+                     </p>
+                     <p>
+                         ✉️ We have sent a <strong>verification email</strong> to <strong>{formData.email}</strong>
+                     </p>
+                     <div className="bg-amber-50 border border-amber-200 rounded p-3 mt-4">
+                         <p className="font-semibold text-amber-900 mb-2">🔄 What Happens Next:</p>
+                         <ol className="text-amber-800 text-left space-y-1">
+                             <li>1. Verify your email address (check your inbox)</li>
+                             <li>2. Complete payment to activate your account</li>
+                             <li>3. Our team will review and approve your registration</li>
+                             <li>4. You'll receive an activation email to start using OmniSales</li>
+                         </ol>
+                     </div>
+                 </div>
+                 <button onClick={() => navigate('/login')} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-800">
                      Return to Login
                  </button>
             </div>

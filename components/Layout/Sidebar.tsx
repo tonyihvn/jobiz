@@ -4,10 +4,12 @@ import {
   Store, LayoutDashboard, Package, Users, GraduationCap, 
   CreditCard, Settings, Shield, MessageSquare, Truck, 
   History, Layers, Settings2, UserCheck, ClipboardList, FileText, Activity, LogOut,
-  ChevronDown, ChevronRight, Bell
+  ChevronDown, ChevronRight, Bell, CheckCircle, XCircle, AlertTriangle, CreditCardIcon
 } from 'lucide-react';
 import db from '../../services/apiClient';
 import { Role, CompanySettings, TaskStatus, Employee } from '../../types';
+import BusinessSwitcher from './BusinessSwitcher';
+import { useBusinessContext } from '../../services/BusinessContext';
 
 interface SidebarProps {
   onLogout: () => void;
@@ -16,18 +18,21 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle }) => {
+  const { selectedBusiness } = useBusinessContext();
   const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
   const [settings, setSettings] = useState<CompanySettings>(emptySettings);
   const [userRole, setUserRole] = useState<Role | undefined>(undefined);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [notifications, setNotifications] = useState(0);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     'sales': true,
     'inventory': true,
     'services': true,
     'crm': true,
-    'admin': false
+    'admin': false,
+    'super_admin': true
   });
   const location = useLocation();
   const [categoryGroups, setCategoryGroups] = useState<Array<{group:string,isProduct:boolean}>>([]);
@@ -53,8 +58,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
         }
 
         if (detailedUser && (detailedUser.is_super_admin || detailedUser.isSuperAdmin)) {
+          setIsSuperAdmin(true);
           setUserRole({ id: 'super', businessId: 'sys', name: 'Super Admin', permissions: [] });
         } else {
+          setIsSuperAdmin(false);
           if (db.roles && db.roles.getAll) {
             try {
               const roles: any[] = await db.roles.getAll();
@@ -132,7 +139,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
   const dynamicServicesItems = categoryGroups.filter(g => !g.isProduct).map(g => ({ id: `svc_group_${g.group}`, to: `/services/${encodeURIComponent(g.group)}`, icon: Users, label: g.group }));
 
   // Menu Groups
-  const menuGroups = [
+  const regularMenuGroups = [
     {
       key: 'main',
       label: 'Main',
@@ -146,6 +153,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
       items: [
         { id: 'pos', to: '/pos', icon: Store, label: 'Storefront (POS)' },
         { id: 'sales_history', to: '/sales-history', icon: History, label: 'Sales History' },
+        { id: 'service_history', to: '/service-history', icon: History, label: 'Service History' },
       ]
     },
     {
@@ -190,6 +198,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
     }
   ];
 
+  // Super Admin Menu - Additional Control Menus
+  const superAdminMenuItems = [
+    {
+      key: 'super_admin',
+      label: 'Super Admin Controls',
+      items: [
+        { id: 'business_approvals', to: '/super-admin/approvals', icon: CheckCircle, label: 'Approvals' },
+        { id: 'payment_management', to: '/super-admin/payments', icon: CreditCardIcon, label: 'Payments' },
+        { id: 'business_activation', to: '/super-admin/activation', icon: AlertTriangle, label: 'Activation' },
+        { id: 'feedbacks', to: '/super-admin/feedbacks', icon: MessageSquare, label: 'Feedbacks' },
+        { id: 'all_data', to: '/super-admin/data', icon: Package, label: 'Business Data' },
+      ]
+    }
+  ];
+
+  const menuGroups = isSuperAdmin ? [...regularMenuGroups, ...superAdminMenuItems] : regularMenuGroups;
+
   return (
     <aside className={`${collapsed ? 'w-16' : 'w-64'} bg-slate-900 text-slate-300 flex flex-col h-screen no-print fixed left-0 top-0 overflow-hidden transition-width` }>
       <div className="p-4 border-b border-slate-800 shrink-0 flex items-center justify-between">
@@ -202,8 +227,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
             </div>
           )}
           {!collapsed && <div>
-            <h1 className="text-xl font-bold text-white truncate">{settings.name}</h1>
-            <p className="text-xs text-slate-500 mt-1 truncate">{settings.motto}</p>
+            <h1 className="text-xl font-bold text-white truncate">{isSuperAdmin ? 'Super Admin' : settings.name}</h1>
+            <p className="text-xs text-slate-500 mt-1 truncate">{isSuperAdmin ? selectedBusiness?.name || 'No Business Selected' : settings.motto}</p>
           </div>}
         </div>
         <div>
@@ -212,6 +237,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           </button>
         </div>
       </div>
+
+      {/* Business Switcher for Super Admin */}
+      {isSuperAdmin && <BusinessSwitcher collapsed={collapsed} />}
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {menuGroups.map((group) => {
@@ -222,7 +250,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           // scoped permissions still see the menu item.
           const visibleItems = group.items.filter(item => 
             // Super admin sees everything
-            currentUser?.isSuperAdmin 
+            isSuperAdmin 
             // Dynamic category-generated pages should be visible to regular users
             || item.id.startsWith('inv_group_') || item.id.startsWith('svc_group_')
             // Otherwise require a role and permission match

@@ -127,9 +127,9 @@ const Courses = () => {
 
   const columns: Column<Product>[] = [
     { header: 'Course Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
-    { header: 'Level/Category', accessor: 'categoryName', key: 'categoryName', sortable: true },
-    { header: 'Tuition Fee', accessor: (item: Product) => `${symbol}${fmt(item.price,2)}`, key: 'price', sortable: true },
-    { header: 'Materials', accessor: (item: Product) => item.isService ? 'Not Included' : 'Included (Stock Item)', key: 'isService' },
+    { header: 'Level/Category', accessor: 'categoryName', key: 'categoryName', sortable: true, filterable: true },
+    { header: 'Tuition Fee', accessor: (item: Product) => `${symbol}${fmt(item.price,2)}`, key: 'price', sortable: true, filterable: true },
+    { header: 'Materials', accessor: (item: Product) => item.isService ? 'Not Included' : 'Included (Stock Item)', key: 'isService', filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: Product) => (

@@ -53,6 +53,19 @@ const pool = mysql.createPool({
   multipleStatements: true
 });
 
+// Small migration: ensure `is_service` column exists on `sale_items`
+(async () => {
+  try {
+    await pool.execute("ALTER TABLE sale_items ADD COLUMN is_service TINYINT(1) DEFAULT 0");
+    console.log('Migration: ensured sale_items.is_service column exists');
+  } catch (err) {
+    // Ignore 'column exists' error (MySQL errno 1060 / ER_DUP_FIELDNAME)
+    if (!(err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME'))) {
+      console.warn('Migration: failed to add is_service to sale_items:', err && err.message ? err.message : err);
+    }
+  }
+})();
+
 // Email Configuration
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -150,7 +163,137 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Products
+// Registration endpoint
+app.post('/api/register', async (req, res) => {
+  const { companyName, email, password } = req.body;
+  
+  try {
+    // Validation
+    if (!companyName || !email || !password) {
+      return res.status(400).json({ error: 'Missing required fields: companyName, email, password' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Check if email already exists
+    const [existingEmail] = await pool.execute('SELECT id FROM employees WHERE email = ?', [email]);
+    if (existingEmail && existingEmail.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Create business
+    const businessId = Date.now().toString();
+    const businessStatus = 'pending'; // Await super admin approval
+    
+    await pool.execute(
+      'INSERT INTO businesses (id, name, email, status, paymentStatus, registeredAt) VALUES (?, ?, ?, ?, ?, NOW())',
+      [businessId, companyName, email, businessStatus, 'unpaid']
+    );
+
+    // Create admin employee for this business
+    const employeeId = Date.now().toString() + '_admin';
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    await pool.execute(
+      'INSERT INTO employees (id, business_id, name, email, password, is_super_admin, role_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [employeeId, businessId, companyName + ' Admin', email, hashedPassword, 0, 'admin']
+    );
+
+    // Create default settings for business
+    await pool.execute(
+      'INSERT INTO settings (business_id, name, currency) VALUES (?, ?, ?)',
+      [businessId, companyName, '$']
+    );
+
+    // Generate verification token (6 digits)
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Store verification token temporarily (in a real app, use a separate table)
+    // For now, we'll just send it in the email
+    
+    // Send verification email
+    try {
+      const mailOptions = {
+        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        to: email,
+        subject: 'OmniSales - Email Verification & Payment Required',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Welcome to OmniSales, ${companyName}!</h2>
+            
+            <p>Thank you for registering. Your account has been created and is pending activation.</p>
+            
+            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h3>Email Verification</h3>
+              <p>Your verification code is: <strong>${verificationCode}</strong></p>
+              <p style="font-size: 12px; color: #666;">This code is valid for 24 hours.</p>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
+              <h3>Next Steps - Payment Required</h3>
+              <p>Your account is currently pending:</p>
+              <ul>
+                <li><strong>Email Verification:</strong> Verify your email using the code above</li>
+                <li><strong>Payment:</strong> Process payment to activate your account</li>
+                <li><strong>Admin Approval:</strong> Our team will review and activate your account</li>
+              </ul>
+            </div>
+            
+            <p>Login to your account: <a href="https://${req.get('host')}/login" style="color: #0066cc;">OmniSales Login</a></p>
+            
+            <p style="color: #666; font-size: 12px; margin-top: 30px;">
+              If you did not register for this account, please ignore this email or contact our support team.
+            </p>
+          </div>
+        `
+      };
+      
+      await transporter.sendMail(mailOptions);
+      console.log('Verification email sent to', email);
+    } catch (emailErr) {
+      console.warn('Failed to send verification email:', emailErr.message);
+      // Don't fail the registration if email fails
+    }
+
+    // Send payment notification email to admin
+    try {
+      const adminEmail = process.env.SMTP_USER || 'admin@omnisales.com';
+      const mailOptions = {
+        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        to: adminEmail,
+        subject: `New Registration: ${companyName}`,
+        html: `
+          <h3>New Business Registration</h3>
+          <p><strong>Company:</strong> ${companyName}</p>
+          <p><strong>Admin Email:</strong> ${email}</p>
+          <p><strong>Business ID:</strong> ${businessId}</p>
+          <p><strong>Status:</strong> Pending Payment & Approval</p>
+          <p>Please review and activate when payment is confirmed.</p>
+        `
+      };
+      
+      await transporter.sendMail(mailOptions);
+    } catch (emailErr) {
+      console.warn('Failed to send admin notification:', emailErr.message);
+    }
+
+    // Return success with business and employee info
+    res.json({
+      success: true,
+      message: 'Registration successful! Check your email for verification.',
+      businessId,
+      employeeId,
+      email,
+      status: 'pending_verification'
+    });
+
+  } catch (err) {
+    console.error('Registration error:', err);
+    res.status(500).json({ error: err.message || 'Registration failed' });
+  }
+});
 app.get('/api/products', async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
@@ -295,8 +438,8 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       // Ensure sale_items.id is set (sale_items table expects a primary key)
       const itemId = item && item.itemId ? item.itemId : `${saleId}_${Date.now()}_${idx}`;
       await connection.execute(
-        'INSERT INTO sale_items (id, sale_id, product_id, quantity, price) VALUES (?, ?, ?, ?, ?)',
-        [itemId, saleId, item.id, item.quantity, item.price]
+        'INSERT INTO sale_items (id, sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?, ?)',
+        [itemId, saleId, item.id, item.quantity, item.price, item.isService ? 1 : 0]
       );
 
       if (!item.isService && saleLocation) {
@@ -326,7 +469,7 @@ app.get('/api/sales', authMiddleware, async (req, res) => {
     const sales = Array.isArray(salesRows) ? salesRows : [];
     const detailed = [];
     for (const s of sales) {
-      const [items] = await pool.execute('SELECT product_id as id, quantity, price FROM sale_items WHERE sale_id = ?', [s.id]);
+      const [items] = await pool.execute('SELECT product_id as id, quantity, price, is_service FROM sale_items WHERE sale_id = ?', [s.id]);
       detailed.push({ ...s, items: Array.isArray(items) ? items : [] });
     }
     res.json(detailed);
@@ -820,12 +963,14 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
   const { id, name, role_id, email, phone, password, default_location_id, is_super_admin, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
   try {
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    if (!bizRows || !bizRows[0]) return res.status(400).json({ error: 'Business not found' });
     const businessId = bizRows[0].business_id;
     const eid = id || Date.now().toString();
     const hashed = password ? await bcrypt.hash(password, 10) : null;
-    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, passport_url, cv_url, designation, department, unit, notes, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), passport_url = VALUES(passport_url), cv_url = VALUES(cv_url), designation = VALUES(designation), department = VALUES(department), unit = VALUES(unit), notes = VALUES(notes), default_location_id = VALUES(default_location_id)', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, Number(salary || 0), email, phone, passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id]);
+    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, passport_url, cv_url, designation, department, unit, notes, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), password = IF(VALUES(password) IS NOT NULL, VALUES(password), password), salary = VALUES(salary), passport_url = VALUES(passport_url), cv_url = VALUES(cv_url), designation = VALUES(designation), department = VALUES(department), unit = VALUES(unit), notes = VALUES(notes), default_location_id = VALUES(default_location_id)', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, Number(salary || 0), email, phone, passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id]);
     res.json({ success: true, id: eid });
   } catch (err) {
+    console.error('POST /api/employees error:', err && err.message ? err.message : err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -863,92 +1008,6 @@ app.get('/api/customers', authMiddleware, async (req, res) => {
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-// Settings: get and save (including landing page content)
-app.get('/api/settings', authMiddleware, async (req, res) => {
-  try {
-    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
-    const businessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
-    if (!businessId) return res.json({});
-    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = ?', [businessId]);
-    if (!rows || rows.length === 0) return res.json({});
-    const s = rows[0];
-    let landing = null;
-    try { landing = s.landing_content ? JSON.parse(s.landing_content) : null; } catch (e) { landing = s.landing_content || null; }
-    let loginRedirects = null;
-    try { loginRedirects = s.login_redirects ? JSON.parse(s.login_redirects) : null; } catch (e) { loginRedirects = s.login_redirects || null; }
-    res.json({
-      businessId: s.business_id,
-      name: s.name,
-      motto: s.motto,
-      address: s.address,
-      phone: s.phone,
-      email: s.email,
-      logoUrl: s.logo_url,
-      headerImageUrl: s.header_image_url,
-      footerImageUrl: s.footer_image_url,
-      vatRate: s.vat_rate,
-      currency: s.currency,
-      defaultLocationId: s.default_location_id,
-      smtpHost: s.smtp_host,
-      smtpPort: s.smtp_port,
-      smtpUser: s.smtp_user,
-      smtpFrom: s.smtp_from,
-      smsSid: s.sms_sid,
-      smsToken: s.sms_token,
-      smsFrom: s.sms_from,
-      landingContent: landing,
-      loginRedirects: loginRedirects
-    });
-  } catch (err) {
-    console.warn('GET /api/settings failed', err && err.message ? err.message : err);
-    res.status(500).json({ error: 'Failed to load settings' });
-  }
-});
-
-app.post('/api/settings', authMiddleware, async (req, res) => {
-  try {
-    const body = req.body || {};
-    // resolve business id
-    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
-    const businessId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
-    if (!businessId) return res.status(400).json({ error: 'Business not found for user' });
-
-    // Ensure landing_content column exists (best-effort)
-    try {
-      await pool.execute("ALTER TABLE settings ADD COLUMN IF NOT EXISTS landing_content TEXT");
-    } catch (e) {
-      // Some MySQL versions may not support IF NOT EXISTS; ignore errors
-      try {
-        await pool.execute('ALTER TABLE settings ADD COLUMN landing_content TEXT');
-      } catch (ee) {
-        // ignore
-      }
-    }
-
-    // Ensure login_redirects column exists (best-effort)
-    try {
-      await pool.execute("ALTER TABLE settings ADD COLUMN IF NOT EXISTS login_redirects TEXT");
-    } catch (e) {
-      try {
-        await pool.execute('ALTER TABLE settings ADD COLUMN login_redirects TEXT');
-      } catch (ee) { /* ignore */ }
-    }
-
-    const landing = typeof body.landingContent !== 'undefined' ? JSON.stringify(body.landingContent) : (typeof body.landing_content !== 'undefined' ? JSON.stringify(body.landing_content) : null);
-    const loginRedirects = typeof body.loginRedirects !== 'undefined' ? JSON.stringify(body.loginRedirects) : (typeof body.login_redirects !== 'undefined' ? JSON.stringify(body.login_redirects) : null);
-
-    const params = [businessId, body.name || null, body.motto || null, body.address || null, body.phone || null, body.email || null, body.logoUrl || body.logo_url || null, body.headerImageUrl || body.header_image_url || null, body.footerImageUrl || body.footer_image_url || null, body.vatRate || body.vat_rate || 0, body.currency || '$', body.defaultLocationId || body.default_location_id || null, body.smtpHost || null, body.smtpPort || null, body.smtpUser || null, body.smtpFrom || null, body.smsSid || null, body.smsToken || null, body.smsFrom || null, loginRedirects, landing];
-
-    const sql = `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id, smtp_host, smtp_port, smtp_user, smtp_from, sms_sid, sms_token, sms_from, login_redirects, landing_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), smtp_host=VALUES(smtp_host), smtp_port=VALUES(smtp_port), smtp_user=VALUES(smtp_user), smtp_from=VALUES(smtp_from), sms_sid=VALUES(sms_sid), sms_token=VALUES(sms_token), sms_from=VALUES(sms_from), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content)`;
-
-    await pool.execute(sql, params);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('POST /api/settings failed', err && err.message ? err.message : err);
-    res.status(500).json({ error: 'Failed to save settings' });
   }
 });
 
@@ -1180,6 +1239,10 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
     if (!rows || rows.length === 0) return res.json({});
     // Normalize column names to frontend expectations
     const r = rows[0];
+    let landing = null;
+    try { landing = r.landing_content ? JSON.parse(r.landing_content) : null; } catch (e) { landing = r.landing_content || null; }
+    let loginRedirects = null;
+    try { loginRedirects = r.login_redirects ? JSON.parse(r.login_redirects) : null; } catch (e) { loginRedirects = r.login_redirects || null; }
     const out = {
       businessId: r.business_id,
       name: r.name,
@@ -1192,7 +1255,10 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       footerImageUrl: r.footer_image_url,
       vatRate: r.vat_rate,
       currency: r.currency,
-      defaultLocationId: r.default_location_id || null
+      defaultLocationId: r.default_location_id || null,
+      landingContent: landing,
+      loginRedirects: loginRedirects,
+      invoiceNotes: r.invoice_notes
     };
     res.json(out);
   } catch (err) {
@@ -1206,10 +1272,16 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0] ? bizRows[0].business_id : null;
     if (!businessId) return res.status(400).json({ error: 'Business not found for user' });
+    
+    // Prepare JSON fields
+    const landing = typeof data.landingContent !== 'undefined' ? JSON.stringify(data.landingContent) : (typeof data.landing_content !== 'undefined' ? JSON.stringify(data.landing_content) : null);
+    const loginRedirects = typeof data.loginRedirects !== 'undefined' ? JSON.stringify(data.loginRedirects) : (typeof data.login_redirects !== 'undefined' ? JSON.stringify(data.login_redirects) : null);
+    const invoiceNotes = data.invoiceNotes || data.invoice_notes || null;
+    
     // Upsert settings row
     await pool.execute(
-      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id)`,
-        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || null, data.headerImageUrl || null, data.footerImageUrl || null, data.vatRate || 0, data.currency || '', data.defaultLocationId || null]
+      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
+        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, data.headerImageUrl || data.header_image_url || null, data.footerImageUrl || data.footer_image_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
     );
     res.json({ success: true });
   } catch (err) {
@@ -1307,6 +1379,92 @@ app.delete('/api/account-heads/:id', authMiddleware, async (req, res) => {
 });
 
 // Reports generation endpoints
+// POST endpoint for report generation with date range
+app.post('/api/reports/generate/sales', authMiddleware, async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.body;
+    const start = dateFrom ? new Date(dateFrom) : null;
+    const end = dateTo ? new Date(dateTo) : null;
+    const params = [];
+    let sql = `SELECT si.product_id as productId, COALESCE(p.name, si.product_id) as name, COALESCE(p.is_service, 0) as isService, SUM(si.quantity) as qty_sold, SUM(si.quantity * si.price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id WHERE s.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    params.push(req.user.id);
+    if (start) {
+      sql += ' AND s.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' '));
+    }
+    if (end) {
+      sql += ' AND s.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' '));
+    }
+    sql += ' AND COALESCE(p.is_service,0) = 0 GROUP BY si.product_id, COALESCE(p.name, si.product_id) ORDER BY qty_sold DESC';
+    const [rows] = await pool.execute(sql, params);
+    const summary = { total_items: rows.length, total_revenue: rows.reduce((sum, r) => sum + (Number(r.revenue) || 0), 0) };
+    res.json({ data: rows, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reports/generate/services', authMiddleware, async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.body;
+    const start = dateFrom ? new Date(dateFrom) : null;
+    const end = dateTo ? new Date(dateTo) : null;
+    const params = [];
+    let sql = `SELECT si.product_id as productId, COALESCE(p.name, si.product_id) as name, SUM(si.quantity) as qty_sold, SUM(si.quantity * si.price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id WHERE s.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    params.push(req.user.id);
+    if (start) {
+      sql += ' AND s.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' '));
+    }
+    if (end) {
+      sql += ' AND s.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' '));
+    }
+    sql += ' AND si.is_service = 1 GROUP BY si.product_id, COALESCE(p.name, si.product_id) ORDER BY qty_sold DESC';
+    const [rows] = await pool.execute(sql, params);
+    const summary = { total_items: rows.length, total_revenue: rows.reduce((sum, r) => sum + (Number(r.revenue) || 0), 0) };
+    res.json({ data: rows, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reports/generate/account_heads', authMiddleware, async (req, res) => {
+  try {
+    const { dateFrom, dateTo, filter, accountHead } = req.body;
+    const start = dateFrom ? new Date(dateFrom) : null;
+    const end = dateTo ? new Date(dateTo) : null;
+    const params = [req.user.id];
+    let sql = `SELECT t.date, t.account_head as accountHead, t.type, SUM(t.amount) as total_amount, COUNT(*) as count FROM transactions t WHERE t.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    if (start) { sql += ' AND t.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' ')); }
+    if (end) { sql += ' AND t.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' ')); }
+    if (filter === 'individual' && accountHead) { sql += ' AND t.account_head = ?'; params.push(String(accountHead)); }
+    sql += ' GROUP BY t.account_head, t.type, DATE(t.date) ORDER BY t.date DESC';
+    const [rows] = await pool.execute(sql, params);
+    const summary = { total_transactions: rows.length, total_amount: rows.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0) };
+    res.json({ data: rows, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/reports/generate/all', authMiddleware, async (req, res) => {
+  try {
+    const { dateFrom, dateTo } = req.body;
+    const start = dateFrom ? new Date(dateFrom) : null;
+    const end = dateTo ? new Date(dateTo) : null;
+    const params = [req.user.id];
+    let sql = `SELECT t.* FROM transactions t WHERE t.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    if (start) { sql += ' AND t.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' ')); }
+    if (end) { sql += ' AND t.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' ')); }
+    sql += ' ORDER BY t.date DESC';
+    const [rows] = await pool.execute(sql, params);
+    const inflows = rows.filter(r => r.type === 'Inflow').reduce((sum, r) => sum + Number(r.amount), 0);
+    const expenditures = rows.filter(r => r.type === 'Expenditure').reduce((sum, r) => sum + Number(r.amount), 0);
+    const summary = { total_transactions: rows.length, total_inflow: inflows, total_expenditure: expenditures, net_balance: inflows - expenditures };
+    res.json({ data: rows, summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Generate aggregated sold items (products/services) over date range
 app.get('/api/reports/generate/sales_items', authMiddleware, async (req, res) => {
   try {
@@ -1344,6 +1502,140 @@ app.get('/api/reports/generate/transactions', authMiddleware, async (req, res) =
     sql += ' ORDER BY t.date DESC';
     const [rows] = await pool.execute(sql, params);
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============== SUPER ADMIN ENDPOINTS ==============
+
+// GET all businesses (for super admin)
+app.get('/api/businesses', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM businesses ORDER BY registeredAt DESC');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET single business by ID
+app.get('/api/businesses/:id', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM businesses WHERE id = ?', [req.params.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Business not found' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT update business status
+app.put('/api/businesses/:id', authMiddleware, async (req, res) => {
+  try {
+    const { status, paymentStatus } = req.body;
+    const updates = [];
+    const params = [];
+    if (status) { updates.push('status = ?'); params.push(status); }
+    if (paymentStatus) { updates.push('paymentStatus = ?'); params.push(paymentStatus); }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    
+    params.push(req.params.id);
+    const sql = `UPDATE businesses SET ${updates.join(', ')} WHERE id = ?`;
+    await pool.execute(sql, params);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET all subscription plans
+app.get('/api/plans', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM plans ORDER BY price ASC');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST create new plan
+app.post('/api/plans', authMiddleware, async (req, res) => {
+  try {
+    const { name, price, interval, features } = req.body;
+    if (!name || price === undefined) return res.status(400).json({ error: 'Missing required fields' });
+    
+    const id = 'plan_' + Date.now();
+    const featuresJson = JSON.stringify(features || []);
+    await pool.execute(
+      'INSERT INTO plans (id, name, price, interval, features) VALUES (?, ?, ?, ?, ?)',
+      [id, name, price, interval || 'monthly', featuresJson]
+    );
+    res.json({ id, name, price, interval: interval || 'monthly', features: features || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT update plan
+app.put('/api/plans/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, price, interval, features } = req.body;
+    const updates = [];
+    const params = [];
+    
+    if (name) { updates.push('name = ?'); params.push(name); }
+    if (price !== undefined) { updates.push('price = ?'); params.push(price); }
+    if (interval) { updates.push('interval = ?'); params.push(interval); }
+    if (features) { updates.push('features = ?'); params.push(JSON.stringify(features)); }
+    
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    params.push(req.params.id);
+    
+    const sql = `UPDATE plans SET ${updates.join(', ')} WHERE id = ?`;
+    await pool.execute(sql, params);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST verify payment
+app.post('/api/superadmin/verify-payment/:businessId', authMiddleware, async (req, res) => {
+  try {
+    await pool.execute(
+      'UPDATE businesses SET paymentStatus = ? WHERE id = ?',
+      ['paid', req.params.businessId]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET all feedbacks
+app.get('/api/feedbacks', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM feedbacks ORDER BY created_at DESC LIMIT 100');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST create feedback
+app.post('/api/feedbacks', async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+    if (!name || !email || !message) return res.status(400).json({ error: 'Missing required fields' });
+    
+    const id = 'feedback_' + Date.now();
+    await pool.execute(
+      'INSERT INTO feedbacks (id, name, email, message, status, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+      [id, name, email, message, 'new']
+    );
+    res.json({ id, name, email, message, status: 'new' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT update feedback
+app.put('/api/feedbacks/:id', authMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status required' });
+    
+    await pool.execute('UPDATE feedbacks SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE feedback
+app.delete('/api/feedbacks/:id', authMiddleware, async (req, res) => {
+  try {
+    await pool.execute('DELETE FROM feedbacks WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1495,7 +1787,7 @@ async function ensureDemoSeed() {
     await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [demoBiz, 'OmniSales Demo Corp', 'admin@omnisales.com', 'plan_pro', '2030-01-01']);
 
     // Roles
-    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete','tasks:create','tasks:read','tasks:update','tasks:delete','reports:create','reports:read','reports:update','reports:delete','inventory:move','pos:any_location']);
+    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','service_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete','tasks:create','tasks:read','tasks:update','tasks:delete','reports:create','reports:read','reports:update','reports:delete','inventory:move','pos:any_location']);
     await pool.execute('INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)', ['admin', demoBiz, 'Administrator', adminPerms]);
 
     // Employees (ensure demo admin exists). Create with hashed password; only overwrite existing password when env var provided.

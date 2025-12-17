@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Business, SubscriptionPlan } from '../types';
-import { Shield, CheckCircle, XCircle, Settings, LogOut, CreditCard, AlertTriangle, Eye, Plus, X, Save } from 'lucide-react';
+import { Shield, CheckCircle, XCircle, Settings, LogOut, CreditCard, AlertTriangle, Eye, Plus, X, Save, BarChart3, MessageCircle } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
+
+type TabType = 'notifications' | 'businesses' | 'plans' | 'approvals' | 'payments' | 'activation' | 'feedbacks' | 'data';
 
 const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     const { symbol } = useCurrency();
+    const { selectedBusiness } = useBusinessContext();
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [activeTab, setActiveTab] = useState<'businesses' | 'plans' | 'notifications'>('notifications');
+  const [activeTab, setActiveTab] = useState<TabType>('notifications');
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [businessData, setBusinessData] = useState<any>({});
+  const [feedbacks, setFeedbacks] = useState<any[]>([]);
   
   // Plan Modal
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -20,12 +26,52 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
 
   useEffect(() => {
     refreshData();
+    loadFeedbacks();
   }, []);
 
-  const refreshData = () => {
-    setBusinesses(db.superAdmin.getBusinesses());
-    setPlans(db.superAdmin.getPlans());
+  const loadFeedbacks = async () => {
+    try {
+      const fbks = await db.feedbacks.getAll();
+      setFeedbacks(fbks || []);
+    } catch (e) {
+      console.error('Failed to load feedbacks:', e);
+    }
   };
+
+  const refreshData = async () => {
+    try {
+      const bizs = await db.superAdmin.getBusinesses();
+      console.log('Super Admin - Loaded businesses:', bizs);
+      setBusinesses(bizs || []);
+      
+      const plans = await db.superAdmin.getPlans();
+      console.log('Super Admin - Loaded plans:', plans);
+      setPlans(plans || []);
+    } catch (e) {
+      console.error('Failed to refresh data:', e);
+    }
+  };
+
+  // Load business data when switching businesses or viewing data tab
+  useEffect(() => {
+    const loadBusinessData = async () => {
+      if (selectedBusiness && (activeTab === 'data' || activeTab === 'payments' || activeTab === 'approvals')) {
+        try {
+          const data = {
+            products: await db.products.getAll().catch(() => []),
+            sales: await db.sales.getAll().catch(() => []),
+            customers: await db.customers.getAll().catch(() => []),
+            employees: await db.employees.getAll().catch(() => []),
+            transactions: await db.transactions.getAll().catch(() => []),
+          };
+          setBusinessData(data);
+        } catch (e) {
+          console.error('Failed to load business data:', e);
+        }
+      }
+    };
+    loadBusinessData();
+  }, [selectedBusiness, activeTab]);
 
   const toggleStatus = (b: Business) => {
       const newStatus = b.status === 'active' ? 'suspended' : 'active';
@@ -64,8 +110,8 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
 
   const businessColumns: Column<Business>[] = [
     { header: 'Company Name', accessor: 'name', key: 'name', filterable: true, sortable: true },
-    { header: 'Email', accessor: 'email', key: 'email' },
-    { header: 'Registered', accessor: (b) => new Date(b.registeredAt).toLocaleDateString(), key: 'registeredAt', sortable: true },
+    { header: 'Email', accessor: 'email', key: 'email', filterable: true },
+    { header: 'Registered', accessor: (b) => new Date(b.registeredAt).toLocaleDateString(), key: 'registeredAt', sortable: true, filterable: true },
     { 
         header: 'Payment Status', 
         accessor: (b) => (
@@ -148,15 +194,30 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
         </header>
 
         <main className="max-w-7xl mx-auto p-6">
-            <div className="flex gap-4 mb-6">
-                 <button onClick={() => setActiveTab('notifications')} className={`px-6 py-3 rounded-lg font-bold transition-all ${activeTab === 'notifications' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+            <div className="flex gap-2 mb-6 flex-wrap">
+                 <button onClick={() => setActiveTab('notifications')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'notifications' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
                      Alerts ({pendingActivations.length + duePayments.length})
                  </button>
-                 <button onClick={() => setActiveTab('businesses')} className={`px-6 py-3 rounded-lg font-bold transition-all ${activeTab === 'businesses' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                 <button onClick={() => setActiveTab('businesses')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'businesses' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
                      Tenants
                  </button>
-                 <button onClick={() => setActiveTab('plans')} className={`px-6 py-3 rounded-lg font-bold transition-all ${activeTab === 'plans' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                 <button onClick={() => setActiveTab('plans')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'plans' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
                      Plans
+                 </button>
+                 <button onClick={() => setActiveTab('approvals')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'approvals' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Approvals
+                 </button>
+                 <button onClick={() => setActiveTab('payments')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'payments' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Payments
+                 </button>
+                 <button onClick={() => setActiveTab('activation')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'activation' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Activation
+                 </button>
+                 <button onClick={() => setActiveTab('feedbacks')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'feedbacks' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Feedbacks
+                 </button>
+                 <button onClick={() => setActiveTab('data')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'data' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Business Data
                  </button>
             </div>
 
@@ -226,6 +287,217 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                         <Settings size={32} className="mb-2"/>
                         <span className="font-bold">Create New Plan</span>
                     </div>
+                </div>
+            )}
+
+            {/* Approvals Tab */}
+            {activeTab === 'approvals' && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <CheckCircle className="text-emerald-500" /> Business Approvals
+                    </h2>
+                    {selectedBusiness ? (
+                        <div>
+                            <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                                <p className="font-medium text-slate-800">Currently managing: <span className="font-bold text-indigo-600">{selectedBusiness.name}</span></p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="p-4 border rounded-lg">
+                                    <h3 className="font-bold mb-2">Status</h3>
+                                    <p className="text-lg"><span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                                        selectedBusiness.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                                    }`}>{selectedBusiness.status}</span></p>
+                                </div>
+                                <div className="p-4 border rounded-lg">
+                                    <h3 className="font-bold mb-2">Payment Status</h3>
+                                    <p className="text-lg"><span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                                        selectedBusiness.paymentStatus === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                    }`}>{selectedBusiness.paymentStatus}</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 text-center py-8">Select a business from the switcher above</p>
+                    )}
+                </div>
+            )}
+
+            {/* Payments Tab */}
+            {activeTab === 'payments' && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <CreditCard className="text-blue-500" /> Payment Management
+                    </h2>
+                    {selectedBusiness ? (
+                        <div>
+                            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                <p className="font-medium text-slate-800">Business: <span className="font-bold text-blue-600">{selectedBusiness.name}</span></p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                                <div className="p-4 border rounded-lg">
+                                    <p className="text-sm text-slate-600">Plan</p>
+                                    <p className="text-lg font-bold text-slate-800">{selectedBusiness.planId}</p>
+                                </div>
+                                <div className="p-4 border rounded-lg">
+                                    <p className="text-sm text-slate-600">Subscription Expiry</p>
+                                    <p className="text-lg font-bold text-slate-800">{new Date(selectedBusiness.subscriptionExpiry).toLocaleDateString()}</p>
+                                </div>
+                                <div className="p-4 border rounded-lg">
+                                    <p className="text-sm text-slate-600">Payment Status</p>
+                                    <p className={`text-lg font-bold ${
+                                        selectedBusiness.paymentStatus === 'paid' ? 'text-emerald-600' : 'text-rose-600'
+                                    }`}>{selectedBusiness.paymentStatus}</p>
+                                </div>
+                            </div>
+                            {selectedBusiness.paymentReceiptUrl && (
+                                <button onClick={() => setViewReceipt(selectedBusiness.paymentReceiptUrl!)} className="flex items-center gap-2 text-blue-600 hover:underline">
+                                    <Eye size={16} /> View Receipt
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 text-center py-8">Select a business from the switcher above</p>
+                    )}
+                </div>
+            )}
+
+            {/* Activation Tab */}
+            {activeTab === 'activation' && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <AlertTriangle className="text-amber-500" /> Business Activation
+                    </h2>
+                    {selectedBusiness ? (
+                        <div>
+                            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                                <p className="font-medium text-slate-800">Business: <span className="font-bold text-amber-600">{selectedBusiness.name}</span></p>
+                            </div>
+                            <div className="space-y-4">
+                                <button 
+                                    onClick={() => toggleStatus(selectedBusiness)}
+                                    className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg font-bold text-white transition-colors ${
+                                        selectedBusiness.status === 'active' 
+                                        ? 'bg-rose-600 hover:bg-rose-700' 
+                                        : 'bg-emerald-600 hover:bg-emerald-700'
+                                    }`}
+                                >
+                                    {selectedBusiness.status === 'active' ? 'Suspend Business' : 'Activate Business'}
+                                </button>
+                                {selectedBusiness.paymentStatus === 'pending_verification' && (
+                                    <button 
+                                        onClick={() => handleVerifyPayment(selectedBusiness)}
+                                        className="w-full flex items-center gap-2 px-4 py-3 rounded-lg font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                                    >
+                                        <CheckCircle size={16} /> Verify & Activate Payment
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-slate-500 text-center py-8">Select a business from the switcher above</p>
+                    )}
+                </div>
+            )}
+
+            {/* Feedbacks Tab */}
+            {activeTab === 'feedbacks' && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <MessageCircle className="text-purple-500" /> Landing Page Feedbacks
+                    </h2>
+                    {feedbacks.length === 0 ? (
+                        <p className="text-slate-500 text-center py-8">No feedbacks received yet</p>
+                    ) : (
+                        <div className="space-y-4">
+                            {feedbacks.map((feedback, i) => (
+                                <div key={i} className="p-4 border rounded-lg hover:bg-slate-50">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <p className="font-bold text-slate-800">{feedback.name}</p>
+                                            <p className="text-sm text-slate-500">{feedback.email}</p>
+                                        </div>
+                                        <span className="text-xs text-slate-400">{new Date(feedback.date).toLocaleDateString()}</span>
+                                    </div>
+                                    <p className="text-slate-700">{feedback.message}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Business Data Tab */}
+            {activeTab === 'data' && (
+                <div className="space-y-6">
+                    {selectedBusiness ? (
+                        <>
+                            <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-4">
+                                <p className="text-sm text-slate-600">Currently viewing data for: <span className="font-bold text-indigo-600">{selectedBusiness.name}</span></p>
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="text-lg font-bold mb-4">Products ({businessData.products?.length || 0})</h3>
+                                {businessData.products && businessData.products.length > 0 ? (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="border-b">
+                                                <tr>
+                                                    <th className="text-left py-2 px-3 font-bold">Product</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Category</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Price</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Stock</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {businessData.products.slice(0, 10).map((p: any) => (
+                                                    <tr key={p.id} className="border-b hover:bg-slate-50">
+                                                        <td className="py-2 px-3">{p.name}</td>
+                                                        <td className="py-2 px-3 text-slate-600">{p.categoryName}</td>
+                                                        <td className="py-2 px-3 font-medium">{symbol}{p.price}</td>
+                                                        <td className="py-2 px-3">{p.stock}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <p className="text-slate-500">No products in this business</p>
+                                )}
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <h3 className="text-lg font-bold mb-4">Recent Sales ({businessData.sales?.length || 0})</h3>
+                                {businessData.sales && businessData.sales.length > 0 ? (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead className="border-b">
+                                                <tr>
+                                                    <th className="text-left py-2 px-3 font-bold">Date</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Items</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Total</th>
+                                                    <th className="text-left py-2 px-3 font-bold">Payment</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {businessData.sales.slice(0, 10).map((s: any) => (
+                                                    <tr key={s.id} className="border-b hover:bg-slate-50">
+                                                        <td className="py-2 px-3">{new Date(s.date).toLocaleDateString()}</td>
+                                                        <td className="py-2 px-3">{s.items?.length || 0} items</td>
+                                                        <td className="py-2 px-3 font-medium">{symbol}{s.total}</td>
+                                                        <td className="py-2 px-3 text-slate-600">{s.paymentMethod}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <p className="text-slate-500">No sales in this business</p>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
+                            <p className="text-slate-500">Select a business from the switcher above to view its data</p>
+                        </div>
+                    )}
                 </div>
             )}
         </main>

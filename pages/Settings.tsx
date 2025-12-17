@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import db from '../services/apiClient';
 import { CompanySettings, Role } from '../types';
-import { Save, Download, Upload, Image as ImageIcon, Plus } from 'lucide-react';
+import { Save, Download, Upload, Image as ImageIcon, Plus, Check, AlertCircle } from 'lucide-react';
 
 const Settings = () => {
     const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
@@ -9,6 +9,8 @@ const Settings = () => {
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);
     const [activeLandingTab, setActiveLandingTab] = useState<string>('Hero');
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [saveMessage, setSaveMessage] = useState('');
 
     useEffect(() => {
         let mounted = true;
@@ -40,11 +42,19 @@ const Settings = () => {
 
     const handleSave = async () => {
         try {
-            if (db.settings && db.settings.save) await db.settings.save(settings);
-            // Force reload to update Sidebar or use Context in real app
-            window.location.reload();
+            setSaveStatus('saving');
+            setSaveMessage('');
+            if (db.settings && db.settings.save) {
+                await db.settings.save(settings);
+                setSaveStatus('success');
+                setSaveMessage('Settings saved successfully!');
+                setTimeout(() => setSaveStatus('idle'), 3000);
+            }
         } catch (e) {
-            console.warn('Failed to save settings', e);
+            console.error('Failed to save settings', e);
+            setSaveStatus('error');
+            setSaveMessage('Failed to save settings. Please try again.');
+            setTimeout(() => setSaveStatus('idle'), 3000);
         }
     };
 
@@ -216,15 +226,27 @@ const handleBackup = async () => {
             </div>
         </div>
         
-        <div className="mt-8 border-t pt-6 flex items-center justify-between">
-            <div>
-                <button onClick={() => { navigator.clipboard?.writeText(JSON.stringify(settings.landingContent || {})); }} className="px-3 py-2 bg-slate-100 rounded mr-2">Copy Landing JSON</button>
+        <div className="mt-8 border-t pt-6 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+                <button onClick={() => { navigator.clipboard?.writeText(JSON.stringify(settings.landingContent || {})); }} className="px-3 py-2 bg-slate-100 rounded">Copy Landing JSON</button>
+                {saveStatus === 'success' && (
+                    <div className="flex items-center gap-2 text-green-600 bg-green-50 px-3 py-2 rounded">
+                        <Check size={16} /> {saveMessage}
+                    </div>
+                )}
+                {saveStatus === 'error' && (
+                    <div className="flex items-center gap-2 text-red-600 bg-red-50 px-3 py-2 rounded">
+                        <AlertCircle size={16} /> {saveMessage}
+                    </div>
+                )}
             </div>
-            <div>
-                <button onClick={handleSave} className="w-full md:w-auto px-8 bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 flex justify-center items-center gap-2 ml-auto">
-                    <Save size={18} /> Save System Settings
-                </button>
-            </div>
+            <button 
+                onClick={handleSave} 
+                disabled={saveStatus === 'saving'}
+                className="px-8 bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 disabled:bg-slate-400 flex items-center gap-2 transition-all"
+            >
+                <Save size={18} /> {saveStatus === 'saving' ? 'Saving...' : 'Save System Settings'}
+            </button>
         </div>
         {/* Login Redirects configuration */}
         <div className="mt-6 bg-white p-6 rounded-xl shadow-sm border border-slate-200">

@@ -238,13 +238,14 @@ const Inventory = () => {
             </span>
         ), 
         key: 'categoryGroup', 
-        sortable: true 
+        sortable: true,
+        filterable: true
     },
     { header: 'Price', accessor: (item: Product) => {
             const n = Number((item as any).price);
             return fmtCurrency(isNaN(n) ? 0 : n, 2);
-        }, key: 'price', sortable: true },
-    { header: 'Stock', accessor: (p) => `${p.stock} ${p.unit}`, key: 'stock', sortable: true },
+        }, key: 'price', sortable: true, filterable: true },
+    { header: 'Stock', accessor: (p) => `${p.stock} ${p.unit}`, key: 'stock', sortable: true, filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: Product) => (

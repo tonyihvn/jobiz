@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
-import { Transaction, TransactionType, AccountHead, Employee, Role } from '../types';
+import { Transaction, TransactionType, AccountHead, Employee, Role, Customer, Supplier } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2 } from 'lucide-react';
@@ -13,6 +13,8 @@ const Finance = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHeads, setAccountHeads] = useState<AccountHead[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [sales, setSales] = useState<any[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [userRole, setUserRole] = useState<Role | null>(null);
@@ -69,11 +71,15 @@ const Finance = () => {
             setAccountHeads(heads || []);
             const emps = db.employees && db.employees.getAll ? await db.employees.getAll() : [];
             setEmployees(emps || []);
+            const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+            setCustomers(custs || []);
+            const supps = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll() : [];
+            setSuppliers(supps || []);
             const rls = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
             setRoles(rls || []);
         } catch (e) {
             console.warn('Failed to refresh finance data', e);
-            setTransactions([]); setAccountHeads([]); setEmployees([]); setRoles([]);
+            setTransactions([]); setAccountHeads([]); setEmployees([]); setCustomers([]); setSuppliers([]); setRoles([]);
         }
     };
 
@@ -112,18 +118,18 @@ const Finance = () => {
 
   // --- Save Handlers ---
     const handleSaveTransaction = async () => {
-        if (!newTx.amount || !newTx.accountHead) return;
+        if (!newTx.amount || !newTx.accountHead || !newTx.date) return;
         const tx: Transaction = {
                 id: Date.now().toString(),
                 businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
-                date: new Date().toISOString(),
+                date: newTx.date!,
                 accountHead: newTx.accountHead!,
                 type: newTx.type!,
                 amount: Number(newTx.amount),
                 particulars: newTx.particulars || 'N/A',
                 paidBy: newTx.paidBy || 'N/A',
                 receivedBy: newTx.receivedBy || 'System',
-                approvedBy: 'Admin'
+                approvedBy: newTx.approvedBy || 'Admin'
         };
         try { if (db.transactions && db.transactions.add) await db.transactions.add(tx); }
         catch (e) { console.warn('Save transaction failed', e); }
@@ -192,7 +198,7 @@ const Finance = () => {
     };
 
   const transactionColumns: Column<Transaction>[] = [
-    { header: 'Date', accessor: (t: Transaction) => new Date(t.date).toLocaleDateString(), key: 'date', sortable: true },
+    { header: 'Date', accessor: (t: Transaction) => new Date(t.date).toLocaleDateString(), key: 'date', sortable: true, filterable: true },
     { header: 'Particulars', accessor: 'particulars', key: 'particulars', filterable: true },
     { header: 'Account Head', accessor: 'accountHead', key: 'accountHead', filterable: true },
     { 
@@ -204,16 +210,17 @@ const Finance = () => {
             </span>
         ), 
         key: 'type', 
-        sortable: true 
+        sortable: true,
+        filterable: true
     },
-    { header: 'Amount', accessor: (t: Transaction) => <span className="font-mono font-medium">{symbol}{fmt(t.amount,2)}</span>, key: 'amount', sortable: true },
-    { header: 'Approved By', accessor: 'approvedBy', key: 'approvedBy' },
+    { header: 'Amount', accessor: (t: Transaction) => <span className="font-mono font-medium">{symbol}{fmt(t.amount,2)}</span>, key: 'amount', sortable: true, filterable: true },
+    { header: 'Approved By', accessor: 'approvedBy', key: 'approvedBy', filterable: true },
   ];
 
   const headColumns: Column<AccountHead>[] = [
     { header: 'Title', accessor: 'title', key: 'title', filterable: true },
-    { header: 'Type', accessor: 'type', key: 'type', sortable: true },
-    { header: 'Description', accessor: 'description', key: 'description' },
+    { header: 'Type', accessor: 'type', key: 'type', sortable: true, filterable: true },
+    { header: 'Description', accessor: 'description', key: 'description', filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: AccountHead) => (
@@ -235,10 +242,10 @@ const Finance = () => {
   ];
 
   const employeeColumns: Column<Employee>[] = [
-    { header: 'Name', accessor: 'name', key: 'name', sortable: true },
+    { header: 'Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
     { header: 'Role', accessor: (e) => roles.find(r=>r.id===e.roleId)?.name || e.roleId, key: 'roleId', filterable: true },
-    { header: 'Email', accessor: 'email', key: 'email' },
-    { header: 'Salary', accessor: (e: Employee) => `${symbol}${fmt(Number(e.salary || 0), 2)}`, key: 'salary', sortable: true },
+    { header: 'Email', accessor: 'email', key: 'email', filterable: true },
+    { header: 'Salary', accessor: (e: Employee) => `${symbol}${fmt(Number(e.salary || 0), 2)}`, key: 'salary', sortable: true, filterable: true },
     { 
         header: 'Actions', 
         accessor: (item: Employee) => (
@@ -362,7 +369,7 @@ const Finance = () => {
       {/* Transaction Modal */}
       {showTransactionModal && (
          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-            <div className="bg-white p-6 rounded-xl w-full max-w-lg shadow-2xl">
+            <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-800">Record Transaction</h3>
                     <button onClick={() => setShowTransactionModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
@@ -370,23 +377,27 @@ const Finance = () => {
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                          <div>
+                             <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+                             <input type="date" className="w-full border rounded-lg p-2.5" value={newTx.date ? newTx.date.split('T')[0] : ''} onChange={e => setNewTx({...newTx, date: new Date(e.target.value).toISOString()})} />
+                         </div>
+                         <div>
                              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
                              <select className="w-full border rounded-lg p-2.5" value={newTx.type} onChange={e => setNewTx({...newTx, type: e.target.value as TransactionType})}>
                                  <option value={TransactionType.INFLOW}>Inflow</option>
                                  <option value={TransactionType.EXPENDITURE}>Expenditure</option>
                              </select>
                          </div>
-                         <div>
-                             <label className="block text-sm font-medium text-slate-700 mb-1">Account Head</label>
-                             <select className="w-full border rounded-lg p-2.5" value={newTx.accountHead} onChange={e => setNewTx({...newTx, accountHead: e.target.value})}>
-                                 <option value="">Select Head</option>
-                                 {accountHeads.filter(h => h.type === newTx.type).map(h => <option key={h.id} value={h.title}>{h.title}</option>)}
-                             </select>
-                         </div>
+                    </div>
+                    <div>
+                         <label className="block text-sm font-medium text-slate-700 mb-1">Account Head</label>
+                         <select className="w-full border rounded-lg p-2.5" value={newTx.accountHead} onChange={e => setNewTx({...newTx, accountHead: e.target.value})}>
+                             <option value="">Select Head</option>
+                             {accountHeads.filter(h => h.type === newTx.type).map(h => <option key={h.id} value={h.title}>{h.title}</option>)}
+                         </select>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Amount</label>
-                        <input type="number" className="w-full border rounded-lg p-2.5" value={newTx.amount} onChange={e => setNewTx({...newTx, amount: Number(e.target.value)})} />
+                        <input type="number" step="0.01" className="w-full border rounded-lg p-2.5" value={newTx.amount} onChange={e => setNewTx({...newTx, amount: Number(e.target.value)})} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Particulars / Description</label>
@@ -395,12 +406,31 @@ const Finance = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                              <label className="block text-sm font-medium text-slate-700 mb-1">Paid By</label>
-                             <input type="text" className="w-full border rounded-lg p-2.5" value={newTx.paidBy} onChange={e => setNewTx({...newTx, paidBy: e.target.value})} />
+                             <select className="w-full border rounded-lg p-2.5" value={newTx.paidBy} onChange={e => setNewTx({...newTx, paidBy: e.target.value})}>
+                                 <option value="">Select...</option>
+                                 {employees.map(e => <option key={`emp-${e.id}`} value={e.name}>{e.name} (Employee)</option>)}
+                                 {customers.map(c => <option key={`cust-${c.id}`} value={c.name}>{c.name} (Customer)</option>)}
+                                 {suppliers.map(s => <option key={`supp-${s.id}`} value={s.name}>{s.name} (Supplier)</option>)}
+                                 {settings && settings.companyName && <option value={settings.companyName}>{settings.companyName} (Company)</option>}
+                             </select>
                         </div>
                         <div>
                              <label className="block text-sm font-medium text-slate-700 mb-1">Received By</label>
-                             <input type="text" className="w-full border rounded-lg p-2.5" value={newTx.receivedBy} onChange={e => setNewTx({...newTx, receivedBy: e.target.value})} />
+                             <select className="w-full border rounded-lg p-2.5" value={newTx.receivedBy} onChange={e => setNewTx({...newTx, receivedBy: e.target.value})}>
+                                 <option value="">Select...</option>
+                                 {employees.map(e => <option key={`emp-${e.id}`} value={e.name}>{e.name} (Employee)</option>)}
+                                 {customers.map(c => <option key={`cust-${c.id}`} value={c.name}>{c.name} (Customer)</option>)}
+                                 {suppliers.map(s => <option key={`supp-${s.id}`} value={s.name}>{s.name} (Supplier)</option>)}
+                                 {settings && settings.companyName && <option value={settings.companyName}>{settings.companyName} (Company)</option>}
+                             </select>
                         </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Approved By</label>
+                        <select className="w-full border rounded-lg p-2.5" value={newTx.approvedBy} onChange={e => setNewTx({...newTx, approvedBy: e.target.value})}>
+                            <option value="">Select Employee...</option>
+                            {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+                        </select>
                     </div>
                     <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 mt-4">Save Record</button>
                 </div>
@@ -441,7 +471,7 @@ const Finance = () => {
       {/* Employee Modal */}
       {showEmployeeModal && (
          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
-            <div className="bg-white p-6 rounded-xl w-full max-w-lg shadow-2xl">
+            <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                  <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Employee' : 'Add Employee'}</h3>
                     <button onClick={() => setShowEmployeeModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
