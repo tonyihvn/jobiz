@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import db from '../services/apiClient';
 import { Category } from '../types';
 import { Plus, X, Save, Edit2, Trash2 } from 'lucide-react';
+import DataTable, { Column } from '../components/Shared/DataTable';
 
 const CategoriesPage = () => {
   const [items, setItems] = useState<Category[]>([]);
@@ -18,7 +19,13 @@ const CategoriesPage = () => {
   const refresh = async () => {
     try {
       const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
-      setItems(Array.isArray(cats) ? cats : []);
+      const normalized = (Array.isArray(cats) ? cats : []).map((c: any) => ({
+        ...c,
+        isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false),
+        group: c.group || c.category_group || '',
+        name: c.name || c.label || ''
+      }));
+      setItems(normalized);
     } catch (e) { setItems([]); }
   };
     const loadAuth = async () => {
@@ -95,23 +102,30 @@ const CategoriesPage = () => {
         </button>)}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {items.map(c => (
-          <div key={c.id} className="bg-white p-4 rounded-lg border">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="font-bold">{c.name}</h3>
-                <p className="text-xs text-slate-500">Group: {c.group} • {c.isProduct ? 'Product (stocked)' : 'Service (no stock)'}</p>
-                <p className="text-sm mt-2">{c.description}</p>
-              </div>
-              <div className="flex flex-col gap-2">
-                {can('update') && <button onClick={() => handleEdit(c)} className="text-blue-600"><Edit2/></button>}
-                {can('delete') && <button onClick={() => handleDelete(c.id)} className="text-rose-600"><Trash2/></button>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      <DataTable
+        data={items}
+        title="Categories"
+        columns={((): Column<Category>[] => {
+          const cols: Column<Category>[] = [
+            { header: 'Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
+            { header: 'Group', accessor: 'group', key: 'group', sortable: true, filterable: true },
+            { header: 'Type', accessor: (c: Category) => (c.isProduct ? 'Product (stocked)' : 'Service (no stock)'), key: 'type' },
+            { header: 'Description', accessor: 'description', key: 'description' },
+            {
+              header: 'Actions',
+              accessor: (c: Category) => (
+                <div className="flex gap-2">
+                  {can('update') && <button onClick={() => handleEdit(c)} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Edit2/></button>}
+                  {can('delete') && <button onClick={() => handleDelete(c.id)} className="text-rose-600 hover:bg-rose-50 p-1 rounded"><Trash2/></button>}
+                </div>
+              ),
+              key: 'actions'
+            }
+          ];
+          return cols;
+        })()}
+       
+      />
 
       {editing && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -127,7 +141,19 @@ const CategoriesPage = () => {
               </div>
               <div>
                 <label className="block text-sm">Group Name</label>
-                <input className="w-full border p-2" value={editing.group} onChange={e => setEditing({...editing, group: e.target.value})} />
+                {
+                  (() => {
+                    const groups = Array.from(new Set(items.map(i => i.group).filter(Boolean)));
+                    return (
+                      <>
+                        <input list="category-groups" className="w-full border p-2" value={editing.group} onChange={e => setEditing({...editing, group: e.target.value})} />
+                        <datalist id="category-groups">
+                          {groups.map(g => <option key={g} value={g} />)}
+                        </datalist>
+                      </>
+                    );
+                  })()
+                }
               </div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" checked={!!editing.isProduct} onChange={e => setEditing({...editing, isProduct: e.target.checked})} />

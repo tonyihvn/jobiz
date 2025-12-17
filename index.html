@@ -10,6 +10,10 @@
         .no-print { display: none !important; }
         .print-only { display: block !important; }
         body { background: white; }
+        /* Make thermal receipts expand for printing and avoid clipping/overflow */
+        .receipt-print-wrapper { background: white !important; padding: 0 !important; }
+        .printable-receipt { box-shadow: none !important; overflow: visible !important; height: auto !important; max-height: none !important; page-break-inside: avoid; page-break-after: avoid; }
+        .printable-receipt * { page-break-inside: avoid; }
       }
       .print-only { display: none; }
     </style>

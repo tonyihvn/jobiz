@@ -71,7 +71,18 @@ const Stock: React.FC = () => {
             if (!selectedLocation && (locs || []).length > 0) setSelectedLocation(locs[0].id);
 
             const txs = await db.transactions.getAll();
-            setSupplyHistory((txs || []).filter((t: any) => t.accountHead === 'Inventory Purchase'));
+            // also include stock_history records so Supply History shows low-level receipts/moves
+            let hist: any[] = [];
+            try { hist = await db.stock.historyAll(); } catch (e) { hist = []; }
+            const formattedHist = (hist || []).map((h: any) => ({
+                id: h.id,
+                date: h.timestamp || h.created_at || null,
+                receivedBy: h.supplier_id || h.supplierId || null,
+                particulars: `${h.type || ''}${h.batch_number ? ' / ' + h.batch_number : ''}`.trim(),
+                amount: 0
+            }));
+            const txFiltered = (txs || []).filter((t: any) => t.accountHead === 'Inventory Purchase');
+            setSupplyHistory([...txFiltered, ...formattedHist]);
         } catch (e) {
             console.error('Failed to refresh stock data', e);
         }
@@ -116,7 +127,7 @@ const Stock: React.FC = () => {
         const particulars: string[] = [];
 
         for (const item of items) {
-            try { await db.stock.increase(item.productId, selectedLocation, item.qty); } catch (e) { console.error('Failed to increase stock', e); }
+            try { await db.stock.increase(item.productId, selectedLocation, item.qty, selectedSupplier || undefined, invoiceNo || undefined, invoiceNo || undefined); } catch (e) { console.error('Failed to increase stock', e); }
             const pName = products.find(p => p.id === item.productId)?.name;
             particulars.push(`${pName} (x${item.qty})`);
             totalCost += Number(item.cost);

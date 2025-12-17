@@ -35,9 +35,9 @@ const POS = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
   
-    // Search & Filter
-  const [searchTerm, setSearchTerm] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<string>('All');
+        // Search & Filter
+    const [searchTerm, setSearchTerm] = useState('');
+        const [selectedCategory, setSelectedCategory] = useState<string>('Products');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Derived category tabs (from products)
@@ -46,15 +46,17 @@ const POS = () => {
         const present = new Set<string>();
         const arr = Array.isArray(categoriesState) ? categoriesState : (categoriesState ? Object.values(categoriesState) : []);
         for (const c of arr) if (c && c.group) present.add(c.group as string);
-        const tabs: string[] = ['All'];
+        const tabs: string[] = ['Products'];
         // show a global Services tab when there are services available
         try {
             if (products && Array.isArray(products) && products.some(p => p.isService)) {
                 tabs.push('Services');
             }
         } catch (e) { /* ignore */ }
-        // Put Food & Drinks first if present
-        if (present.has('Food & Drinks')) tabs.push('Food & Drinks');
+        // always include All after Products/Services
+        tabs.push('All');
+        // Put Food & Drinks next if present
+        if (present.has('Food & Drinks') && !tabs.includes('Food & Drinks')) tabs.push('Food & Drinks');
         for (const g of Array.from(present)) if (!tabs.includes(g)) tabs.push(g);
         return tabs;
     }, [categoriesState, products]);
@@ -109,9 +111,8 @@ const POS = () => {
                 if (urlCat) {
                     setSelectedCategory(urlCat);
                 } else {
-                    // default selected category: Food & Drinks if present, otherwise 'All'
-                    const hasFood = combined.some((p: any) => p.categoryGroup === 'Food & Drinks');
-                    setSelectedCategory(hasFood ? 'Food & Drinks' : 'All');
+                    // default to Products view (show only products until Services tab clicked)
+                    setSelectedCategory('Products');
                 }
                 
                 // attach to products state via ref-like closure by storing catMap on window for now
@@ -128,6 +129,27 @@ const POS = () => {
         };
         init();
     }, []);
+
+    // Helper: convert numbers to words (simple implementation, supports up to billions)
+    const numberToWords = (amount: number) => {
+        if (!amount && amount !== 0) return '';
+        const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+        const tens = ['','', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+        const scale = (n: number) => {
+            if (n < 20) return ones[n];
+            if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+            if (n < 1000) return ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + scale(n%100) : '');
+            if (n < 1_000_000) return scale(Math.floor(n/1000)) + ' Thousand' + (n%1000 ? ' ' + scale(n%1000) : '');
+            if (n < 1_000_000_000) return scale(Math.floor(n/1_000_000)) + ' Million' + (n%1_000_000 ? ' ' + scale(n%1_000_000) : '');
+            return scale(Math.floor(n/1_000_000_000)) + ' Billion' + (n%1_000_000_000 ? ' ' + scale(n%1_000_000_000) : '');
+        };
+        const intPart = Math.floor(Math.abs(amount));
+        const decPart = Math.round((Math.abs(amount) - intPart) * 100);
+        const sign = amount < 0 ? 'Minus ' : '';
+        const intWords = intPart === 0 ? 'Zero' : scale(intPart);
+        const decWords = decPart > 0 ? `${decPart}/100` : '';
+        return `${sign}${intWords}${decWords ? ' and ' + decWords : ''}`;
+    };
 
     // Business rule: stock-tracked groups are defined in categories (isProduct=true). We'll consult categoryMap.
     const STOCK_TRACKED_GROUPS = Object.keys((window as any).__categoryMap || {}).filter(g => (window as any).__categoryMap[g]);
@@ -253,6 +275,9 @@ const POS = () => {
         // If 'All' selected, show both products and services
         if (selectedCategory === 'All') return products.filter(p => matches(p));
 
+        // If 'Products' selected, show only products (exclude services)
+        if (selectedCategory === 'Products') return products.filter(p => matches(p) && !p.isService);
+
         // If 'Services' tab selected, show only services
         if (selectedCategory === 'Services') return products.filter(p => matches(p) && !!p.isService);
         // consult category map to determine if the group is products or services
@@ -270,7 +295,8 @@ const POS = () => {
 
     const handleSelectCategory = (cat: string) => {
         setSelectedCategory(cat);
-        if (cat === 'All') {
+        // Only set URL `group` param for actual category group names (not Products/Services/All)
+        if (cat === 'All' || cat === 'Products' || cat === 'Services') {
             setSearchParams({});
         } else {
             setSearchParams({ group: cat });
@@ -279,10 +305,10 @@ const POS = () => {
 
     
 
-  return (
+    return (
     <div className="h-[calc(100vh-2rem)] flex flex-col md:flex-row gap-4 overflow-hidden">
-      {/* Product Grid (Left) */}
-      <div className="flex-1 flex flex-col gap-4">
+            {/* Product Grid (Left) */}
+            <div className="flex-1 flex flex-col gap-4 h-1/2 md:h-auto overflow-hidden">
         {/* Filters */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex gap-4 overflow-x-auto no-scrollbar">
             {categories.map(cat => (
@@ -363,7 +389,7 @@ const POS = () => {
       </div>
 
     {/* Cart (Right) */}
-    <div className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col h-full overflow-hidden">
+    <div className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col h-1/2 md:h-full overflow-auto">
         <div className="p-4 border-b border-slate-100 bg-slate-50">
             <div className="flex justify-between items-center mb-2">
                 <h2 className="font-bold text-lg text-slate-800">Current Order</h2>
@@ -506,10 +532,10 @@ const POS = () => {
                     </div>
                 </div>
                 
-                <div className="p-8 bg-gray-100 overflow-auto flex justify-center">
+                  <div className="p-8 bg-gray-100 overflow-auto flex justify-center receipt-print-wrapper">
                    {/* Thermal Layout */}
                    {showReceipt === 'thermal' && (
-                       <div className="bg-white p-4 shadow-sm w-[300px]">
+                      <div className="bg-white p-4 shadow-sm w-[300px] printable-receipt">
                             <div className="text-center mb-6">
                                 {settings.logoUrl && <img src={settings.logoUrl} alt="Logo" className="w-16 mx-auto mb-2" />}
                                 <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
@@ -576,7 +602,7 @@ const POS = () => {
                    {showReceipt === 'a4' && (
                        <div className="bg-white shadow-sm w-[210mm] min-h-[297mm] flex flex-col">
                             {/* Header Image */}
-                            {settings.headerImageUrl && (
+                               {settings.headerImageUrl && (
                                 <img src={settings.headerImageUrl} alt="Header" className="w-full h-auto max-h-[150px] object-cover" />
                             )}
                             
@@ -663,6 +689,13 @@ const POS = () => {
                                             <span>{fmtCurrency(lastSale.total,2)}</span>
                                         </div>
                                     </div>
+                                </div>
+                                {/* Amount in words and invoice notes */}
+                                <div className="p-6">
+                                    <div className="text-sm text-slate-700 italic">Amount in words: {numberToWords(Number(lastSale.total))}</div>
+                                    {settings.invoiceNotes && (
+                                        <div className="text-sm text-slate-700 mt-2">{settings.invoiceNotes}</div>
+                                    )}
                                 </div>
                             </div>
 

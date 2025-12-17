@@ -353,14 +353,64 @@ app.post('/api/send-email', async (req, res) => {
 
 app.post('/api/send-sms', async (req, res) => {
   const { to, body } = req.body;
+  if (!to) return res.status(400).json({ error: 'Missing recipients' });
+  const recipients = Array.isArray(to) ? to.filter(Boolean) : [to];
+  if (recipients.length === 0) return res.status(400).json({ error: 'No valid recipients' });
+
+  // If SMS provider configured as smslive247 use their batch endpoint
+  if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
+    try {
+      const https = await import('https');
+      const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
+      const payload = {
+        api_key: process.env.SMSLIVE_API_KEY,
+        sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || '',
+        messages: recipients.map(r => ({ to: r, message: body }))
+      };
+
+      const reqOpts = {
+        method: 'POST',
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + (url.search || ''),
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
+          'Accept': 'application/json'
+        }
+      };
+
+      const request = https.request(reqOpts, (resp) => {
+        let data = '';
+        resp.on('data', (chunk) => { data += chunk; });
+        resp.on('end', () => {
+          try {
+            const parsed = JSON.parse(data || '{}');
+            if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) return res.json({ success: true, provider: 'smslive247', result: parsed });
+            return res.status(502).json({ error: 'SMS provider error', details: parsed });
+          } catch (e) {
+            return res.status(502).json({ error: 'SMS provider returned invalid JSON', raw: data });
+          }
+        });
+      });
+
+      request.on('error', (e) => {
+        return res.status(500).json({ error: 'Failed to contact SMS provider', details: e && e.message ? e.message : String(e) });
+      });
+      request.write(JSON.stringify(payload));
+      request.end();
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to send via SMS provider', details: err && err.message ? err.message : String(err) });
+    }
+    return;
+  }
+
+  // Fallback to Twilio if configured - send messages sequentially
   if (!smsClient) return res.status(503).json({ error: 'SMS Gateway not configured' });
-  
   try {
-    await smsClient.messages.create({
-      body,
-      from: process.env.SMS_FROM,
-      to,
-    });
+    for (const r of recipients) {
+      await smsClient.messages.create({ body, from: process.env.SMS_FROM, to: r });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -434,6 +484,16 @@ app.get('/api/stock/history/:productId', authMiddleware, async (req, res) => {
   const { productId } = req.params;
   try {
     const [rows] = await pool.execute('SELECT * FROM stock_history WHERE product_id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC', [productId, req.user.id]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stock history for the business (all products)
+app.get('/api/stock/history', authMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC', [req.user.id]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -573,9 +633,10 @@ app.post('/api/stock/increase', authMiddleware, async (req, res) => {
       const sid = Date.now().toString();
       const [bizRows2] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
       const businessId = bizRows2[0] ? bizRows2[0].business_id : null;
-      const supplierId = req.body.supplierId || null;
-      const batchNumber = req.body.batchNumber || null;
-      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, qty, 'IN', supplierId, batchNumber, req.user.id, 'Stock increase via API']);
+      const supplierId = req.body.supplierId || req.body.supplier_id || null;
+      const batchNumber = req.body.batchNumber || req.body.batch_number || null;
+      const referenceId = req.body.referenceId || req.body.reference_id || null;
+      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, qty, 'IN', supplierId, batchNumber, referenceId, req.user.id, 'Stock increase via API']);
     } catch (e) { console.warn('Failed to write stock history', e.message || e); }
 
     res.json({ success: true, total });
@@ -596,9 +657,10 @@ app.post('/api/stock/decrease', authMiddleware, async (req, res) => {
       const sid = Date.now().toString();
       const [bizRows2] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
       const businessId = bizRows2[0] ? bizRows2[0].business_id : null;
-      const supplierId = req.body.supplierId || null;
-      const batchNumber = req.body.batchNumber || null;
-      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, -Math.abs(qty), 'OUT', supplierId, batchNumber, req.user.id, 'Stock decrease via API']);
+      const supplierId = req.body.supplierId || req.body.supplier_id || null;
+      const batchNumber = req.body.batchNumber || req.body.batch_number || null;
+      const referenceId = req.body.referenceId || req.body.reference_id || null;
+      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, -Math.abs(qty), 'OUT', supplierId, batchNumber, referenceId, req.user.id, 'Stock decrease via API']);
     } catch (e) { console.warn('Failed to write stock history', e.message || e); }
 
     res.json({ success: true, total });
@@ -630,12 +692,13 @@ app.post('/api/stock/move', authMiddleware, async (req, res) => {
       try {
         const bidRes = await connection.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
         const businessId = bidRes[0] && bidRes[0][0] ? bidRes[0][0].business_id : null;
-        const supplierId = req.body.supplierId || null;
-        const batchNumber = req.body.batchNumber || null;
+        const supplierId = req.body.supplierId || req.body.supplier_id || null;
+        const batchNumber = req.body.batchNumber || req.body.batch_number || null;
+        const requestReference = req.body.referenceId || req.body.reference_id || null;
         const outId = Date.now().toString() + '_out';
         const inId = Date.now().toString() + '_in';
-        await connection.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [outId, businessId, productId, fromLocationId, -Math.abs(qty), 'MOVE_OUT', supplierId, batchNumber, null, req.user.id, `Moved to ${toLocationId}`]);
-        await connection.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [inId, businessId, productId, toLocationId, qty, 'MOVE_IN', supplierId, batchNumber, outId, req.user.id, `Moved from ${fromLocationId}`]);
+        await connection.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [outId, businessId, productId, fromLocationId, -Math.abs(qty), 'MOVE_OUT', supplierId, batchNumber, requestReference || null, req.user.id, `Moved to ${toLocationId}`]);
+        await connection.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [inId, businessId, productId, toLocationId, qty, 'MOVE_IN', supplierId, batchNumber, requestReference || outId, req.user.id, `Moved from ${fromLocationId}`]);
       } catch (e) { console.warn('Failed to write move history', e.message || e); }
       await connection.commit();
       res.json({ success: true, total });
@@ -754,13 +817,13 @@ app.get('/api/employees', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/employees', authMiddleware, async (req, res) => {
-  const { id, name, role_id, email, phone, password, default_location_id, is_super_admin } = req.body;
+  const { id, name, role_id, email, phone, password, default_location_id, is_super_admin, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
   try {
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0].business_id;
     const eid = id || Date.now().toString();
     const hashed = password ? await bcrypt.hash(password, 10) : null;
-    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), default_location_id = VALUES(default_location_id)', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, 0, email, phone, default_location_id]);
+    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, passport_url, cv_url, designation, department, unit, notes, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), passport_url = VALUES(passport_url), cv_url = VALUES(cv_url), designation = VALUES(designation), department = VALUES(department), unit = VALUES(unit), notes = VALUES(notes), default_location_id = VALUES(default_location_id)', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, Number(salary || 0), email, phone, passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id]);
     res.json({ success: true, id: eid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -769,13 +832,13 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
 
 app.put('/api/employees/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, role_id, email, phone, password, default_location_id } = req.body;
+  const { name, role_id, email, phone, password, default_location_id, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
   try {
     const hashed = password ? await bcrypt.hash(password, 10) : null;
     if (hashed) {
-      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, password = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, hashed, default_location_id, id, req.user.id]);
+      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, password = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, hashed, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, id, req.user.id]);
     } else {
-      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, default_location_id, id, req.user.id]);
+      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, id, req.user.id]);
     }
     res.json({ success: true });
   } catch (err) {
@@ -814,6 +877,8 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
     const s = rows[0];
     let landing = null;
     try { landing = s.landing_content ? JSON.parse(s.landing_content) : null; } catch (e) { landing = s.landing_content || null; }
+    let loginRedirects = null;
+    try { loginRedirects = s.login_redirects ? JSON.parse(s.login_redirects) : null; } catch (e) { loginRedirects = s.login_redirects || null; }
     res.json({
       businessId: s.business_id,
       name: s.name,
@@ -834,7 +899,8 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       smsSid: s.sms_sid,
       smsToken: s.sms_token,
       smsFrom: s.sms_from,
-      landingContent: landing
+      landingContent: landing,
+      loginRedirects: loginRedirects
     });
   } catch (err) {
     console.warn('GET /api/settings failed', err && err.message ? err.message : err);
@@ -862,11 +928,21 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
       }
     }
 
+    // Ensure login_redirects column exists (best-effort)
+    try {
+      await pool.execute("ALTER TABLE settings ADD COLUMN IF NOT EXISTS login_redirects TEXT");
+    } catch (e) {
+      try {
+        await pool.execute('ALTER TABLE settings ADD COLUMN login_redirects TEXT');
+      } catch (ee) { /* ignore */ }
+    }
+
     const landing = typeof body.landingContent !== 'undefined' ? JSON.stringify(body.landingContent) : (typeof body.landing_content !== 'undefined' ? JSON.stringify(body.landing_content) : null);
+    const loginRedirects = typeof body.loginRedirects !== 'undefined' ? JSON.stringify(body.loginRedirects) : (typeof body.login_redirects !== 'undefined' ? JSON.stringify(body.login_redirects) : null);
 
-    const params = [businessId, body.name || null, body.motto || null, body.address || null, body.phone || null, body.email || null, body.logoUrl || body.logo_url || null, body.headerImageUrl || body.header_image_url || null, body.footerImageUrl || body.footer_image_url || null, body.vatRate || body.vat_rate || 0, body.currency || '$', body.defaultLocationId || body.default_location_id || null, body.smtpHost || null, body.smtpPort || null, body.smtpUser || null, body.smtpFrom || null, body.smsSid || null, body.smsToken || null, body.smsFrom || null, landing];
+    const params = [businessId, body.name || null, body.motto || null, body.address || null, body.phone || null, body.email || null, body.logoUrl || body.logo_url || null, body.headerImageUrl || body.header_image_url || null, body.footerImageUrl || body.footer_image_url || null, body.vatRate || body.vat_rate || 0, body.currency || '$', body.defaultLocationId || body.default_location_id || null, body.smtpHost || null, body.smtpPort || null, body.smtpUser || null, body.smtpFrom || null, body.smsSid || null, body.smsToken || null, body.smsFrom || null, loginRedirects, landing];
 
-    const sql = `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id, smtp_host, smtp_port, smtp_user, smtp_from, sms_sid, sms_token, sms_from, landing_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), smtp_host=VALUES(smtp_host), smtp_port=VALUES(smtp_port), smtp_user=VALUES(smtp_user), smtp_from=VALUES(smtp_from), sms_sid=VALUES(sms_sid), sms_token=VALUES(sms_token), sms_from=VALUES(sms_from), landing_content=VALUES(landing_content)`;
+    const sql = `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id, smtp_host, smtp_port, smtp_user, smtp_from, sms_sid, sms_token, sms_from, login_redirects, landing_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), smtp_host=VALUES(smtp_host), smtp_port=VALUES(smtp_port), smtp_user=VALUES(smtp_user), smtp_from=VALUES(smtp_from), sms_sid=VALUES(sms_sid), sms_token=VALUES(sms_token), sms_from=VALUES(sms_from), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content)`;
 
     await pool.execute(sql, params);
     res.json({ success: true });
@@ -1230,6 +1306,47 @@ app.delete('/api/account-heads/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Reports generation endpoints
+// Generate aggregated sold items (products/services) over date range
+app.get('/api/reports/generate/sales_items', authMiddleware, async (req, res) => {
+  try {
+    const type = (req.query.type || 'both'); // 'products' | 'services' | 'both'
+    const start = req.query.start ? new Date(String(req.query.start)) : null;
+    const end = req.query.end ? new Date(String(req.query.end)) : null;
+    const params = [];
+    let sql = `SELECT si.product_id as productId, COALESCE(p.name, si.product_id) as name, COALESCE(p.is_service, 0) as isService, SUM(si.quantity) as qty_sold, SUM(si.quantity * si.price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id WHERE s.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    params.push(req.user.id);
+    if (start) {
+      sql += ' AND s.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' '));
+    }
+    if (end) {
+      sql += ' AND s.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' '));
+    }
+    if (type === 'products') sql += ' AND COALESCE(p.is_service,0) = 0';
+    if (type === 'services') sql += ' AND COALESCE(p.is_service,0) = 1';
+    sql += ' GROUP BY si.product_id, COALESCE(p.name, si.product_id), COALESCE(p.is_service,0) ORDER BY qty_sold DESC';
+    const [rows] = await pool.execute(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Generate transactions report filtered by account head and date range
+app.get('/api/reports/generate/transactions', authMiddleware, async (req, res) => {
+  try {
+    const account = req.query.account || null;
+    const start = req.query.start ? new Date(String(req.query.start)) : null;
+    const end = req.query.end ? new Date(String(req.query.end)) : null;
+    const params = [req.user.id];
+    let sql = `SELECT t.* FROM transactions t WHERE t.business_id = (SELECT business_id FROM employees WHERE id = ?)`;
+    if (start) { sql += ' AND t.date >= ?'; params.push(start.toISOString().slice(0,19).replace('T',' ')); }
+    if (end) { sql += ' AND t.date <= ?'; params.push(end.toISOString().slice(0,19).replace('T',' ')); }
+    if (account) { sql += ' AND t.account_head = ?'; params.push(String(account)); }
+    sql += ' ORDER BY t.date DESC';
+    const [rows] = await pool.execute(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Apply schema.sql and ensure super admin on startup
 async function runMigrations() {
   try {
@@ -1257,6 +1374,42 @@ async function runMigrations() {
       }
     }
     console.log('Database schema applied (best-effort).');
+    // Ensure `is_product` exists on `categories` for older databases that lack the column
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        const [colRows] = await pool.execute("SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'is_product'", [dbName]);
+        const has = colRows && colRows[0] ? (colRows[0].cnt || 0) : 0;
+        if (!has) {
+          try {
+            await pool.execute('ALTER TABLE categories ADD COLUMN is_product TINYINT(1) DEFAULT 1');
+            console.log('ALTER TABLE: added `is_product` column to categories');
+          } catch (alterErr) {
+            console.warn('Failed to ALTER categories add is_product:', alterErr && alterErr.message ? alterErr.message : alterErr);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error while checking/adding is_product to categories:', e && e.message ? e.message : e);
+    }
+    // Ensure `login_redirects` column exists on `settings` so frontend-configured redirects persist
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        const [colRows2] = await pool.execute("SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'settings' AND COLUMN_NAME = 'login_redirects'", [dbName]);
+        const hasLR = colRows2 && colRows2[0] ? (colRows2[0].cnt || 0) : 0;
+        if (!hasLR) {
+          try {
+            await pool.execute('ALTER TABLE settings ADD COLUMN login_redirects TEXT');
+            console.log('ALTER TABLE: added `login_redirects` column to settings');
+          } catch (alterErr) {
+            console.warn('Failed to ALTER settings add login_redirects:', alterErr && alterErr.message ? alterErr.message : alterErr);
+          }
+        }
+      }
+    } catch (ee) {
+      console.warn('Error while checking/adding login_redirects to settings:', ee && ee.message ? ee.message : ee);
+    }
   } catch (err) {
     console.error('Failed to apply schema.sql:', err.message || err);
   }
@@ -1342,7 +1495,7 @@ async function ensureDemoSeed() {
     await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [demoBiz, 'OmniSales Demo Corp', 'admin@omnisales.com', 'plan_pro', '2030-01-01']);
 
     // Roles
-    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','customers','services','courses','sales_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','customers:create','customers:read','customers:update','customers:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete','tasks:create','tasks:read','tasks:update','tasks:delete','reports:create','reports:read','reports:update','reports:delete','inventory:move','pos:any_location']);
+    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete','tasks:create','tasks:read','tasks:update','tasks:delete','reports:create','reports:read','reports:update','reports:delete','inventory:move','pos:any_location']);
     await pool.execute('INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)', ['admin', demoBiz, 'Administrator', adminPerms]);
 
     // Employees (ensure demo admin exists). Create with hashed password; only overwrite existing password when env var provided.
@@ -1409,7 +1562,14 @@ async function startServer() {
   await runMigrations();
   await ensureSuperAdmin();
   await migratePlainPasswords();
-  await ensureDemoSeed();
+  // Only run demo/seeding routines when SEED_DATABASE is explicitly enabled.
+  // Default behaviour is to assume the database already contains required data.
+  const seedFlag = (process.env.SEED_DATABASE || '').toString().toLowerCase();
+  if (seedFlag === '1' || seedFlag === 'true') {
+    await ensureDemoSeed();
+  } else {
+    console.log('Skipping demo seed (SEED_DATABASE not enabled).');
+  }
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });

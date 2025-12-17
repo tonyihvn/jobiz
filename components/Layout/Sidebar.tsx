@@ -170,7 +170,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
       key: 'crm',
       label: 'CRM & Tasks',
       items: [
-        { id: 'customers', to: '/customers', icon: UserCheck, label: 'Customers' },
+        { id: 'clients', to: '/clients', icon: UserCheck, label: 'Clients' },
         { id: 'communications', to: '/communications', icon: MessageSquare, label: 'Communication' },
         { id: 'tasks', to: '/tasks', icon: ClipboardList, label: 'Tasks & Memos', badge: pendingTasksCount },
         // Categories moved here per request
@@ -274,22 +274,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           );
         })}
 
-        {/* Dynamic Category Groups */}
-        {!collapsed && categoryGroups.length > 0 && (
-          <div className="mt-4">
-            <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Category Groups</div>
-            <div className="mt-1 space-y-1">
-                  {categoryGroups.map(g => (
-                    <NavLink key={g.group} to={`/pos?group=${encodeURIComponent(g.group)}`} className={({isActive}) => `flex items-center px-3 py-2 rounded-lg ${isActive ? 'bg-slate-800 text-white' : 'hover:bg-slate-800'}`}>
-                      <div className="flex items-center gap-3">
-                        <Layers className="w-4 h-4" />
-                        <span className="text-sm">{g.group}</span>
-                      </div>
-                    </NavLink>
-                  ))}
-                </div>
-          </div>
-        )}
+        {/* Removed: Category Groups section (per UI change request) */}
       </nav>
 
       <div className="p-3 border-t border-slate-800 shrink-0">

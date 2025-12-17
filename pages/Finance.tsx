@@ -5,6 +5,7 @@ import { Transaction, TransactionType, AccountHead, Employee, Role } from '../ty
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2 } from 'lucide-react';
+import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Finance = () => {
     const { symbol } = useCurrency();
@@ -12,8 +13,12 @@ const Finance = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHeads, setAccountHeads] = useState<AccountHead[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+    const [sales, setSales] = useState<any[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [userRole, setUserRole] = useState<Role | null>(null);
+    const [settings, setSettings] = useState<any>(null);
+    const [statsRange, setStatsRange] = useState<'week'|'month'|'year'>('week');
+    const [isSuper, setIsSuper] = useState(false);
 
   // Modals
   const [showTransactionModal, setShowTransactionModal] = useState(false);
@@ -36,6 +41,12 @@ const Finance = () => {
                     const role = Array.isArray(allRoles) ? allRoles.find((r: Role) => r.id === currentUser.roleId) : null;
                     setUserRole(role || null);
                 }
+                    // load settings and statsRange
+                    try {
+                        const sett = db.settings && db.settings.get ? await db.settings.get() : null;
+                        if (sett) { setSettings(sett); if (sett.statsRange) setStatsRange(sett.statsRange); }
+                        setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
+                    } catch (e) { /* ignore */ }
             } catch (e) { console.warn('Failed to load user roles', e); }
         })();
     }, []);
@@ -44,6 +55,7 @@ const Finance = () => {
         try {
             const businessId = (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || 'demo' : 'demo';
             let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll() : [];
+            let sals = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
             if (!Array.isArray(txs) || txs.length === 0) {
                 txs = [
                         { id: '1', businessId, date: new Date().toISOString(), accountHead: 'Sales Revenue', type: TransactionType.INFLOW, amount: 1200.50, particulars: 'Daily Sales', paidBy: 'Customers', receivedBy: 'Admin', approvedBy: 'Admin' },
@@ -52,6 +64,7 @@ const Finance = () => {
                 try { if (db.transactions && (db.transactions as any).save) await (db.transactions as any).save(txs); } catch (e) { /* ignore */ }
             }
             setTransactions(Array.isArray(txs) ? txs : []);
+            setSales(Array.isArray(sals) ? sals : []);
             const heads = db.accountHeads && db.accountHeads.getAll ? await db.accountHeads.getAll() : [];
             setAccountHeads(heads || []);
             const emps = db.employees && db.employees.getAll ? await db.employees.getAll() : [];
@@ -142,8 +155,8 @@ const Finance = () => {
     };
 
     const handleSaveEmployee = async () => {
-        if (!newEmp.name || !newEmp.password) return;
-        const emp: Employee = {
+        if (!newEmp.name || (!newEmp.password && !editingId)) return;
+        const emp: any = {
                 id: editingId || Date.now().toString(),
                 businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
                 name: newEmp.name!,
@@ -152,18 +165,26 @@ const Finance = () => {
                 salary: Number(newEmp.salary || 0),
                 email: newEmp.email || '',
                 phone: newEmp.phone || '',
-                passportUrl: 'mock_passport.jpg',
-                cvUrl: 'mock_cv.pdf'
+                passportUrl: newEmp.passportUrl || null,
+                cvUrl: newEmp.cvUrl || null,
+                designation: newEmp.designation || null,
+                department: newEmp.department || null,
+                unit: newEmp.unit || null,
+                notes: newEmp.notes || null,
+                default_location_id: newEmp.defaultLocationId || newEmp.default_location_id || null
         };
         try {
             if (editingId) {
-                const updated = employees.map(e => e.id === emp.id ? emp : e);
-                if (db.employees && (db.employees as any).save) await (db.employees as any).save(updated);
+                if (db.employees && db.employees.update) await db.employees.update(emp.id, emp);
+                else if (db.employees && (db.employees as any).save) {
+                    const updated = employees.map(e => e.id === emp.id ? emp : e);
+                    await (db.employees as any).save(updated);
+                }
             } else {
                 if (db.employees && db.employees.add) await db.employees.add(emp);
                 else if (db.employees && (db.employees as any).save) await (db.employees as any).save([emp, ...employees]);
             }
-        } catch (e) { console.warn('Save employee failed', e); }
+        } catch (e) { console.warn('Save employee failed', e); alert('Failed to save employee'); }
         setShowEmployeeModal(false);
         setNewEmp({});
         setEditingId(null);
@@ -217,7 +238,7 @@ const Finance = () => {
     { header: 'Name', accessor: 'name', key: 'name', sortable: true },
     { header: 'Role', accessor: (e) => roles.find(r=>r.id===e.roleId)?.name || e.roleId, key: 'roleId', filterable: true },
     { header: 'Email', accessor: 'email', key: 'email' },
-    { header: 'Salary', accessor: (e: Employee) => `${symbol}${e.salary.toLocaleString()}`, key: 'salary', sortable: true },
+    { header: 'Salary', accessor: (e: Employee) => `${symbol}${fmt(Number(e.salary || 0), 2)}`, key: 'salary', sortable: true },
     { 
         header: 'Actions', 
         accessor: (item: Employee) => (
@@ -238,8 +259,26 @@ const Finance = () => {
     }
   ];
 
-  const income = transactions.filter(t => t.type === TransactionType.INFLOW).reduce((a,b) => a+b.amount, 0);
-  const expense = transactions.filter(t => t.type === TransactionType.EXPENDITURE).reduce((a,b) => a+b.amount, 0);
+    const _normType = (val: any) => {
+        if (!val && val !== 0) return '';
+        try { return String(val).toLowerCase(); } catch (e) { return '' }
+    };
+    const getStartDate = (range: 'week'|'month'|'year') => {
+        const now = new Date();
+        if (range === 'week') { const d = new Date(); d.setDate(now.getDate() - 6); d.setHours(0,0,0,0); return d; }
+        if (range === 'month') { const d = new Date(now.getFullYear(), now.getMonth(), 1); d.setHours(0,0,0,0); return d; }
+        return new Date(now.getFullYear(), 0, 1);
+    };
+    const startDate = getStartDate(statsRange);
+    const filteredTx = (transactions || []).filter(t => new Date(t.date) >= startDate);
+    const income = filteredTx.filter(t => _normType(t.type) === String(TransactionType.INFLOW).toLowerCase()).reduce((a,b) => a + (Number(b.amount) || 0), 0);
+    const expense = filteredTx.filter(t => _normType(t.type) === String(TransactionType.EXPENDITURE).toLowerCase()).reduce((a,b) => a + (Number(b.amount) || 0), 0);
+    // compute sales total from the sales.total field (excluding proformas) in the selected range
+    const salesInRange = (sales || []).filter(s => new Date(s.date) >= startDate);
+    const totalSalesFromItems = salesInRange.filter(s => !(s.isProforma || s.is_proforma)).reduce((acc, sale: any) => {
+        return acc + (Number(sale.total || 0));
+    }, 0);
+    const totalRevenue = Number(totalSalesFromItems) + Number(income);
 
   return (
     <div className="space-y-6">
@@ -248,7 +287,24 @@ const Finance = () => {
             <h1 className="text-2xl font-bold text-slate-800">Finance & HR</h1>
             <p className="text-slate-500">Track inflows, expenditures, and personnel management.</p>
         </div>
-        <button 
+        <div className="flex items-center gap-3">
+            {isSuper && (
+                <select value={statsRange} onChange={async e => {
+                    const v = e.target.value as any;
+                    setStatsRange(v);
+                    try {
+                        const cur = db.settings && db.settings.get ? await db.settings.get() : {};
+                        const merged = { ...(cur || {}), statsRange: v };
+                        if (db.settings && db.settings.save) await db.settings.save(merged);
+                        setSettings(merged);
+                    } catch (err) { console.warn('Failed to save statsRange', err); }
+                }} className="border rounded px-2 py-1">
+                    <option value="week">This Week</option>
+                    <option value="month">This Month</option>
+                    <option value="year">This Year</option>
+                </select>
+            )}
+            <button 
             onClick={() => {
                 setEditingId(null);
                 if (activeTab === 'transactions') { setNewTx({ type: TransactionType.INFLOW, amount: 0 }); setShowTransactionModal(true); }
@@ -260,19 +316,20 @@ const Finance = () => {
             <Plus size={18} /> 
             {activeTab === 'transactions' ? 'Record Transaction' : activeTab === 'heads' ? 'Add Account Head' : 'Add Employee'}
         </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
             <h3 className="text-sm font-medium text-slate-500">Net Balance</h3>
-            <p className="text-3xl font-bold text-slate-800 mt-2">{symbol}{fmt(Number(income) - Number(expense),2)}</p>
+            <p className={`text-3xl font-bold mt-2 ${ (Number(totalRevenue) - Number(expense)) < 0 ? 'text-rose-600' : 'text-emerald-600' }`}>{symbol}{fmt(Number(totalRevenue) - Number(expense),2)}</p>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-            <h3 className="text-sm font-medium text-slate-500">Total Income (YTD)</h3>
-            <p className="text-3xl font-bold text-emerald-600 mt-2">{symbol}{fmt(income,2)}</p>
+            <h3 className="text-sm font-medium text-slate-500">Total Revenue</h3>
+            <p className="text-3xl font-bold text-emerald-600 mt-2">{symbol}{fmt(totalRevenue,2)}</p>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
-            <h3 className="text-sm font-medium text-slate-500">Total Expenses (YTD)</h3>
+            <h3 className="text-sm font-medium text-slate-500">Total Expenses</h3>
             <p className="text-3xl font-bold text-rose-600 mt-2">{symbol}{fmt(expense,2)}</p>
         </div>
       </div>
@@ -428,18 +485,42 @@ const Finance = () => {
 
                      <div className="grid grid-cols-2 gap-4 border-t pt-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Passport Photo</label>
-                            <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 cursor-pointer">
-                                <Upload size={24} />
-                                <span className="text-xs mt-1">Upload JPG/PNG</span>
-                            </div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
+                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.designation || ''} onChange={e => setNewEmp({...newEmp, designation: e.target.value})} />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">CV / Resume</label>
-                            <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 cursor-pointer">
-                                <FileText size={24} />
-                                <span className="text-xs mt-1">Upload PDF</span>
-                            </div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
+                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.department || ''} onChange={e => setNewEmp({...newEmp, department: e.target.value})} />
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
+                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.unit || ''} onChange={e => setNewEmp({...newEmp, unit: e.target.value})} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Passport Photo</label>
+                            <input type="file" accept="image/*" onChange={async (e) => {
+                                const f = e.target.files?.[0]; if (!f) return;
+                                try { const fd = new FormData(); fd.append('file', f); const res = await (db.upload && db.upload.file ? db.upload.file(fd) : Promise.resolve(null)); if (res && res.url) setNewEmp(prev => ({...prev, passportUrl: res.url})); else alert('Upload failed'); } catch (err) { console.warn('Passport upload failed', err); alert('Upload failed'); }
+                            }} />
+                            {newEmp.passportUrl && <img src={newEmp.passportUrl} className="mt-2 w-24 h-24 object-cover rounded" />}
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 gap-4 mt-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">CV / Resume (PDF)</label>
+                            <input type="file" accept="application/pdf" onChange={async (e) => {
+                                const f = e.target.files?.[0]; if (!f) return;
+                                try { const fd = new FormData(); fd.append('file', f); const res = await (db.upload && db.upload.file ? db.upload.file(fd) : Promise.resolve(null)); if (res && res.url) setNewEmp(prev => ({...prev, cvUrl: res.url})); else alert('Upload failed'); } catch (err) { console.warn('CV upload failed', err); alert('Upload failed'); }
+                            }} />
+                            {newEmp.cvUrl && <a className="text-sm text-brand-600 block mt-2" href={newEmp.cvUrl} target="_blank" rel="noreferrer">View uploaded CV</a>}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                            <RichTextEditor value={newEmp.notes || ''} onChange={(v) => setNewEmp(prev => ({...prev, notes: v}))} placeholder="Add internal notes about this employee" />
                         </div>
                      </div>
 

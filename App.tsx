@@ -109,7 +109,7 @@ const App = () => {
                     <Route path="inventory/:group" element={<Inventory />} />
                     <Route path="stock" element={<Stock />} />
                     <Route path="suppliers" element={<Suppliers />} />
-                    <Route path="customers" element={<Customers />} />
+                    <Route path="clients" element={<Customers />} />
                     <Route path="services/:group" element={<Services />} />
                     <Route path="courses" element={<Courses />} />
                     <Route path="sales-history" element={<SalesHistory />} />

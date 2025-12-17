@@ -30,7 +30,7 @@ const Customers = () => {
   const hasPermission = (action: string) => {
     if (!userRole) return false;
     // Allow super admin bypass or strictly check permissions
-    return userRole.permissions.includes(`customers:${action}`);
+        return userRole.permissions.includes(`clients:${action}`);
   };
 
   const handleEdit = (customer: Customer) => {
@@ -99,7 +99,7 @@ const Customers = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-            <h1 className="text-2xl font-bold text-slate-800">Customers</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Clients</h1>
             <p className="text-slate-500">Manage clients and customers.</p>
         </div>
             <button 
@@ -107,7 +107,7 @@ const Customers = () => {
                 className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-brand-700 shadow-sm transition-all"
             >
                 <Plus className="w-4 h-4" /> 
-                Add Customer
+                Add Client
             </button>
       </div>
 
@@ -166,7 +166,7 @@ const Customers = () => {
                          />
                     </div>
                     <button onClick={handleSave} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 flex justify-center items-center gap-2 mt-4">
-                        <Save size={18} /> {editingId ? 'Update' : 'Save'} Customer
+                        <Save size={18} /> {editingId ? 'Update' : 'Save'} Client
                     </button>
                 </div>
             </div>

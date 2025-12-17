@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
+import { authFetch } from '../services/auth';
 import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
@@ -9,7 +10,8 @@ import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List } from 'lucide
 const SalesHistory = () => {
     const { symbol } = useCurrency();
   const [sales, setSales] = useState<SaleRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'sales' | 'items'>('sales');
+  const [stockHistory, setStockHistory] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'sales' | 'items' | 'stock'>('sales');
   
   // Return State
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -33,15 +35,37 @@ const SalesHistory = () => {
             try {
                 const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
                 const p = db.products && db.products.getAll ? await db.products.getAll() : [];
+                const sv = db.services && db.services.getAll ? await db.services.getAll() : [];
                 const sett = db.settings && db.settings.get ? await db.settings.get() : emptySettings;
                 const c = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                // Load stock history from endpoint
+                let sh: any[] = [];
+                try {
+                    const res = await authFetch('/api/stock/history');
+                    if (res.ok) {
+                        sh = await res.json();
+                    }
+                } catch (e) {
+                    console.warn('[SalesHistory] Failed to load stock history:', e);
+                }
                 if (!mounted) return;
+                // DEBUG: Log loaded data
+                console.log('[SalesHistory] Loaded sales:', s);
+                console.log('[SalesHistory] Loaded products:', p);
+                console.log('[SalesHistory] Loaded services:', sv);
+                console.log('[SalesHistory] Loaded stock history:', sh);
                 setSales(Array.isArray(s) ? s : []);
-                setProducts(Array.isArray(p) ? p : []);
+                setStockHistory(Array.isArray(sh) ? sh : []);
+                // combine products and services for lookup when resolving sale item metadata
+                const prods = Array.isArray(p) ? p : [];
+                const svcs = Array.isArray(sv) ? sv.map((x: any) => ({ ...x, isService: true })) : [];
+                const combined = [...prods, ...svcs];
+                console.log('[SalesHistory] Combined products+services:', combined);
+                setProducts(combined);
                 setSettings(sett as CompanySettings);
                 setCustomers(Array.isArray(c) ? c : []);
             } catch (e) {
-                console.warn('Failed to load sales history data', e);
+                console.error('[SalesHistory] Failed to load sales history data:', e);
             }
         })();
         return () => { mounted = false; };
@@ -56,6 +80,63 @@ const SalesHistory = () => {
   const handleReturn = (sale: SaleRecord) => {
       setSelectedSaleForReturn(sale);
       setShowReturnModal(true);
+  };
+
+  const enrichItems = (sale: SaleRecord) => {
+      return (sale.items || []).map((it: any) => {
+          const prod = products.find(p => p.id === (it.id || it.product_id));
+          return {
+              ...it,
+              id: it.id || it.product_id,
+              name: it.name || (prod ? prod.name : '') || '',
+              description: it.description || prod?.details || prod?.description || prod?.image_url || '',
+              unit: it.unit || prod?.unit || ''
+          };
+      });
+  };
+
+  const buildReceiptText = (sale: SaleRecord) => {
+      const lines: string[] = [];
+      lines.push(`${settings.name}`);
+      lines.push(settings.address || '');
+      lines.push('');
+      lines.push(`Receipt: ${sale.id}`);
+      lines.push(`Date: ${new Date(sale.date).toLocaleString()}`);
+      lines.push('');
+      lines.push('Items:');
+      for (const it of enrichItems(sale)) {
+          lines.push(`- ${it.name}${it.description ? ' — ' + String(it.description) : ''}`);
+          lines.push(`  ${it.unit || ''} x ${it.quantity} @ ${symbol}${fmt(it.price,2)} = ${symbol}${fmt(Number(it.price) * Number(it.quantity),2)}`);
+      }
+      lines.push('');
+      lines.push(`Subtotal: ${symbol}${fmt(sale.subtotal || 0,2)}`);
+      lines.push(`VAT: ${symbol}${fmt(sale.vat || 0,2)}`);
+      lines.push(`Total: ${symbol}${fmt(sale.total || 0,2)}`);
+      return lines.join('\n');
+  };
+
+  const sendEmailReceipt = async (sale: SaleRecord) => {
+      try {
+          const defaultTo = (customers.find(c => c.id === sale.customerId)?.email) || '';
+          const to = window.prompt('Recipient email', defaultTo || '');
+          if (!to) return;
+          const subject = `Receipt ${sale.id.slice(-8)} from ${settings.name}`;
+          const text = buildReceiptText(sale);
+          const res = await authFetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, subject, text }) });
+          const j = await res.json();
+          if (res.ok) alert('Email sent'); else alert('Email failed: ' + (j && j.error ? j.error : res.statusText));
+      } catch (e) { console.warn('Email send failed', e); alert('Failed to send email'); }
+  };
+
+  const sendWhatsAppReceipt = (sale: SaleRecord) => {
+      try {
+          const phone = (customers.find(c => c.id === sale.customerId)?.phone) || '';
+          const text = buildReceiptText(sale);
+          const encoded = encodeURIComponent(text);
+          // If phone is present, open wa.me with phone, otherwise open generic share
+          const url = phone ? `https://wa.me/${phone.replace(/[^0-9]/g,'')}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+          window.open(url, '_blank');
+      } catch (e) { console.warn('WhatsApp send failed', e); alert('Failed to open WhatsApp'); }
   };
 
     const processReturn = async () => {
@@ -109,15 +190,28 @@ const SalesHistory = () => {
     }
   ];
 
-  // Flatten sales into items
-  const itemHistory = sales.flatMap(sale => 
-      sale.items.map(item => ({
-          ...item,
-          saleId: sale.id,
-          saleDate: sale.date,
-          saleIsReturn: sale.isReturn
-      }))
-  );
+  // Flatten sales into enriched items (resolve name/category from products OR services)
+  const itemHistory = (() => {
+    const items = sales.flatMap(sale =>
+        (sale.items || []).map(item => {
+            const id = item.id || item.product_id;
+            const prod = products.find(p => p.id === id);
+            return {
+                ...item,
+                saleId: sale.id,
+                saleDate: sale.date,
+                saleIsReturn: sale.isReturn,
+                name: item.name || prod?.name || '',
+                categoryGroup: item.categoryGroup || prod?.categoryGroup || prod?.category_group || prod?.group || '',
+                price: item.price || prod?.price || 0
+            };
+        })
+    );
+    if (items.length > 0 || sales.length === 0) {
+        console.log('[SalesHistory] itemHistory computed:', items, 'from', sales.length, 'sales');
+    }
+    return items;
+  })();
 
   const itemColumns: Column<any>[] = [
       { header: 'Date', accessor: (i) => new Date(i.saleDate).toLocaleDateString(), key: 'saleDate', sortable: true },
@@ -127,6 +221,15 @@ const SalesHistory = () => {
     { header: 'Price', accessor: (i) => `${symbol}${fmt(i.price,2)}`, key: 'price' },
     { header: 'Total', accessor: (i) => `${symbol}${fmt(Number(i.price) * Number(i.quantity),2)}`, key: 'itemTotal' },
       { header: 'Ref Receipt', accessor: (i) => <span className="font-mono text-xs">{i.saleId.slice(-8)}</span>, key: 'saleId' },
+  ];
+
+  const stockHistoryColumns: Column<any>[] = [
+    { header: 'Date', accessor: (h) => new Date(h.timestamp).toLocaleString(), key: 'timestamp', sortable: true },
+    { header: 'Product', accessor: (h) => products.find(p => p.id === h.product_id)?.name || h.product_id, key: 'product_id', sortable: true, filterable: true },
+    { header: 'Type', accessor: 'type', key: 'type', filterable: true },
+    { header: 'Change', accessor: (h) => h.change_amount, key: 'change_amount' },
+    { header: 'Reference', accessor: 'reference_id', key: 'reference_id' },
+    { header: 'Notes', accessor: 'notes', key: 'notes' },
   ];
 
   return (
@@ -151,12 +254,20 @@ const SalesHistory = () => {
         >
           <ShoppingBag size={18} /> Product Sales History
         </button>
+        <button 
+          onClick={() => setActiveTab('stock')}
+          className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'stock' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          <ShoppingBag size={18} /> Supply History
+        </button>
       </div>
 
       {activeTab === 'sales' ? (
         <DataTable data={sales} columns={salesColumns} title="Completed Transactions" />
-      ) : (
+      ) : activeTab === 'items' ? (
         <DataTable data={itemHistory} columns={itemColumns} title="Itemized Sales Record" />
+      ) : (
+        <DataTable data={stockHistory} columns={stockHistoryColumns} title="Stock Movement History" />
       )}
 
        {/* Return Modal */}
@@ -203,6 +314,8 @@ const SalesHistory = () => {
                         <button onClick={() => setDocType('thermal')} className={`px-3 py-1 rounded border ${docType === 'thermal' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>Thermal</button>
                         <button onClick={() => setDocType('a4')} className={`px-3 py-1 rounded border ${docType === 'a4' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>A4 Invoice</button>
                         <button onClick={() => window.print()} className="px-3 py-1 bg-slate-800 text-white rounded flex items-center gap-1"><Printer size={16}/> Print</button>
+                        <button onClick={() => sendEmailReceipt(viewingSale)} title="Email receipt" className="px-3 py-1 bg-emerald-600 text-white rounded flex items-center gap-1">Email</button>
+                        <button onClick={() => sendWhatsAppReceipt(viewingSale)} title="Send via WhatsApp" className="px-3 py-1 bg-green-600 text-white rounded flex items-center gap-1">WhatsApp</button>
                         <button onClick={() => setShowDocModal(false)} className="px-3 py-1 hover:bg-slate-100 rounded"><X size={20}/></button>
                     </div>
                 </div>
@@ -231,9 +344,12 @@ const SalesHistory = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {viewingSale.items.map((item, i) => (
+                                    {enrichItems(viewingSale).map((item, i) => (
                                         <tr key={i}>
-                                            <td className="py-1">{item.name}</td>
+                                            <td className="py-1">
+                                                <div className="font-medium">{item.name}</div>
+                                                {item.description ? <div className="text-[9px] text-gray-400">{item.description}</div> : null}
+                                            </td>
                                             <td className="py-1 text-right">{item.quantity}</td>
                                             <td className="py-1 text-right">{ symbol }{ fmt(Number(item.price) * Number(item.quantity),2) }</td>
                                         </tr>
@@ -270,9 +386,12 @@ const SalesHistory = () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {viewingSale.items.map((item, i) => (
+                                    {enrichItems(viewingSale).map((item, i) => (
                                         <tr key={i} className="border-b border-slate-100">
-                                            <td className="py-4">{item.name}</td>
+                                            <td className="py-4">
+                                                <div className="font-medium">{item.name}</div>
+                                                {item.description ? <div className="text-sm text-slate-500">{item.description}</div> : null}
+                                            </td>
                                             <td className="py-4 text-right">{item.quantity}</td>
                                             <td className="py-4 text-right">{symbol}{fmt(item.price,2)}</td>
                                             <td className="py-4 text-right font-bold">{symbol}{fmt(Number(item.price) * Number(item.quantity),2)}</td>

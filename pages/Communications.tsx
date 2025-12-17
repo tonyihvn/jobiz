@@ -1,21 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageSquare, Mail, Smartphone, Send, Users, CheckCircle } from 'lucide-react';
 import { Category } from '../types';
 import db from '../services/apiClient';
+import { authFetch } from '../services/auth';
 
 const Communications = () => {
   const [method, setMethod] = useState<'email' | 'sms'>('email');
-  const [recipientType, setRecipientType] = useState<'all' | 'group' | 'individual'>('all');
-    const [selectedGroup, setSelectedGroup] = useState<string>('Membership');
-    const [categories, setCategories] = useState<Category[]>([]);
+    const [recipientType, setRecipientType] = useState<'all' | 'group' | 'individual'>('all');
+        const [selectedGroup, setSelectedGroup] = useState<string>('Membership');
+        const [categories, setCategories] = useState<Category[]>([]);
+        const [contacts, setContacts] = useState<any[]>([]);
+        const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+        const [selectAll, setSelectAll] = useState(false);
 
-    React.useEffect(() => {
+    useEffect(() => {
         (async () => {
             try {
                 const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
                 setCategories(cats || []);
                 const groups = Array.from(new Set((cats || []).map((c: any) => c.group).filter(Boolean)));
                 if (groups.length > 0) setSelectedGroup(groups[0]);
+                const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                setContacts(Array.isArray(custs) ? custs : []);
             } catch (e) { /* ignore */ }
         })();
     }, []);
@@ -23,22 +29,53 @@ const Communications = () => {
   const [subject, setSubject] = useState('');
   const [isSent, setIsSent] = useState(false);
 
-  const handleSend = () => {
-    // Simulation of API call
-    setIsSent(true);
-    setTimeout(() => {
-        setIsSent(false);
-        setMessage('');
-        setSubject('');
-    }, 3000);
-  };
+    const handleSend = async () => {
+        setIsSent(true);
+        try {
+            if (method === 'sms') {
+                let targets: string[] = [];
+                if (recipientType === 'all') targets = contacts.map(c => c.phone).filter(Boolean);
+                else if (recipientType === 'group') targets = contacts.filter(c => c.category === selectedGroup).map(c => c.phone).filter(Boolean);
+                else if (recipientType === 'individual') targets = Object.keys(selectedIds).filter(id => selectedIds[id]).map(id => (contacts.find(c => c.id === id) || {}).phone).filter(Boolean);
+                if (selectAll) targets = contacts.map(c => c.phone).filter(Boolean);
+                if (targets.length === 0) throw new Error('No recipients selected');
+                const resp = await authFetch('/api/send-sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: targets, body: message }) });
+                if (!resp.ok) throw new Error('Failed to send SMS');
+            } else {
+                let targets: string[] = [];
+                if (recipientType === 'all') targets = contacts.map(c => c.email).filter(Boolean);
+                else if (recipientType === 'group') targets = contacts.filter(c => c.category === selectedGroup).map(c => c.email).filter(Boolean);
+                else if (recipientType === 'individual') targets = Object.keys(selectedIds).filter(id => selectedIds[id]).map(id => (contacts.find(c => c.id === id) || {}).email).filter(Boolean);
+                if (selectAll) targets = contacts.map(c => c.email).filter(Boolean);
+                for (const t of targets) {
+                    await authFetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: t, subject, text: message }) });
+                }
+            }
+            setMessage(''); setSubject('');
+        } catch (e) {
+            console.error('Send failed', e);
+            alert(e && e.message ? e.message : 'Send failed');
+        } finally {
+            setIsSent(false);
+        }
+    };
+
+    useEffect(() => {
+        if (selectAll) {
+            const s: Record<string, boolean> = {};
+            contacts.forEach(c => { if (c.id) s[c.id] = true; });
+            setSelectedIds(s);
+        } else {
+            setSelectedIds({});
+        }
+    }, [selectAll, contacts]);
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
             <h1 className="text-2xl font-bold text-slate-800">Communications Hub</h1>
-            <p className="text-slate-500">Engage with members, students, and customers via Email or SMS.</p>
+            <p className="text-slate-500">Engage with members, students, and clients via Email or SMS.</p>
         </div>
       </div>
 
@@ -155,8 +192,42 @@ const Communications = () => {
                 </div>
             </div>
         </div>
-      </div>
-    </div>
+            </div>
+
+            {/* Contacts table */}
+            {(recipientType === 'all' || recipientType === 'group' || recipientType === 'individual') && (
+                <div className="bg-white mt-6 p-6 rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-semibold text-slate-800">Contacts</h3>
+                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selectAll} onChange={(e) => setSelectAll(e.target.checked)} /> Select All</label>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left text-slate-500">
+                                    <th className="w-8"> </th>
+                                    <th>Name</th>
+                                    <th>Phone</th>
+                                    <th>Email</th>
+                                    <th>Category</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {contacts.filter(c => recipientType === 'all' || (recipientType === 'group' && c.category === selectedGroup) || recipientType === 'individual').map(c => (
+                                    <tr key={c.id} className="border-t">
+                                        <td className="py-2"><input type="checkbox" checked={!!selectedIds[c.id]} onChange={(e) => setSelectedIds({ ...selectedIds, [c.id]: e.target.checked })} /></td>
+                                        <td className="py-2">{c.name}</td>
+                                        <td className="py-2">{c.phone}</td>
+                                        <td className="py-2">{c.email}</td>
+                                        <td className="py-2">{c.category}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
   );
 };
 

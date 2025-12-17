@@ -27,7 +27,14 @@ const Tasks = () => {
       try {
         const t = db.tasks && db.tasks.getAll ? await db.tasks.getAll() : [];
         const e = db.employees && db.employees.getAll ? await db.employees.getAll() : [];
-        setTasks(Array.isArray(t) ? t : []);
+        const normTasks = (Array.isArray(t) ? t : []).map((it: any) => ({
+          ...it,
+          assignedTo: it.assignedTo || it.assigned_to || it.assigned_to_id || '',
+          dateToDo: it.dateToDo || it.date_to_do || '',
+          dateToComplete: it.dateToComplete || it.date_to_complete || '',
+          createdBy: it.createdBy || it.created_by || ''
+        }));
+        setTasks(normTasks);
         setEmployees(Array.isArray(e) ? e : []);
       } catch (err) {
         console.warn('Failed to refresh tasks/employees', err);
@@ -71,9 +78,9 @@ const Tasks = () => {
 
     try {
       if (editingId) {
-        if (db.tasks && (db.tasks as any).update) await (db.tasks as any).update(task);
+        if (db.tasks && db.tasks.update) await db.tasks.update(editingId, task);
       } else {
-        if (db.tasks && (db.tasks as any).save) await (db.tasks as any).save([task, ...tasks]);
+        if (db.tasks && db.tasks.add) await db.tasks.add(task);
       }
     } catch (e) {
       console.warn('Failed to save task', e);

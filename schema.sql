@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS employees (
   phone VARCHAR(100),
   passport_url TEXT,
   cv_url TEXT,
+  designation VARCHAR(128) DEFAULT NULL,
+  department VARCHAR(128) DEFAULT NULL,
+  unit VARCHAR(64) DEFAULT NULL,
+  notes TEXT,
   default_location_id VARCHAR(64) DEFAULT NULL,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );

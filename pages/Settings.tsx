@@ -4,7 +4,7 @@ import { CompanySettings, Role } from '../types';
 import { Save, Download, Upload, Image as ImageIcon, Plus } from 'lucide-react';
 
 const Settings = () => {
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {} } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);
@@ -144,6 +144,10 @@ const handleBackup = async () => {
                     </div>
                 </div>
                 <div className="mt-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Invoice Notes (will appear on A4 invoices)</label>
+                    <textarea className="w-full border rounded p-2" rows={4} value={settings.invoiceNotes || ''} onChange={e => setSettings(prev => ({...prev, invoiceNotes: e.target.value}))} placeholder="e.g. Payment due within 14 days; Thank you for your business" />
+                </div>
+                <div className="mt-4">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Global Default Location (applies to storefront)</label>
                     <select className="w-full border rounded p-2" value={settings.defaultLocationId || ''} onChange={e => setSettings(prev => ({...prev, defaultLocationId: e.target.value || undefined}))}>
                         <option value="">None (use user default)</option>
@@ -235,7 +239,7 @@ const handleBackup = async () => {
                             <option value="/">Dashboard</option>
                             <option value="/inventory">Inventory</option>
                             <option value="/services">Services</option>
-                            <option value="/customers">Customers</option>
+                            <option value="/clients">Clients</option>
                             <option value="/pos">POS</option>
                             <option value="/reports">Reports</option>
                             <option value="/admin">Admin</option>

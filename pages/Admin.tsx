@@ -34,7 +34,7 @@ const Admin = () => {
                         { id: 'pos', label: 'POS System' },
                         { id: 'stock', label: 'Stock Management' },
                         { id: 'suppliers', label: 'Suppliers' },
-                        { id: 'customers', label: 'Customers' },
+                        { id: 'clients', label: 'Clients' },
                         { id: 'sales_history', label: 'Sales History' },
                         { id: 'finance', label: 'Finance & HR' },
                         { id: 'communications', label: 'Communications' },
@@ -56,7 +56,7 @@ const Admin = () => {
                         { id: 'inventory', label: 'Products' },
                         { id: 'categories', label: 'Categories' },
                         { id: 'suppliers', label: 'Suppliers' },
-                        { id: 'customers', label: 'Customers' },
+                        { id: 'clients', label: 'Clients' },
                         { id: 'employees', label: 'Employees' },
                         { id: 'finance', label: 'Financial Records' }
                     ];

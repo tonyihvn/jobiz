@@ -53,18 +53,36 @@ const Services = () => {
             } catch (e) {
                 // fallback to products table where some services may live
                 const prods = db.products && db.products.getAll ? await db.products.getAll() : [];
-                svcList = (prods || []).filter((p: any) => p.isService);
+                const isSvc = (p: any) => {
+                    if (typeof p.isService !== 'undefined') return !!p.isService;
+                    if (typeof p.is_service !== 'undefined') return !!p.is_service;
+                    return false;
+                };
+                svcList = (prods || []).filter((p: any) => isSvc(p));
             }
-            // load categories for dropdowns
+            // load categories for dropdowns (normalize fields)
             try {
                 const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
-                setCategories(cats || []);
+                const normalizedCats = (cats || []).map((c: any) => ({
+                    ...c,
+                    isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false),
+                    group: c.group || c.category_group || '',
+                    name: c.name || c.label || ''
+                }));
+                setCategories(normalizedCats || []);
             } catch (e) { /* ignore */ }
 
             // Exclude art school entries here (they are managed in Courses)
-            setItems((svcList || []).filter((p: any) => (p.categoryGroup || '') !== 'Art School'));
+            const norm = (svcList || []).map((p: any) => ({
+                ...p,
+                categoryGroup: p.categoryGroup || p.category_group || p.group || '',
+                categoryName: p.categoryName || p.category_name || p.name || ''
+            }));
+            const filtered = norm.filter((p: any) => (p.categoryGroup || '') !== 'Art School');
+            console.log('[Services] Loaded services:', filtered);
+            setItems(filtered);
         } catch (e) {
-            console.warn('Failed to load services', e);
+            console.error('[Services] Failed to load services:', e);
             setItems([]);
         }
     };
@@ -72,6 +90,9 @@ const Services = () => {
     const params = useParams();
     const queryGroup = (() => { try { const qp = new URLSearchParams(location.search); return params.group || qp.get('group') || qp.get('category') || ''; } catch(e) { return params.group || ''; } })();
     const displayedItems = (items || []).filter(i => { if (!queryGroup) return true; return (i.categoryGroup || '').toString() === queryGroup; });
+    if (queryGroup) {
+        console.log('[Services] Filtering by queryGroup:', queryGroup, '-> displayed items:', displayedItems);
+    }
 
   const hasPermission = (action: string) => {
       if (isSuper) return true;
@@ -82,8 +103,12 @@ const Services = () => {
   const handleDelete = async (id: string) => {
       if(window.confirm('Delete this service?')) {
           try {
-            if (db.services && db.services.delete) await db.services.delete(id);
-            else if (db.products && db.products.delete) await db.products.delete(id);
+            if (db.services && db.services.delete) {
+                await db.services.delete(id);
+            } else {
+                alert('Services API not available — cannot delete service. Please check server configuration.');
+                return;
+            }
           } catch (e) { console.warn('Failed to delete service', e); }
           await refreshData();
       }
@@ -118,16 +143,22 @@ const Services = () => {
             try {
               if (isNew) {
                   if (db.services && db.services.add) {
-                      await db.services.add(editingItem);
-                  } else if (db.products && db.products.save) {
-                      const current = db.products && db.products.getAll ? await db.products.getAll() : [];
-                      await db.products.save([...current, editingItem]);
+                      const res = await db.services.add(editingItem);
+                      if (!res) {
+                          alert('Failed to create service. Please check server logs.');
+                          return;
+                      }
+                  } else {
+                      alert('Services API not available — cannot create service. Please enable /api/services on the server.');
+                      return;
                   }
               } else {
                   if (db.services && db.services.update) {
-                      await db.services.update(editingItem.id, editingItem);
-                  } else if (db.products && db.products.update) {
-                      await db.products.update(editingItem.id, editingItem);
+                      const res = await db.services.update(editingItem.id, editingItem);
+                      if (!res) { alert('Failed to update service. Please check server logs.'); return; }
+                  } else {
+                      alert('Services API not available — cannot update service. Please enable /api/services on the server.');
+                      return;
                   }
               }
             } catch (e) { console.warn('Failed to save service', e); }
@@ -139,7 +170,6 @@ const Services = () => {
 
   const columns: Column<Product>[] = [
     { header: 'Service Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
-    { header: 'Type', accessor: 'categoryGroup', key: 'categoryGroup', sortable: true, filterable: true },
     { header: 'Category', accessor: 'categoryName', key: 'categoryName' },
     { header: 'Rate/Price', accessor: (item: Product) => `${symbol}${fmt(item.price, 2)}`, key: 'price', sortable: true },
     { header: 'Unit', accessor: 'unit', key: 'unit' },
@@ -179,11 +209,7 @@ const Services = () => {
                 data={displayedItems} 
                 columns={columns} 
                 title="Active Services"
-                actions={hasPermission('create') ? (
-                    <button onClick={handleCreate} className="bg-brand-600 text-white px-3 py-1 rounded-lg flex items-center gap-2 hover:bg-brand-700">
-                        <Plus className="w-4 h-4" /> Add Service
-                    </button>
-                ) : null}
+               
             />
 
       {/* Simplified Edit Modal */}
@@ -205,20 +231,7 @@ const Services = () => {
                             onChange={e => setEditingItem({...editingItem, name: e.target.value})}
                         />
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
-                        <select 
-                            className="w-full border rounded-lg p-2.5 outline-none"
-                            value={editingItem.categoryGroup}
-                            onChange={e => setEditingItem({...editingItem, categoryGroup: e.target.value})}
-                        >
-                            {(() => {
-                                const svcGroups = Array.from(new Set((categories || []).filter(c => !c.isProduct).map(c => c.group))).filter(Boolean);
-                                if (svcGroups.length === 0) return [<option key="renting" value="Renting">Renting</option>, <option key="membership" value="Membership">Membership</option>, <option key="other" value="Other">Other Service</option>];
-                                return svcGroups.map(g => <option key={g} value={g}>{g}</option>);
-                            })()}
-                        </select>
-                    </div>
+                    {/* Type field removed per request; categoryGroup is set programmatically */}
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Category Name</label>
                         {(() => {

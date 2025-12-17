@@ -21,6 +21,44 @@ const Inventory = () => {
     // Modals
     const [showProductModal, setShowProductModal] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
+    const [barcodeUrls, setBarcodeUrls] = useState<Record<string,string>>({});
+    const [currentBarcodeProduct, setCurrentBarcodeProduct] = useState<Product | null>(null);
+    const [barcodeImages, setBarcodeImages] = useState<string[]>([]);
+    const [printerType, setPrinterType] = useState<'thermal'|'a4'>('thermal');
+    const [barcodesPerRow, setBarcodesPerRow] = useState<number>(3);
+    const closeBarcodeModal = () => {
+        try { barcodeImages.forEach(u => { try { URL.revokeObjectURL(u); } catch(e){} }); } catch(e){}
+        setBarcodeImages([]);
+        setCurrentBarcodeProduct(null);
+        setShowBarcodeModal(false);
+    };
+        const [showBarcodeQtyModal, setShowBarcodeQtyModal] = useState(false);
+        const [barcodeQty, setBarcodeQty] = useState<number>(1);
+        const [pendingBarcodeProduct, setPendingBarcodeProduct] = useState<Product | null>(null);
+
+        const generateBarcodesForProduct = async (product: Product, qty: number) => {
+            if (!product || qty <= 0) return;
+            try {
+                // revoke previous
+                try { barcodeImages.forEach(u => { try { URL.revokeObjectURL(u); } catch(e){} }); } catch(e){}
+                setBarcodeImages([]);
+                // fetch images
+                const fetches = Array.from({ length: qty }).map(() => authFetch(`/api/barcode/${encodeURIComponent(product.id)}`));
+                const results = await Promise.all(fetches);
+                const ok = results.every(r => r.ok);
+                if (!ok) {
+                    const first = results.find(r => !r.ok);
+                    const txt = first ? await first.text().catch(()=>'') : 'Provider error';
+                    alert('Failed to generate barcode: ' + txt);
+                    return;
+                }
+                const blobs = await Promise.all(results.map(r => r.blob()));
+                const urls = blobs.map(b => URL.createObjectURL(b));
+                setBarcodeImages(urls);
+                setCurrentBarcodeProduct(product);
+                setShowBarcodeModal(true);
+            } catch (e) { console.error('Barcode generation failed', e); alert('Barcode generation failed'); }
+        };
     const [showMoveModal, setShowMoveModal] = useState(false);
     const [moveProduct, setMoveProduct] = useState<Product | null>(null);
     const [locationsList, setLocationsList] = useState<Location[]>([]);
@@ -73,9 +111,16 @@ const Inventory = () => {
                 if (typeof p.is_service !== 'undefined') return !!p.is_service;
                 return false;
             };
-            setProducts((prods || []).filter((p: Product) => !isServiceFlag(p)));
+            const normalizedProds = (prods || []).map((p: any) => ({
+                ...p,
+                isService: isServiceFlag(p),
+                categoryGroup: p.categoryGroup || p.category_group || p.group || '',
+                categoryName: p.categoryName || p.category_name || p.name || ''
+            }));
+            setProducts(normalizedProds.filter((p: Product) => !p.isService));
             const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
-            setCategories(cats || []);
+            const normalizedCats = (cats || []).map((c: any) => ({ ...c, isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false), group: c.group || c.category_group || '', name: c.name || c.label || '' }));
+            setCategories(normalizedCats || []);
         } catch (e) {
             console.warn('Failed to refresh inventory data', e);
         }
@@ -204,6 +249,12 @@ const Inventory = () => {
         header: 'Actions', 
         accessor: (item: Product) => (
             <div className="flex gap-2">
+                <button onClick={(e) => { e.stopPropagation(); setPendingBarcodeProduct(item); setBarcodeQty(1); setShowBarcodeQtyModal(true); }} title="Generate Barcodes" className="text-slate-700 hover:bg-slate-50 p-1 rounded">
+                    <Barcode size={16} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); openHistory(item); }} title="History" className="text-slate-600 hover:bg-slate-50 p-1 rounded">
+                    <Layers size={16} />
+                </button>
                 {hasPermission('inventory', 'update') && (
                     <button onClick={(e) => { e.stopPropagation(); handleEditProduct(item); }} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
                         <Edit2 size={16} />
@@ -234,6 +285,23 @@ const Inventory = () => {
       setShowProductModal(true);
   }
 
+  // Stock history modal
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<any[]>([]);
+
+  const openHistory = async (product: Product) => {
+      setHistoryProduct(product);
+      setShowHistoryModal(true);
+      try {
+          const rows = await db.stock.history(product.id);
+          setHistoryRecords(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+          console.warn('Failed to load stock history', e);
+          setHistoryRecords([]);
+      }
+  };
+
 
     
 
@@ -246,13 +314,6 @@ const Inventory = () => {
                         <p className="text-slate-500">Define physical products. Services are managed in the Services page.</p>
                 </div>
         <div className="flex gap-2">
-            <button 
-                onClick={() => setShowBarcodeModal(true)}
-                className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-900 shadow-sm transition-all"
-            >
-                <Barcode className="w-4 h-4" /> 
-                Generate Barcodes
-            </button>
             {/* Services are managed on the Services page — open that page or use its modal there */}
             <button 
                 onClick={() => activeTab === 'products' ? openNewProduct() : setShowCategoryModal(true)}
@@ -270,13 +331,7 @@ const Inventory = () => {
                 data={filteredProducts}
                 columns={productColumns}
                 title="Physical Inventory"
-                actions={
-                    hasPermission('inventory', 'create') ? (
-                        <button onClick={openNewProduct} className="bg-brand-600 text-white px-3 py-1 rounded-lg flex items-center gap-2 hover:bg-brand-700">
-                            <Plus className="w-4 h-4" /> Define New Product
-                        </button>
-                    ) : null
-                }
+               
             />
 
       {/* Product Modal */}
@@ -393,6 +448,33 @@ const Inventory = () => {
         </div>
       )}
 
+            {/* Barcode Quantity Modal */}
+            {showBarcodeQtyModal && pendingBarcodeProduct && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-60">
+                    <div className="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold">Generate Barcodes — {pendingBarcodeProduct.name}</h3>
+                            <button onClick={() => { setShowBarcodeQtyModal(false); setPendingBarcodeProduct(null); }} className="text-slate-400 hover:text-slate-600"><X size={18}/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm mb-2">Quantity</label>
+                                <div className="flex gap-2">
+                                    {[1,2,5,10,20].map(p => (
+                                        <button key={p} onClick={() => setBarcodeQty(p)} className={`px-3 py-2 rounded border ${barcodeQty===p ? 'bg-brand-600 text-white' : 'bg-white'}`}>{p}</button>
+                                    ))}
+                                </div>
+                                <input type="number" className="w-full mt-3 border p-2" value={barcodeQty} onChange={e => setBarcodeQty(Number(e.target.value) || 1)} min={1} />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => { setShowBarcodeQtyModal(false); setPendingBarcodeProduct(null); }} className="px-4 py-2 border rounded">Cancel</button>
+                                <button onClick={async () => { if (pendingBarcodeProduct) { await generateBarcodesForProduct(pendingBarcodeProduct, barcodeQty); setShowBarcodeQtyModal(false); setPendingBarcodeProduct(null); } }} className="px-4 py-2 bg-brand-600 text-white rounded">Generate</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
       {/* Categories are now managed in the Administration → Categories page */}
 
       {/* Barcode Modal (No Change) */}
@@ -400,26 +482,105 @@ const Inventory = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
             <div className="bg-white rounded-xl w-full max-w-4xl shadow-2xl h-[85vh] flex flex-col">
                 <div className="p-4 border-b flex justify-between items-center">
-                    <h3 className="text-xl font-bold text-slate-800">Print Product Barcodes</h3>
+                    <h3 className="text-xl font-bold text-slate-800">Print Product Barcodes{currentBarcodeProduct ? ` — ${currentBarcodeProduct.name}` : ''}</h3>
                     <div className="flex gap-2">
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-3 py-1 rounded flex items-center gap-1"><Printer size={16}/> Print</button>
-                        <button onClick={() => setShowBarcodeModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+                        <button onClick={closeBarcodeModal} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
                     </div>
                 </div>
                 
                 <div className="p-8 overflow-y-auto bg-slate-100 flex-1">
-                    <div className="grid grid-cols-3 gap-4 print:grid-cols-3">
-                        {products.map(p => (
-                            <div key={p.id} className="bg-white p-4 rounded border border-slate-300 flex flex-col items-center justify-center text-center">
-                                <h4 className="font-bold text-sm mb-1 truncate w-full">{p.name}</h4>
-                                <div className="h-16 w-full bg-slate-900 flex items-center justify-center text-white font-mono text-xs my-2">
-                                    {/* Placeholder for real barcode generation */}
-                                    || ||| || ||| || <br/> {p.id}
-                                </div>
-                                <p className="text-xs text-slate-500">{symbol}{fmt(p.price, 2)} / {p.unit}</p>
-                            </div>
-                        ))}
+                    {/* Controls for print layout */}
+                    <div className="flex items-center justify-between gap-4 mb-4">
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm text-slate-600">Printer:</label>
+                            <select className="border rounded px-2 py-1 text-sm" value={printerType} onChange={e => setPrinterType(e.target.value as any)}>
+                                <option value="thermal">Thermal</option>
+                                <option value="a4">A4</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm text-slate-600">Barcodes / row:</label>
+                            <select className="border rounded px-2 py-1 text-sm" value={barcodesPerRow} onChange={e => setBarcodesPerRow(Number(e.target.value))}>
+                                <option value={1}>1</option>
+                                <option value={2}>2</option>
+                                <option value={3}>3</option>
+                                <option value={4}>4</option>
+                            </select>
+                        </div>
                     </div>
+
+                    {/* Grid: adjust columns for screen and print according to selection */}
+                    <div className={`grid gap-4 ${barcodesPerRow===1? 'grid-cols-1 print:grid-cols-1' : barcodesPerRow===2 ? 'grid-cols-2 print:grid-cols-2' : barcodesPerRow===3 ? 'grid-cols-3 print:grid-cols-3' : 'grid-cols-4 print:grid-cols-4'}`}>
+                        {currentBarcodeProduct && barcodeImages.length > 0 ? (
+                            barcodeImages.map((u, idx) => (
+                                <div key={idx} className={`bg-white p-4 rounded border border-slate-300 flex flex-col items-center justify-center text-center ${printerType==='thermal' ? 'text-sm' : ''}`}>
+                                    <h4 className="font-bold text-sm mb-1 truncate w-full">{currentBarcodeProduct.name}</h4>
+                                    <div className="h-24 w-full flex items-center justify-center text-center my-2">
+                                        <img src={u} alt={`${currentBarcodeProduct.id}-${idx}`} className="mx-auto max-h-20" />
+                                    </div>
+                                    <p className="text-xs text-slate-500">{symbol}{fmt(currentBarcodeProduct.price, 2)} / {currentBarcodeProduct.unit}</p>
+                                </div>
+                            ))
+                        ) : (
+                            products.map(p => (
+                                <div key={p.id} className={`bg-white p-4 rounded border border-slate-300 flex flex-col items-center justify-center text-center ${printerType==='thermal' ? 'text-sm' : ''}`}>
+                                    <h4 className="font-bold text-sm mb-1 truncate w-full">{p.name}</h4>
+                                    <div className="h-16 w-full flex items-center justify-center text-center my-2">
+                                        {barcodeUrls[p.id] ? (
+                                            <img src={barcodeUrls[p.id]} alt={p.id} className="mx-auto max-h-16" />
+                                        ) : (
+                                            <div className="text-[10px] text-slate-400">Loading...</div>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-slate-500">{symbol}{fmt(p.price, 2)} / {p.unit}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Stock History Modal */}
+      {showHistoryModal && historyProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+            <div className="bg-white p-4 rounded-xl w-full max-w-3xl shadow-2xl">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-bold">Stock History — {historyProduct.name}</h3>
+                    <button onClick={() => { setShowHistoryModal(false); setHistoryProduct(null); setHistoryRecords([]); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+                </div>
+                <div className="overflow-y-auto max-h-[60vh]">
+                    <table className="w-full text-sm border-collapse">
+                        <thead>
+                            <tr className="text-left text-slate-600">
+                                <th className="p-2">When</th>
+                                <th className="p-2">Change</th>
+                                <th className="p-2">Type</th>
+                                <th className="p-2">Location</th>
+                                <th className="p-2">Supplier</th>
+                                <th className="p-2">User</th>
+                                <th className="p-2">Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {historyRecords.length === 0 && (
+                                <tr><td colSpan={7} className="p-4 text-center text-slate-500">No history found.</td></tr>
+                            )}
+                            {historyRecords.map((r: any) => (
+                                <tr key={r.id} className="border-t">
+                                    <td className="p-2 align-top">{r.timestamp ? new Date(r.timestamp).toLocaleString() : ''}</td>
+                                    <td className="p-2 align-top">{r.change_amount}</td>
+                                    <td className="p-2 align-top">{r.type}</td>
+                                    <td className="p-2 align-top">{(locationsList.find(l => l.id === r.location_id) || { name: r.location_id }).name}</td>
+                                    <td className="p-2 align-top">{r.supplier_id || '-'}</td>
+                                    <td className="p-2 align-top">{r.user_id || '-'}</td>
+                                    <td className="p-2 align-top">{r.notes || ''}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
