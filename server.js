@@ -5,6 +5,7 @@ import mysql from 'mysql2/promise';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
 import twilio from 'twilio';
+import helmet from 'helmet';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs';
@@ -17,6 +18,24 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Security headers via Helmet
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      connectSrc: ["'self'", process.env.APP_URL || 'http://localhost:5173', 'https:', 'ws:'],
+      fontSrc: ["'self'", 'https:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
 
 // Middleware
 // Enable CORS and explicitly allow the Authorization header (used by the client)
