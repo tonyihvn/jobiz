@@ -99,6 +99,35 @@ function authMiddleware(req, res, next) {
   }
 }
 
+// Super Admin Middleware - Allows super admins to access endpoints without business_id restrictions
+async function superAdminAuthMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
+  const parts = authHeader.split(' ');
+  if (parts.length !== 2 || parts[0] !== 'Bearer') return res.status(401).json({ error: 'Invalid Authorization format' });
+  const token = parts[1];
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'change-me');
+    req.user = payload;
+    // Check if user is super admin
+    try {
+      const [empRows] = await pool.execute('SELECT is_super_admin FROM employees WHERE id = ?', [req.user.id]);
+      if (empRows && empRows[0] && empRows[0].is_super_admin) {
+        req.isSuperAdmin = true;
+        next();
+      } else {
+        return res.status(403).json({ error: 'Super admin access required' });
+      }
+    } catch (e) {
+      console.warn('superAdminAuthMiddleware: database error:', e && e.message ? e.message : e);
+      return res.status(403).json({ error: 'Super admin access required' });
+    }
+  } catch (err) {
+    console.warn('superAdminAuthMiddleware: token verification failed:', err && err.message ? err.message : err);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
 // Helper to resolve business_id for the current request user
 async function resolveBusinessId(req) {
   try {
@@ -126,17 +155,134 @@ app.get('/api/me', authMiddleware, async (req, res) => {
   }
 });
 
+// Forgot Password endpoint
+app.post('/api/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Check if user exists
+    const [rows] = await pool.execute('SELECT id, name, email FROM employees WHERE email = ?', [email]);
+    if (!rows || rows.length === 0) {
+      // For security, don't reveal if email exists
+      return res.json({ success: true, message: 'If an account exists, you will receive a password reset email' });
+    }
+
+    const user = rows[0];
+    
+    // Generate reset token
+    const resetToken = require('crypto').randomBytes(32).toString('hex');
+    const tokenId = 'reset_' + Date.now();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Store reset token
+    await pool.execute(
+      'INSERT INTO password_reset_tokens (id, email, token, expires_at) VALUES (?, ?, ?, ?)',
+      [tokenId, email, resetToken, expiresAt]
+    );
+
+    // Send reset email
+    const resetLink = `${process.env.APP_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+    
+    try {
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        to: email,
+        subject: 'Password Reset Request - OmniSales',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Password Reset Request</h2>
+            <p>Hello ${user.name},</p>
+            <p>We received a request to reset your password. Click the link below to proceed:</p>
+            <div style="margin: 30px 0;">
+              <a href="${resetLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">Reset Password</a>
+            </div>
+            <p>Or copy this link: <a href="${resetLink}">${resetLink}</a></p>
+            <p style="color: #666; font-size: 12px;">This link will expire in 24 hours. If you didn't request this, please ignore this email.</p>
+          </div>
+        `
+      });
+      console.log('Password reset email sent to:', email);
+    } catch (emailErr) {
+      console.error('Failed to send reset email:', emailErr);
+      // Still return success for security reasons, but log the error
+    }
+
+    res.json({ success: true, message: 'If an account exists, you will receive a password reset email' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Failed to process forgot password request' });
+  }
+});
+
+// Reset Password endpoint
+app.post('/api/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  try {
+    if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required' });
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Find valid reset token
+    const [tokenRows] = await pool.execute(
+      'SELECT email FROM password_reset_tokens WHERE token = ? AND expires_at > NOW()',
+      [token]
+    );
+
+    if (!tokenRows || tokenRows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const { email } = tokenRows[0];
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update employee password
+    await pool.execute('UPDATE employees SET password = ? WHERE email = ?', [hashedPassword, email]);
+
+    // Delete used token
+    await pool.execute('DELETE FROM password_reset_tokens WHERE token = ?', [token]);
+
+    res.json({ success: true, message: 'Password has been reset successfully' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
 // Authentication (Mocked for safety, real impl would use hashing/JWT)
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const [rows] = await pool.execute(
-      'SELECT id, name, role_id, email, password FROM employees WHERE email = ?',
+      'SELECT id, name, role_id, email, password, email_verified, account_approved FROM employees WHERE email = ?',
       [email]
     );
     if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
     const user = rows[0];
+    
+    // Check email verification
+    if (!user.email_verified) {
+      return res.status(403).json({ 
+        error: 'Email not verified',
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email before logging in'
+      });
+    }
+
+    // Check account approval
+    if (!user.account_approved) {
+      return res.status(403).json({ 
+        error: 'Account not approved',
+        code: 'ACCOUNT_NOT_APPROVED',
+        message: 'Your account is pending approval from the administrator'
+      });
+    }
+
     const stored = user.password || '';
     let ok = false;
     if (stored.startsWith('$2')) {
@@ -197,8 +343,8 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     await pool.execute(
-      'INSERT INTO employees (id, business_id, name, email, password, is_super_admin, role_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [employeeId, businessId, companyName + ' Admin', email, hashedPassword, 0, 'admin']
+      'INSERT INTO employees (id, business_id, name, email, password, is_super_admin, role_id, email_verified, account_approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [employeeId, businessId, companyName + ' Admin', email, hashedPassword, 0, 'admin', 0, 0]
     );
 
     // Create default settings for business
@@ -207,44 +353,50 @@ app.post('/api/register', async (req, res) => {
       [businessId, companyName, '$']
     );
 
-    // Generate verification token (6 digits)
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    // Store verification token temporarily (in a real app, use a separate table)
-    // For now, we'll just send it in the email
+    // Generate email verification token
+    const verificationToken = require('crypto').randomBytes(32).toString('hex');
+    const tokenId = 'email_verify_' + Date.now();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Store verification token
+    await pool.execute(
+      'INSERT INTO email_verification_tokens (id, employee_id, email, token, expires_at) VALUES (?, ?, ?, ?, ?)',
+      [tokenId, employeeId, email, verificationToken, expiresAt]
+    );
     
     // Send verification email
     try {
+      const verifyLink = `${process.env.APP_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
       const mailOptions = {
         from: process.env.SMTP_FROM || 'noreply@omnisales.com',
         to: email,
-        subject: 'OmniSales - Email Verification & Payment Required',
+        subject: 'Verify Your Email - OmniSales Registration',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Welcome to OmniSales, ${companyName}!</h2>
             
-            <p>Thank you for registering. Your account has been created and is pending activation.</p>
+            <p>Thank you for registering. To complete your registration, please verify your email address.</p>
             
-            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0;">
-              <h3>Email Verification</h3>
-              <p>Your verification code is: <strong>${verificationCode}</strong></p>
-              <p style="font-size: 12px; color: #666;">This code is valid for 24 hours.</p>
+            <div style="margin: 30px 0;">
+              <a href="${verifyLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+                Verify Email Address
+              </a>
             </div>
+
+            <p>Or copy this link: <a href="${verifyLink}">${verifyLink}</a></p>
             
-            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-              <h3>Next Steps - Payment Required</h3>
-              <p>Your account is currently pending:</p>
+            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h3>Registration Steps:</h3>
               <ul>
-                <li><strong>Email Verification:</strong> Verify your email using the code above</li>
-                <li><strong>Payment:</strong> Process payment to activate your account</li>
-                <li><strong>Admin Approval:</strong> Our team will review and activate your account</li>
+                <li><strong>1. Verify Email:</strong> Click the link above to verify your email address</li>
+                <li><strong>2. Add Payment Details:</strong> Complete payment information after email verification</li>
+                <li><strong>3. Admin Approval:</strong> Our team will review and approve your account</li>
+                <li><strong>4. Access Dashboard:</strong> Once approved, you can access all features</li>
               </ul>
             </div>
             
-            <p>Login to your account: <a href="https://${req.get('host')}/login" style="color: #0066cc;">OmniSales Login</a></p>
-            
             <p style="color: #666; font-size: 12px; margin-top: 30px;">
-              If you did not register for this account, please ignore this email or contact our support team.
+              This verification link will expire in 24 hours. If you did not register for this account, please ignore this email.
             </p>
           </div>
         `
@@ -257,7 +409,7 @@ app.post('/api/register', async (req, res) => {
       // Don't fail the registration if email fails
     }
 
-    // Send payment notification email to admin
+    // Send notification email to super admin
     try {
       const adminEmail = process.env.SMTP_USER || 'admin@omnisales.com';
       const mailOptions = {
@@ -294,6 +446,164 @@ app.post('/api/register', async (req, res) => {
     res.status(500).json({ error: err.message || 'Registration failed' });
   }
 });
+
+// Email Verification endpoint
+app.post('/api/verify-email', async (req, res) => {
+  const { token } = req.body;
+  try {
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+
+    // Find valid token
+    const [tokenRows] = await pool.execute(
+      'SELECT employee_id, email FROM email_verification_tokens WHERE token = ? AND expires_at > NOW()',
+      [token]
+    );
+
+    if (!tokenRows || tokenRows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired verification token' });
+    }
+
+    const { employee_id, email } = tokenRows[0];
+
+    // Update employee as email verified
+    await pool.execute(
+      'UPDATE employees SET email_verified = 1, email_verified_at = NOW() WHERE id = ?',
+      [employee_id]
+    );
+
+    // Delete used token
+    await pool.execute('DELETE FROM email_verification_tokens WHERE token = ?', [token]);
+
+    res.json({ success: true, message: 'Email verified successfully!' });
+  } catch (err) {
+    console.error('Email verification error:', err);
+    res.status(500).json({ error: 'Failed to verify email' });
+  }
+});
+
+// Add payment details endpoint
+app.post('/api/add-payment', authMiddleware, async (req, res) => {
+  const { paymentType, planId, amount, cardLastFour, cardBrand, billingCycleStart, billingCycleEnd } = req.body;
+  try {
+    if (!paymentType || !amount) {
+      return res.status(400).json({ error: 'Payment type and amount are required' });
+    }
+
+    // Get employee business_id
+    const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    if (!empRows || empRows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const businessId = empRows[0].business_id;
+
+    // Create payment record
+    const paymentId = 'payment_' + Date.now();
+    await pool.execute(
+      `INSERT INTO business_payments (id, business_id, payment_type, plan_id, amount, card_last_four, card_brand, status, billing_cycle_start, billing_cycle_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [paymentId, businessId, paymentType, planId || null, amount, cardLastFour || null, cardBrand || null, 'pending', billingCycleStart || null, billingCycleEnd || null]
+    );
+
+    res.json({ success: true, paymentId, message: 'Payment details submitted for approval' });
+  } catch (err) {
+    console.error('Add payment error:', err);
+    res.status(500).json({ error: 'Failed to add payment' });
+  }
+});
+
+// Get user's pending payment
+app.get('/api/user-payment', authMiddleware, async (req, res) => {
+  try {
+    // Get employee business_id
+    const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    if (!empRows || empRows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const businessId = empRows[0].business_id;
+
+    // Get latest payment
+    const [paymentRows] = await pool.execute(
+      `SELECT * FROM business_payments WHERE business_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [businessId]
+    );
+
+    if (!paymentRows || paymentRows.length === 0) {
+      return res.json({ payment: null });
+    }
+
+    res.json({ payment: paymentRows[0] });
+  } catch (err) {
+    console.error('Get payment error:', err);
+    res.status(500).json({ error: 'Failed to fetch payment' });
+  }
+});
+
+// Super Admin: Get all pending payments
+app.get('/api/super-admin/pending-payments', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const [payments] = await pool.execute(
+      `SELECT bp.*, b.name as businessName, b.email as businessEmail
+       FROM business_payments bp
+       JOIN businesses b ON bp.business_id = b.id
+       WHERE bp.status = 'pending'
+       ORDER BY bp.created_at DESC`
+    );
+
+    res.json({ payments: payments || [] });
+  } catch (err) {
+    console.error('Get pending payments error:', err);
+    res.status(500).json({ error: 'Failed to fetch payments' });
+  }
+});
+
+// Super Admin: Approve payment
+app.post('/api/super-admin/approve-payment/:paymentId', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const paymentId = req.params.paymentId;
+
+    // Update payment status
+    await pool.execute(
+      'UPDATE business_payments SET status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?',
+      ['approved', req.user.id, paymentId]
+    );
+
+    // Get payment details to approve business account
+    const [paymentRows] = await pool.execute('SELECT business_id FROM business_payments WHERE id = ?', [paymentId]);
+    if (paymentRows && paymentRows[0]) {
+      // Approve the account
+      const businessId = paymentRows[0].business_id;
+      await pool.execute('UPDATE employees SET account_approved = 1, account_approved_at = NOW() WHERE business_id = ?', [businessId]);
+      await pool.execute('UPDATE businesses SET paymentStatus = ? WHERE id = ?', ['paid', businessId]);
+    }
+
+    res.json({ success: true, message: 'Payment approved and account activated' });
+  } catch (err) {
+    console.error('Approve payment error:', err);
+    res.status(500).json({ error: 'Failed to approve payment' });
+  }
+});
+
+// Super Admin: Reject payment
+app.post('/api/super-admin/reject-payment/:paymentId', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const paymentId = req.params.paymentId;
+
+    // Update payment status
+    await pool.execute(
+      'UPDATE business_payments SET status = ?, approved_by = ?, approved_at = NOW() WHERE id = ?',
+      ['rejected', req.user.id, paymentId]
+    );
+
+    res.json({ success: true, message: 'Payment rejected' });
+  } catch (err) {
+    console.error('Reject payment error:', err);
+    res.status(500).json({ error: 'Failed to reject payment' });
+  }
+});
+
 app.get('/api/products', async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
@@ -1639,6 +1949,321 @@ app.delete('/api/feedbacks/:id', authMiddleware, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== SUPER ADMIN ENDPOINTS =====
+
+// GET all businesses (for Super Admin)
+app.get('/api/super-admin/businesses', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, status, paymentStatus, registeredAt FROM businesses ORDER BY registeredAt DESC'
+    );
+    res.json({ businesses: rows || [] });
+  } catch (err) {
+    console.error('GET /api/super-admin/businesses error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err.message || 'Failed to fetch businesses' });
+  }
+});
+
+// GET all payments (for Super Admin)
+app.get('/api/super-admin/payments', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    // Mock payment data - in production, this would come from a payments table
+    const [businesses] = await pool.execute('SELECT id, name FROM businesses LIMIT 20');
+    const payments = (businesses || []).map((b, i) => ({
+      id: 'pay_' + b.id,
+      business_id: b.id,
+      businessName: b.name,
+      amount: Math.random() * 1000 + 50,
+      status: i % 3 === 0 ? 'pending' : i % 3 === 1 ? 'completed' : 'failed',
+      method: 'stripe',
+      createdAt: new Date(),
+      processedAt: null
+    }));
+    res.json({ payments });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update payment status
+app.put('/api/super-admin/payments/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status required' });
+    // In production, update payments table
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST approve business
+app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    await pool.execute(
+      'UPDATE businesses SET status = ? WHERE id = ?',
+      ['approved', businessId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST reject business
+app.post('/api/super-admin/reject-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    await pool.execute(
+      'UPDATE businesses SET status = ? WHERE id = ?',
+      ['rejected', businessId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT toggle business status (active/suspended)
+app.put('/api/super-admin/toggle-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status required' });
+    
+    await pool.execute(
+      'UPDATE businesses SET status = ? WHERE id = ?',
+      [status, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all feedbacks (for Super Admin)
+app.get('/api/super-admin/feedbacks', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    // Determine feedbacks table columns so we can normalize different schemas (legacy vs current)
+    const dbName = process.env.DB_NAME;
+    const [cols] = await pool.execute(
+      'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
+      [dbName, 'feedbacks']
+    );
+
+    const colSet = new Set((cols || []).map(c => c.COLUMN_NAME));
+
+    // Build select list depending on available columns
+    const selectParts = [];
+    // id
+    selectParts.push('id');
+    // business_id may not exist in landing-page feedbacks
+    if (colSet.has('business_id')) selectParts.push('business_id');
+    else selectParts.push('NULL as business_id');
+    // subject may be named 'subject' or stored in 'name' for simple feedbacks
+    if (colSet.has('subject')) selectParts.push('subject');
+    else if (colSet.has('name')) selectParts.push('name as subject');
+    else selectParts.push('NULL as subject');
+    // message
+    if (colSet.has('message')) selectParts.push('message');
+    else selectParts.push('NULL as message');
+    // rating
+    if (colSet.has('rating')) selectParts.push('rating');
+    else selectParts.push('0 as rating');
+    // status
+    if (colSet.has('status')) selectParts.push('status');
+    else selectParts.push("'new' as status");
+    // createdAt - prefer createdAt, else created_at
+    if (colSet.has('createdAt')) selectParts.push('createdAt');
+    else if (colSet.has('created_at')) selectParts.push('created_at as createdAt');
+    else selectParts.push('NOW() as createdAt');
+
+    const sql = `SELECT ${selectParts.join(', ')} FROM feedbacks ORDER BY createdAt DESC LIMIT 100`;
+    const [rows] = await pool.execute(sql);
+
+    // Add business names where available
+    const feedbacks = await Promise.all((rows || []).map(async (f) => {
+      try {
+        if (f.business_id) {
+          const [biz] = await pool.execute('SELECT name FROM businesses WHERE id = ?', [f.business_id]);
+          return { ...f, businessName: biz && biz[0] ? biz[0].name : 'Unknown' };
+        }
+        return { ...f, businessName: f.subject || 'Unknown' };
+      } catch (e) {
+        return { ...f, businessName: f.subject || 'Unknown' };
+      }
+    }));
+
+    res.json({ feedbacks });
+  } catch (err) {
+    console.error('GET /api/super-admin/feedbacks error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err.message || 'Failed to fetch feedbacks' });
+  }
+});
+
+// PUT update feedback status (for Super Admin)
+app.put('/api/super-admin/feedbacks/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'Status required' });
+    
+    await pool.execute('UPDATE feedbacks SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE feedback (for Super Admin)
+app.delete('/api/super-admin/feedbacks/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    await pool.execute('DELETE FROM feedbacks WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET super admin settings (landing page config)
+// PUBLIC endpoint - get landing page settings (no auth required)
+app.get('/api/landing/settings', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    const settings = rows && rows[0] ? rows[0] : {};
+    
+    // Parse JSON fields if they exist
+    if (settings.landing_content && typeof settings.landing_content === 'string') {
+      settings.landing_content = JSON.parse(settings.landing_content);
+    }
+    
+    res.json(settings);
+  } catch (err) {
+    console.error('GET /api/landing/settings error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/super-admin/settings', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    // For super admin, we store a global settings record with special business_id
+    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    const settings = rows && rows[0] ? rows[0] : {};
+    
+    // Parse JSON fields if they exist
+    if (settings.landing_content && typeof settings.landing_content === 'string') {
+      settings.landing_content = JSON.parse(settings.landing_content);
+    }
+    
+    res.json(settings);
+  } catch (err) {
+    console.error('GET /api/super-admin/settings error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST super admin settings (landing page config)
+app.post('/api/super-admin/settings', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { landingContent } = req.body;
+    
+    if (!landingContent) {
+      return res.status(400).json({ error: 'Landing content is required' });
+    }
+
+    // Check if global settings exist
+    const [existing] = await pool.execute('SELECT business_id FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    
+    const landingContentJson = typeof landingContent === 'string' ? landingContent : JSON.stringify(landingContent);
+    
+    if (existing && existing[0]) {
+      // Update existing
+      await pool.execute(
+        'UPDATE settings SET landing_content = ? WHERE business_id = "super_admin_global"',
+        [landingContentJson]
+      );
+    } else {
+      // Insert new
+      await pool.execute(
+        'INSERT INTO settings (business_id, landing_content) VALUES ("super_admin_global", ?)',
+        [landingContentJson]
+      );
+    }
+
+    res.json({ success: true, message: 'Landing page configuration saved' });
+  } catch (err) {
+    console.error('POST /api/super-admin/settings error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all businesses data (for Super Admin dashboard)
+app.get('/api/super-admin/all-data', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const [businesses] = await pool.execute(
+      'SELECT id, name, email, status, paymentStatus, registeredAt FROM businesses ORDER BY registeredAt DESC'
+    );
+    
+    const businessesData = await Promise.all((businesses || []).map(async (b) => {
+      try {
+        const [employees] = await pool.execute('SELECT id, name, email, role_id FROM employees WHERE business_id = ?', [b.id]);
+        const [settings] = await pool.execute('SELECT name, currency FROM settings WHERE business_id = ?', [b.id]);
+        const [products] = await pool.execute('SELECT COUNT(*) as cnt FROM products WHERE business_id = ?', [b.id]);
+        const [sales] = await pool.execute('SELECT COUNT(*) as cnt FROM sales WHERE business_id = ?', [b.id]);
+        
+        return {
+          business: b,
+          employees: employees || [],
+          settings: settings && settings[0] ? settings[0] : {},
+          stats: {
+            totalEmployees: (employees || []).length,
+            totalTransactions: sales && sales[0] ? sales[0].cnt : 0,
+            totalRevenue: 0
+          }
+        };
+      } catch (e) {
+        return {
+          business: b,
+          employees: [],
+          settings: {},
+          stats: {
+            totalEmployees: 0,
+            totalTransactions: 0,
+            totalRevenue: 0
+          }
+        };
+      }
+    }));
+    
+    res.json({ businessesData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET export business data
+app.get('/api/super-admin/export-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    const [business] = await pool.execute('SELECT * FROM businesses WHERE id = ?', [businessId]);
+    const [employees] = await pool.execute('SELECT * FROM employees WHERE business_id = ?', [businessId]);
+    const [settings] = await pool.execute('SELECT * FROM settings WHERE business_id = ?', [businessId]);
+    const [products] = await pool.execute('SELECT * FROM products WHERE business_id = ?', [businessId]);
+    const [sales] = await pool.execute('SELECT * FROM sales WHERE business_id = ? LIMIT 100', [businessId]);
+    
+    const data = {
+      business: business && business[0] ? business[0] : {},
+      employees: employees || [],
+      settings: settings || [],
+      products: products || [],
+      sales: sales || []
+    };
+    
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Apply schema.sql and ensure super admin on startup
 async function runMigrations() {
   try {
@@ -1751,6 +2376,26 @@ async function ensureSuperAdmin() {
   }
 }
 
+// Ensure global settings business record exists
+async function ensureGlobalSettingsBusiness() {
+  try {
+    const [existing] = await pool.execute('SELECT id FROM businesses WHERE id = "super_admin_global" LIMIT 1');
+    if (existing && existing[0]) {
+      return; // Already exists
+    }
+    
+    // Create the global settings business record
+    await pool.execute(
+      `INSERT INTO businesses (id, name, email, status, paymentStatus, registeredAt) 
+       VALUES ("super_admin_global", "Super Admin Global Settings", "global@omnisales.com", "active", "paid", NOW())`,
+      []
+    );
+    console.log('Global settings business record created.');
+  } catch (err) {
+    console.error('Failed to ensure global settings business:', err.message || err);
+  }
+}
+
 // Migrate any non-bcrypt passwords to bcrypt (idempotent)
 async function migratePlainPasswords() {
   try {
@@ -1853,6 +2498,7 @@ async function ensureDemoSeed() {
 async function startServer() {
   await runMigrations();
   await ensureSuperAdmin();
+  await ensureGlobalSettingsBusiness();
   await migratePlainPasswords();
   // Only run demo/seeding routines when SEED_DATABASE is explicitly enabled.
   // Default behaviour is to assume the database already contains required data.

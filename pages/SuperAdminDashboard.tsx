@@ -25,8 +25,22 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [viewReceipt, setViewReceipt] = useState<string | null>(null);
 
   useEffect(() => {
-    refreshData();
-    loadFeedbacks();
+    // Only fetch data once on component mount
+    const fetchData = async () => {
+      try {
+        const bizs = await db.superAdmin.getBusinesses();
+        setBusinesses(bizs || []);
+        
+        const plans = await db.superAdmin.getPlans();
+        setPlans(plans || []);
+
+        const fbks = await db.feedbacks.getAll();
+        setFeedbacks(fbks || []);
+      } catch (e) {
+        console.error('Failed to load initial data:', e);
+      }
+    };
+    fetchData();
   }, []);
 
   const loadFeedbacks = async () => {
@@ -41,21 +55,19 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const refreshData = async () => {
     try {
       const bizs = await db.superAdmin.getBusinesses();
-      console.log('Super Admin - Loaded businesses:', bizs);
       setBusinesses(bizs || []);
       
       const plans = await db.superAdmin.getPlans();
-      console.log('Super Admin - Loaded plans:', plans);
       setPlans(plans || []);
     } catch (e) {
       console.error('Failed to refresh data:', e);
     }
   };
 
-  // Load business data when switching businesses or viewing data tab
+  // Load business data when viewing data tab
   useEffect(() => {
     const loadBusinessData = async () => {
-      if (selectedBusiness && (activeTab === 'data' || activeTab === 'payments' || activeTab === 'approvals')) {
+      if (activeTab === 'data' || activeTab === 'payments' || activeTab === 'approvals') {
         try {
           const data = {
             products: await db.products.getAll().catch(() => []),
@@ -71,7 +83,7 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
       }
     };
     loadBusinessData();
-  }, [selectedBusiness, activeTab]);
+  }, [activeTab]);
 
   const toggleStatus = (b: Business) => {
       const newStatus = b.status === 'active' ? 'suspended' : 'active';

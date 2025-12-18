@@ -89,6 +89,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             onChange={e => setPassword(e.target.value)}
                         />
                     </div>
+                    <p className="mt-2 text-xs text-brand-600 cursor-pointer hover:underline" onClick={() => navigate('/forgot-password')}>
+                        Forgot password?
+                    </p>
                 </div>
 
                 <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg shadow-lg shadow-brand-500/30 transition-all">

@@ -13,11 +13,10 @@ const BusinessSwitcher: React.FC<BusinessSwitcherProps> = ({ collapsed = false }
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    // Load businesses from super admin
+    // Load businesses from super admin only once on mount
     const loadBusinesses = async () => {
       try {
         const bizs = await db.superAdmin.getBusinesses();
-        console.log('Loaded businesses:', bizs);
         setBusinesses(bizs || []);
         
         // Auto-select first business or last selected
@@ -33,7 +32,7 @@ const BusinessSwitcher: React.FC<BusinessSwitcherProps> = ({ collapsed = false }
     };
     
     loadBusinesses();
-  }, [setBusinesses, setSelectedBusiness]);
+  }, []);
 
   return (
     <div className={`${collapsed ? 'px-2' : 'px-4'} py-3 border-b border-slate-700`}>

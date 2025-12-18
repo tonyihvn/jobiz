@@ -1,27 +1,118 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingBag, Users, TrendingUp, Shield, Smartphone, Globe, CheckCircle, ArrowRight, Menu, X } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
 
+interface LandingSettings {
+  hero?: { title: string; subtitle: string; backgroundImage: string };
+  features?: Array<{ title: string; desc: string }>;
+  plans?: Array<{ name: string; price: number | string; period: string; features: string[]; recommended?: boolean }>;
+  testimonials?: Array<{ name: string; quote: string }>;
+  cta?: { heading: string; subtext: string; buttonText: string; buttonUrl: string };
+  footer?: { text: string; copyrightYear: number };
+  navbar?: { companyName: string; whatsappNumber: string; logo?: string };
+}
+
+const DEFAULT_SETTINGS: LandingSettings = {
+  hero: {
+    title: "Manage your entire business in one tab.",
+    subtitle: "The all-in-one platform for Retail, Art Schools, and Community Memberships. POS, Inventory, Finance, and CRM unified.",
+    backgroundImage: ""
+  },
+  features: [
+    { title: "Smart POS System", desc: "Thermal & A4 receipts, barcode support, and instant stock updates." },
+    { title: "Membership Mgmt", desc: "Handle community subscriptions and recurring payments effortlessly." },
+    { title: "Finance & HR", desc: "Track revenue, expenses, and manage employee payroll in one place." },
+    { title: "Role-Based Access", desc: "Granular permissions for Admins, Managers, and Cashiers." }
+  ],
+  plans: [
+    { name: "Starter", price: 29, period: "/mo", features: ["1 User Admin", "Basic POS", "Inventory Mgmt", "100 Products", "Email Support"] },
+    { name: "Professional", price: 79, period: "/mo", features: ["5 Users", "Advanced POS & Returns", "Finance Module", "Unlimited Products", "Priority Support", "Membership System"], recommended: true },
+    { name: "Enterprise", price: "Custom", period: "", features: ["Unlimited Users", "Multi-Branch Support", "Dedicated Manager", "API Access", "White Labeling"] }
+  ],
+  testimonials: [
+    { name: "John Doe", quote: "OmniSales transformed our retail operations completely!" },
+    { name: "Jane Smith", quote: "The best investment we made for our business." }
+  ],
+  cta: {
+    heading: "Ready to modernize your business?",
+    subtext: "Join hundreds of businesses already using OmniSales.",
+    buttonText: "Get Started",
+    buttonUrl: "/register"
+  },
+  footer: {
+    text: "The all-in-one platform for managing your entire business.",
+    copyrightYear: new Date().getFullYear()
+  },
+  navbar: {
+    companyName: "OmniSales",
+    whatsappNumber: "2347076973091",
+    logo: ""
+  }
+};
+
 const Landing = () => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+  const [settings, setSettings] = React.useState<LandingSettings>(DEFAULT_SETTINGS);
+  const [formData, setFormData] = React.useState({
+    companyName: '',
+    fullName: '',
+    email: '',
+    message: ''
+  });
+  const [submitting, setSubmitting] = React.useState(false);
+  const [submitStatus, setSubmitStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
   const { symbol } = useCurrency();
 
-  const features = [
-    { icon: ShoppingBag, title: "Smart POS System", desc: "Thermal & A4 receipts, barcode support, and instant stock updates." },
-    { icon: Users, title: "Membership Mgmt", desc: "Handle community subscriptions and recurring payments effortlessly." },
-    { icon: TrendingUp, title: "Finance & HR", desc: "Track revenue, expenses, and manage employee payroll in one place." },
-    { icon: Shield, title: "Role-Based Access", desc: "Granular permissions for Admins, Managers, and Cashiers." },
-  ];
+  useEffect(() => {
+    fetchLandingSettings();
+  }, []);
 
-  const plans = [
-    { name: "Starter", price: 29, period: "/mo", features: ["1 User Admin", "Basic POS", "Inventory Mgmt", "100 Products", "Email Support"] },
-    { name: "Professional", price: 79, period: "/mo", features: ["5 Users", "Advanced POS & Returns", "Finance Module", "Unlimited Products", "Priority Support", "Membership System"], recommended: true },
-    { name: "Enterprise", price: 'Custom', period: "", features: ["Unlimited Users", "Multi-Branch Support", "Dedicated Manager", "API Access", "White Labeling"] },
-  ];
+  const fetchLandingSettings = async () => {
+    try {
+      const response = await fetch('/api/landing/settings');
+      if (response.ok) {
+        const data = await response.json();
+        const landingContent = data.landing_content || data.landingContent;
+        if (landingContent && Object.keys(landingContent).length > 0) {
+          setSettings(landingContent);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch landing settings:', error);
+    }
+  };
 
-    const PlanCard: React.FC<{plan: any}> = ({ plan }) => (
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const response = await fetch('/api/feedbacks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.fullName,
+          email: formData.email,
+          message: `Company: ${formData.companyName}\n\n${formData.message}`
+        })
+      });
+      if (response.ok) {
+        setSubmitStatus('success');
+        setFormData({ companyName: '', fullName: '', email: '', message: '' });
+        setTimeout(() => setSubmitStatus('idle'), 3000);
+      } else {
+        setSubmitStatus('error');
+      }
+    } catch (error) {
+      console.error('Failed to submit feedback:', error);
+      setSubmitStatus('error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const PlanCard: React.FC<{plan: any}> = ({ plan }) => (
     <div className={`rounded-2xl p-8 border ${plan.recommended ? 'border-brand-500 shadow-2xl relative' : 'border-slate-200 bg-slate-50/50'}`}>
       {plan.recommended && <span className="absolute -top-4 left-1/2 -translate-x-1/2 bg-brand-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Most Popular</span>}
       <h3 className="font-bold text-xl text-slate-900">{plan.name}</h3>
@@ -30,7 +121,7 @@ const Landing = () => {
         <span className="text-slate-500">{plan.period}</span>
       </div>
       <ul className="space-y-4 mb-8">
-        {plan.features.map((feat: string, j: number) => (
+        {(plan.features || []).map((feat: string, j: number) => (
           <li key={j} className="flex items-center gap-3 text-sm text-slate-600">
             <CheckCircle size={16} className="text-brand-600 shrink-0"/> {feat}
           </li>
@@ -40,7 +131,7 @@ const Landing = () => {
         Choose {plan.name}
       </button>
     </div>
-    );
+  );
 
   return (
     <div className="min-h-screen bg-white font-sans text-slate-900">
@@ -49,10 +140,14 @@ const Landing = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center gap-2">
-              <div className="bg-brand-600 text-white p-1.5 rounded-lg">
-                <Globe size={24} />
-              </div>
-              <span className="font-bold text-xl tracking-tight text-slate-900">OmniSales</span>
+              {settings.navbar?.logo ? (
+                <img src={settings.navbar.logo} alt="Logo" className="h-10 object-contain" />
+              ) : (
+                <div className="bg-brand-600 text-white p-1.5 rounded-lg">
+                  <Globe size={24} />
+                </div>
+              )}
+              <span className="font-bold text-xl tracking-tight text-slate-900">{settings.navbar?.companyName || 'OmniSales'}</span>
             </div>
             
             <div className="hidden md:flex items-center gap-8">
@@ -87,12 +182,10 @@ const Landing = () => {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-brand-50 rounded-full blur-3xl opacity-50 -z-10" />
         <div className="max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-5xl lg:text-7xl font-extrabold text-slate-900 tracking-tight mb-6">
-            Manage your entire business <br/>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-indigo-600">in one tab.</span>
+            {settings.hero?.title || DEFAULT_SETTINGS.hero?.title}
           </h1>
           <p className="text-lg text-slate-500 mb-10 max-w-2xl mx-auto leading-relaxed">
-            The all-in-one platform for Retail, Art Schools, and Community Memberships. 
-            POS, Inventory, Finance, and CRM unified.
+            {settings.hero?.subtitle || DEFAULT_SETTINGS.hero?.subtitle}
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button onClick={() => navigate('/register')} className="px-8 py-4 bg-brand-600 text-white rounded-full font-bold text-lg hover:bg-brand-700 transition-all shadow-xl shadow-brand-500/20 flex items-center justify-center gap-2">
@@ -122,14 +215,14 @@ const Landing = () => {
         <div className="max-w-7xl mx-auto px-4">
             <div className="text-center mb-16">
                 <h2 className="text-3xl font-bold text-slate-900">Everything you need to grow</h2>
-                <p className="text-slate-500 mt-2">Replace 5 different tools with OmniSales.</p>
+                <p className="text-slate-500 mt-2">Replace 5 different tools with {settings.navbar?.companyName || 'OmniSales'}.</p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {features.map((f, i) => (
+                {(settings.features || DEFAULT_SETTINGS.features || []).map((f: any, i: number) => (
                     <div key={i} className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 hover:-translate-y-1 transition-transform">
                         <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-xl flex items-center justify-center mb-6">
-                            <f.icon size={24} />
+                            <ShoppingBag size={24} />
                         </div>
                         <h3 className="font-bold text-xl mb-3">{f.title}</h3>
                         <p className="text-slate-500 leading-relaxed">{f.desc}</p>
@@ -148,36 +241,70 @@ const Landing = () => {
             </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-                {plans.map((plan, i) => (
+                {(settings.plans || DEFAULT_SETTINGS.plans || []).map((plan: any, i: number) => (
                   <PlanCard key={i} plan={plan} />
                 ))}
             </div>
         </div>
       </section>
 
+      {/* Testimonials */}
+      {(settings.testimonials || []).length > 0 && (
+        <section className="py-20 bg-slate-50">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-3xl font-bold text-slate-900">What our users say</h2>
+              <p className="text-slate-500 mt-2">Trusted by businesses worldwide</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              {(settings.testimonials || []).map((t: any, i: number) => (
+                <div key={i} className="bg-white p-8 rounded-2xl border border-slate-200">
+                  <p className="text-slate-600 mb-4">"{t.quote}"</p>
+                  <p className="font-bold text-slate-900">{t.name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Enquiry Form */}
       <section id="contact" className="py-20 bg-slate-900 text-white">
           <div className="max-w-4xl mx-auto px-4 text-center">
-              <h2 className="text-3xl font-bold mb-8">Ready to modernize your business?</h2>
+              <h2 className="text-3xl font-bold mb-8">{settings.cta?.heading || DEFAULT_SETTINGS.cta?.heading}</h2>
               <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl border border-white/10 text-left">
-                  <form className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="md:col-span-2">
-                          <label className="block text-sm font-medium text-slate-300 mb-1">Company Name</label>
-                          <input type="text" className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
-                      </div>
-                      <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
-                          <input type="text" className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                  <form onSubmit={handleFeedbackSubmit} className="space-y-6">
+                      {submitStatus === 'success' && (
+                          <div className="bg-green-500/20 border border-green-500 text-green-200 px-4 py-3 rounded-lg text-sm">
+                              Thank you! We'll get back to you soon.
+                          </div>
+                      )}
+                      {submitStatus === 'error' && (
+                          <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm">
+                              Failed to send. Please try again.
+                          </div>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">Company Name</label>
+                              <input type="text" required value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">Full Name</label>
+                              <input type="text" required value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                          </div>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                          <input type="email" className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                          <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
                       </div>
-                      <div className="md:col-span-2">
-                           <button type="button" className="w-full bg-brand-500 hover:bg-brand-600 py-4 rounded-lg font-bold text-lg transition-all">
-                               Send Enquiry
-                           </button>
+                      <div>
+                          <label className="block text-sm font-medium text-slate-300 mb-1">Message</label>
+                          <textarea required value={formData.message} onChange={e => setFormData({...formData, message: e.target.value})} rows={5} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Tell us about your business needs..."/>
                       </div>
+                      <button type="submit" disabled={submitting} className="w-full bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400 py-3 rounded-lg font-bold text-lg transition-all">
+                          {submitting ? 'Sending...' : 'Send Enquiry'}
+                      </button>
                   </form>
               </div>
           </div>
@@ -185,14 +312,15 @@ const Landing = () => {
 
       {/* Footer */}
       <footer className="py-8 bg-slate-950 text-slate-500 text-sm text-center">
-          <p>&copy; {new Date().getFullYear()} OmniSales Manager. All rights reserved.</p>
+          <p>&copy; {settings.footer?.copyrightYear || new Date().getFullYear()} {settings.navbar?.companyName || 'OmniSales'} Manager. All rights reserved.</p>
       </footer>
+
       {/* WhatsApp Floating Chat Button */}
       <a
-        href="https://wa.me/2347076973091?text=Hello%20OmniSales%20team%2C%20I%20need%20help"
+        href={`https://wa.me/${settings.navbar?.whatsappNumber || DEFAULT_SETTINGS.navbar?.whatsappNumber}?text=Hello%20${settings.navbar?.companyName || 'OmniSales'}%20team%2C%20I%20need%20help`}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="Chat with OmniSales on WhatsApp"
+        aria-label={`Chat with ${settings.navbar?.companyName || 'OmniSales'} on WhatsApp`}
         className="fixed right-4 bottom-4 z-50 no-print"
       >
         <div className="w-14 h-14 rounded-full bg-[#25D366] shadow-lg flex items-center justify-center text-white hover:scale-105 transition-transform">

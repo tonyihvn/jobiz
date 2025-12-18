@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS employees (
   unit VARCHAR(64) DEFAULT NULL,
   notes TEXT,
   default_location_id VARCHAR(64) DEFAULT NULL,
+  email_verified TINYINT(1) DEFAULT 0,
+  email_verified_at TIMESTAMP NULL,
+  account_approved TINYINT(1) DEFAULT 0,
+  account_approved_at TIMESTAMP NULL,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
 
@@ -281,10 +285,61 @@ CREATE TABLE IF NOT EXISTS feedbacks (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
   message TEXT NOT NULL,
-  status ENUM('new', 'reviewed', 'resolved') DEFAULT 'new',
+  subject VARCHAR(255),
+  business_id VARCHAR(255),
+  rating INT DEFAULT 0,
+  status ENUM('new', 'reviewed', 'resolved', 'unread', 'read') DEFAULT 'new',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (status),
   INDEX (created_at)
+);
+
+-- Password reset tokens table
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id VARCHAR(255) PRIMARY KEY,
+  email VARCHAR(255) NOT NULL,
+  token VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (email),
+  INDEX (expires_at)
+);
+
+-- Email verification tokens
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  id VARCHAR(255) PRIMARY KEY,
+  employee_id VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  token VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (email),
+  INDEX (employee_id),
+  INDEX (expires_at),
+  FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+);
+
+-- Business payments
+CREATE TABLE IF NOT EXISTS business_payments (
+  id VARCHAR(255) PRIMARY KEY,
+  business_id VARCHAR(255) NOT NULL,
+  payment_type ENUM('subscription', 'one-time') DEFAULT 'subscription',
+  plan_id VARCHAR(255),
+  amount DECIMAL(12, 2) NOT NULL,
+  currency VARCHAR(10) DEFAULT 'USD',
+  card_last_four VARCHAR(4),
+  card_brand VARCHAR(50),
+  status ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'pending',
+  approved_by VARCHAR(255),
+  approved_at TIMESTAMP NULL,
+  billing_cycle_start DATETIME,
+  billing_cycle_end DATETIME,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (business_id),
+  INDEX (status),
+  INDEX (created_at),
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
 
 -- Plans table for subscription management

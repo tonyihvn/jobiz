@@ -146,16 +146,22 @@ const Register = () => {
                      <div className="bg-amber-50 border border-amber-200 rounded p-3 mt-4">
                          <p className="font-semibold text-amber-900 mb-2">🔄 What Happens Next:</p>
                          <ol className="text-amber-800 text-left space-y-1">
-                             <li>1. Verify your email address (check your inbox)</li>
-                             <li>2. Complete payment to activate your account</li>
-                             <li>3. Our team will review and approve your registration</li>
-                             <li>4. You'll receive an activation email to start using OmniSales</li>
+                             <li>1. ✅ Check your inbox for the verification email</li>
+                             <li>2. 🔗 Click the verification link in the email</li>
+                             <li>3. 💳 Complete payment details on the next page</li>
+                             <li>4. ⏳ Wait for our team to approve your registration</li>
+                             <li>5. 🚀 You'll be ready to access OmniSales!</li>
                          </ol>
                      </div>
                  </div>
-                 <button onClick={() => navigate('/login')} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-800">
-                     Return to Login
-                 </button>
+                 <div className="space-y-2">
+                     <p className="text-xs text-slate-400">
+                         Didn't receive the email? Check your spam folder or contact support.
+                     </p>
+                     <button onClick={() => navigate('/login')} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-800">
+                         Return to Login
+                     </button>
+                 </div>
             </div>
         )}
       </div>

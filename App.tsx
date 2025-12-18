@@ -23,7 +23,17 @@ import Login from './pages/Login';
 import Landing from './pages/Landing';
 import Register from './pages/Register';
 import Payment from './pages/Payment';
+import VerifyEmail from './pages/VerifyEmail';
+import PaymentRegistration from './pages/PaymentRegistration';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import SuperAdminApprovals from './pages/SuperAdminApprovals';
+import SuperAdminPayments from './pages/SuperAdminPayments';
+import SuperAdminActivation from './pages/SuperAdminActivation';
+import SuperAdminFeedbacks from './pages/SuperAdminFeedbacks';
+import SuperAdminData from './pages/SuperAdminData';
+import SuperAdminLandingConfig from './pages/SuperAdminLandingConfig';
 import db from './services/apiClient';
 import { CurrencyProvider } from './services/CurrencyContext';
 import { BusinessProvider } from './services/BusinessContext';
@@ -94,6 +104,10 @@ const App = () => {
             <Route path="/landing" element={<Landing />} />
             <Route path="/register" element={<Register />} />
             <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login onLogin={handleLogin} />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/payment-registration" element={<PaymentRegistration />} />
             
             {/* Payment Route - Accessible if authenticated but not active */}
             <Route path="/payment" element={isAuthenticated ? <Payment /> : <Navigate to="/login" />} />
@@ -104,56 +118,34 @@ const App = () => {
                 !isSuperAdmin && !isActiveBusiness ? <Navigate to="/payment" /> :
                 <Layout onLogout={handleLogout} />
             }>
-                 {isSuperAdmin || (
-                     <>
-                        <Route index element={<Dashboard />} />
-                        <Route path="pos" element={<POS />} />
-                        <Route path="inventory/:group" element={<Inventory />} />
-                        <Route path="stock" element={<Stock />} />
-                        <Route path="suppliers" element={<Suppliers />} />
-                        <Route path="clients" element={<Customers />} />
-                        <Route path="services/:group" element={<Services />} />
-                        <Route path="courses" element={<Courses />} />
-                        <Route path="sales-history" element={<SalesHistory />} />
-                        <Route path="service-history" element={<ServiceHistory />} />
-                        <Route path="finance" element={<Finance />} />
-                        <Route path="tasks" element={<Tasks />} />
-                        <Route path="reports" element={<Reports />} />
-                        <Route path="audit-trails" element={<AuditTrails />} />
-                        <Route path="admin" element={<Admin />} />
-                        <Route path="communications" element={<Communications />} />
-                        <Route path="settings" element={<Settings />} />
-                          <Route path="categories" element={<CategoriesPage />} />
-                     </>
-                 )}
-                 {isSuperAdmin && (
-                     <>
-                        <Route index element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        <Route path="super-admin/approvals" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        <Route path="super-admin/payments" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        <Route path="super-admin/activation" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        <Route path="super-admin/feedbacks" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        <Route path="super-admin/data" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                        {/* Super admin can also see all regular business pages when switched to a business */}
-                        <Route path="pos" element={<POS />} />
-                        <Route path="inventory/:group" element={<Inventory />} />
-                        <Route path="stock" element={<Stock />} />
-                        <Route path="suppliers" element={<Suppliers />} />
-                        <Route path="clients" element={<Customers />} />
-                        <Route path="services/:group" element={<Services />} />
-                        <Route path="courses" element={<Courses />} />
-                        <Route path="sales-history" element={<SalesHistory />} />
-                        <Route path="service-history" element={<ServiceHistory />} />
-                        <Route path="finance" element={<Finance />} />
-                        <Route path="tasks" element={<Tasks />} />
-                        <Route path="reports" element={<Reports />} />
-                        <Route path="audit-trails" element={<AuditTrails />} />
-                        <Route path="admin" element={<Admin />} />
-                        <Route path="communications" element={<Communications />} />
-                        <Route path="settings" element={<Settings />} />
-                        <Route path="categories" element={<CategoriesPage />} />
-                     </>
-                 )}
+                 {/* Index Route - Redirect super admin to dashboard */}
+                 <Route index element={isSuperAdmin ? <SuperAdminDashboard onLogout={handleLogout} /> : <Dashboard />} />
+                 <Route path="pos" element={<POS />} />
+                 <Route path="inventory/:group" element={<Inventory />} />
+                 <Route path="stock" element={<Stock />} />
+                 <Route path="suppliers" element={<Suppliers />} />
+                 <Route path="clients" element={<Customers />} />
+                 <Route path="services/:group" element={<Services />} />
+                 <Route path="courses" element={<Courses />} />
+                 <Route path="sales-history" element={<SalesHistory />} />
+                 <Route path="service-history" element={<ServiceHistory />} />
+                 <Route path="finance" element={<Finance />} />
+                 <Route path="tasks" element={<Tasks />} />
+                 <Route path="reports" element={<Reports />} />
+                 <Route path="audit-trails" element={<AuditTrails />} />
+                 <Route path="admin" element={<Admin />} />
+                 <Route path="communications" element={<Communications />} />
+                 <Route path="settings" element={<Settings />} />
+                 <Route path="categories" element={<CategoriesPage />} />
+
+                 {/* Super Admin Routes - Always defined, permission checked in components */}
+                 <Route path="super-admin" element={<SuperAdminDashboard onLogout={handleLogout} />} />
+                 <Route path="super-admin/approvals" element={<SuperAdminApprovals />} />
+                 <Route path="super-admin/payments" element={<SuperAdminPayments />} />
+                 <Route path="super-admin/activation" element={<SuperAdminActivation />} />
+                 <Route path="super-admin/feedbacks" element={<SuperAdminFeedbacks />} />
+                 <Route path="super-admin/data" element={<SuperAdminData />} />
+                 <Route path="super-admin/landing-config" element={<SuperAdminLandingConfig />} />
             </Route>
           </Routes>
         </Router>

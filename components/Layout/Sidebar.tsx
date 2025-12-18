@@ -209,6 +209,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
         { id: 'business_activation', to: '/super-admin/activation', icon: AlertTriangle, label: 'Activation' },
         { id: 'feedbacks', to: '/super-admin/feedbacks', icon: MessageSquare, label: 'Feedbacks' },
         { id: 'all_data', to: '/super-admin/data', icon: Package, label: 'Business Data' },
+        { id: 'landing_config', to: '/super-admin/landing-config', icon: Settings2, label: 'Landing Page' },
       ]
     }
   ];
