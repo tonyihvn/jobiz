@@ -503,13 +503,13 @@ app.post('/api/register', async (req, res) => {
                   </div>
                   
                   <p style="color: #6b7280; font-size: 13px;">
-                    Questions? Reply to this email or contact our support team at <a href="mailto:support@jobiz.ng" style="color: #3b82f6;">support@omnisales.com</a>
+                    Questions? Reply to this email or contact our support team at <a href="mailto:support@jobiz.ng" style="color: #3b82f6;">support@jobiz.ng</a>
                   </p>
                 </div>
                 
                 <div class="footer">
                   <p style="margin: 0;">
-                    © ${new Date().getFullYear()} OmniSales. All rights reserved.<br>
+                    © ${new Date().getFullYear()} JOBIZ. All rights reserved.<br>
                     <a href="${appUrl}" style="color: #3b82f6; text-decoration: none;">Visit Our Website</a>
                   </p>
                 </div>
@@ -538,9 +538,9 @@ app.post('/api/register', async (req, res) => {
 
     // Send notification email to super admin
     try {
-      const adminEmail = process.env.SMTP_USER || 'admin@omnisales.com';
+      const adminEmail = process.env.SMTP_USER || 'admin@jobiz.ng';
       const mailOptions = {
-        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        from: process.env.SMTP_FROM || 'noreply@jobiz.ng',
         to: adminEmail,
         subject: `New Registration: ${companyName}`,
         html: `
@@ -578,7 +578,7 @@ app.post('/api/register', async (req, res) => {
         );
 
         // Send OTP via SMS
-        const smsMessage = `Your OmniSales verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
+        const smsMessage = `Your JOBIZ verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
         
         // Use SMSLive247 if configured
         if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
@@ -3132,6 +3132,104 @@ app.post('/api/test-email', async (req, res) => {
   } catch (err) {
     console.error('Test email error:', err.message);
     res.status(500).json({ error: err.message || 'Failed to send test email' });
+  }
+});
+
+// TEST SMS ENDPOINT (for debugging)
+app.post('/api/test-sms', async (req, res) => {
+  const { phone, message } = req.body;
+  if (!phone) return res.status(400).json({ error: 'Phone number required' });
+  if (!message) return res.status(400).json({ error: 'Message required' });
+  
+  try {
+    console.log('Testing SMS to:', phone);
+    console.log('SMS Config:', {
+      provider: process.env.SMS_PROVIDER || 'not-configured',
+      apiKey: process.env.SMSLIVE_API_KEY ? '***set***' : 'not-set',
+      sender: process.env.SMSLIVE_SENDER || 'not-configured'
+    });
+    
+    // Use SMSLive247 if configured
+    if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
+      try {
+        const https = await import('https');
+        const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
+        // Remove + sign from phone for SMS gateway
+        const phoneForSMS = phone.replace(/^\+/, '');
+        const payload = {
+          api_key: process.env.SMSLIVE_API_KEY,
+          sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
+          messages: [{ to: phoneForSMS, message: message }]
+        };
+
+        console.log('SMS Payload:', {
+          to: phoneForSMS,
+          sender: payload.sender,
+          message: message,
+          url: url.href
+        });
+
+        const smsTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('SMS sending timeout')), 15000)
+        );
+
+        const sendSmsPromise = new Promise((resolve, reject) => {
+          const reqOpts = {
+            method: 'POST',
+            hostname: url.hostname,
+            port: url.port || 443,
+            path: url.pathname + (url.search || ''),
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
+              'Accept': 'application/json'
+            }
+          };
+
+          const request = https.request(reqOpts, (resp) => {
+            let data = '';
+            resp.on('data', (chunk) => { data += chunk; });
+            resp.on('end', () => {
+              try {
+                const parsed = JSON.parse(data || '{}');
+                console.log('SMS Response:', { statusCode: resp.statusCode, data: parsed });
+                if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
+                  resolve(parsed);
+                } else {
+                  reject(new Error('SMS provider error: ' + (parsed.message || 'Unknown error')));
+                }
+              } catch (e) {
+                reject(new Error('SMS provider returned invalid JSON: ' + data));
+              }
+            });
+          });
+
+          request.on('error', (e) => {
+            reject(new Error('Failed to contact SMS provider: ' + (e && e.message ? e.message : String(e))));
+          });
+          request.write(JSON.stringify(payload));
+          request.end();
+        });
+
+        const result = await Promise.race([sendSmsPromise, smsTimeout]);
+        console.log('✅ SMS sent successfully to', phone);
+        res.json({ success: true, message: 'SMS sent successfully!', response: result });
+      } catch (err) {
+        console.error('❌ Failed to send SMS to', phone, ':', err.message);
+        res.status(500).json({ error: 'Failed to send SMS: ' + err.message });
+      }
+    } else {
+      res.status(400).json({ 
+        error: 'SMS not configured', 
+        config: {
+          provider: process.env.SMS_PROVIDER || 'not-set',
+          apiKey: process.env.SMSLIVE_API_KEY ? 'set' : 'not-set'
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Test SMS error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to send test SMS' });
   }
 });
 
