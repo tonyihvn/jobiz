@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Power, Zap, Download } from 'lucide-react';
+import { Power, Zap, Download, Trash2 } from 'lucide-react';
 import { Business } from '../types';
 import { getToken } from '../services/auth';
 
@@ -70,6 +70,28 @@ const SuperAdminActivation = () => {
     }
   };
 
+  const deleteBusiness = async (businessId: string) => {
+    if (!window.confirm('Are you sure you want to delete this business? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/super-admin/delete-business/${businessId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      if (response.ok) {
+        fetchBusinesses();
+      } else {
+        alert('Failed to delete business');
+      }
+    } catch (error) {
+      console.error('Failed to delete business:', error);
+      alert('Error deleting business');
+    }
+  };
+
 return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -134,17 +156,26 @@ return (
                     {new Date(business.registeredAt).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 text-sm">
-                    <button
-                      onClick={() => toggleBusinessStatus(business.id, business.status === 'active' ? 'suspended' : 'active')}
-                      className={`inline-flex items-center gap-2 px-3 py-1 rounded font-medium transition-colors ${
-                        business.status === 'active'
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-green-100 text-green-700 hover:bg-green-200'
-                      }`}
-                    >
-                      <Zap className="w-4 h-4" />
-                      {business.status === 'active' ? 'Suspend' : 'Activate'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => toggleBusinessStatus(business.id, business.status === 'active' ? 'suspended' : 'active')}
+                        className={`inline-flex items-center gap-2 px-3 py-1 rounded font-medium transition-colors ${
+                          business.status === 'active'
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
+                      >
+                        <Zap className="w-4 h-4" />
+                        {business.status === 'active' ? 'Suspend' : 'Activate'}
+                      </button>
+                      <button
+                        onClick={() => deleteBusiness(business.id)}
+                        className="inline-flex items-center gap-2 px-3 py-1 rounded font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

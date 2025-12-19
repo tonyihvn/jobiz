@@ -60,12 +60,12 @@ const DEFAULT_SETTINGS: LandingSettings = {
     { name: "Enterprise", price: "Custom", period: "", features: ["Unlimited Users", "Multi-Branch Support", "Dedicated Manager", "API Access", "White Labeling"] }
   ],
   testimonials: [
-    { name: "John Doe", quote: "OmniSales transformed our retail operations completely!" },
+    { name: "John Doe", quote: "JOBIZ transformed our retail operations completely!" },
     { name: "Jane Smith", quote: "The best investment we made for our business." }
   ],
   cta: {
     heading: "Ready to modernize your business?",
-    subtext: "Join hundreds of businesses already using OmniSales.",
+    subtext: "Join hundreds of businesses already using JOBIZ.",
     buttonText: "Get Started",
     buttonUrl: "/register"
   },
@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS: LandingSettings = {
     copyrightYear: new Date().getFullYear()
   },
   navbar: {
-    companyName: "OmniSales",
+    companyName: "JOBIZ",
     whatsappNumber: "2347076973091",
     logo: ""
   }
@@ -222,7 +222,7 @@ const Landing = () => {
                   <Globe size={24} />
                 </div>
               )}
-              <span className="font-bold text-xl tracking-tight text-slate-900">{settings.navbar?.companyName || 'OmniSales'}</span>
+              <span className="font-bold text-xl tracking-tight text-slate-900">{settings.navbar?.companyName || 'JOBIZ'}</span>
             </div>
             
             <div className="hidden md:flex items-center gap-8">
@@ -326,7 +326,7 @@ const Landing = () => {
         <div className="max-w-7xl mx-auto px-4">
             <div className="text-center mb-16">
                 <h2 className="text-3xl font-bold text-slate-900">Everything you need to grow</h2>
-                <p className="text-slate-500 mt-2">Replace 5 different tools with {settings.navbar?.companyName || 'OmniSales'}.</p>
+                <p className="text-slate-500 mt-2">Replace 5 different tools with {settings.navbar?.companyName || 'JOBIZ'}.</p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -434,15 +434,15 @@ const Landing = () => {
 
       {/* Footer */}
       <footer className="py-8 bg-slate-950 text-slate-500 text-sm text-center">
-          <p>&copy; {settings.footer?.copyrightYear || new Date().getFullYear()} {settings.navbar?.companyName || 'OmniSales'} Manager. All rights reserved.</p>
+          <p>&copy; {settings.footer?.copyrightYear || new Date().getFullYear()} {settings.navbar?.companyName || 'JOBIZ'} Manager. All rights reserved.</p>
       </footer>
 
       {/* WhatsApp Floating Chat Button */}
       <a
-        href={`https://wa.me/${settings.navbar?.whatsappNumber || DEFAULT_SETTINGS.navbar?.whatsappNumber}?text=Hello%20${settings.navbar?.companyName || 'OmniSales'}%20team%2C%20I%20need%20help`}
+        href={`https://wa.me/${settings.navbar?.whatsappNumber || DEFAULT_SETTINGS.navbar?.whatsappNumber}?text=Hello%20${settings.navbar?.companyName || 'JOBIZ'}%20team%2C%20I%20need%20help`}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={`Chat with ${settings.navbar?.companyName || 'OmniSales'} on WhatsApp`}
+        aria-label={`Chat with ${settings.navbar?.companyName || 'JOBIZ'} on WhatsApp`}
         className="fixed right-4 bottom-4 z-50 no-print"
       >
         <div className="w-14 h-14 rounded-full bg-[#25D366] shadow-lg flex items-center justify-center text-white hover:scale-105 transition-transform">

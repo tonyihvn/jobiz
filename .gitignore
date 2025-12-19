@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 .env
 .cpanel.yml
+upload.ps1

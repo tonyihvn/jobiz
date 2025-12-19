@@ -80,7 +80,7 @@ const Reports = () => {
     };
 
     try {
-      if (db.reports && db.reports.save) await db.reports.save([report, ...(await (db.reports.getAll ? db.reports.getAll() : []))]);
+      if (db.reports && db.reports.add) await db.reports.add(report);
       else setReports(prev => [report, ...prev]);
     } catch (e) { console.warn('Save report failed', e); setReports(prev => [report, ...prev]); }
     setShowModal(false);

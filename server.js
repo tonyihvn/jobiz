@@ -2487,6 +2487,38 @@ app.put('/api/super-admin/toggle-business/:id', superAdminAuthMiddleware, async 
   }
 });
 
+// DELETE business (for Super Admin)
+app.delete('/api/super-admin/delete-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    
+    // Delete related data first (foreign key constraints)
+    await pool.execute('DELETE FROM settings WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM products WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM sales WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM expenses WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM users WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM services WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM courses WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM suppliers WHERE business_id = ?', [businessId]);
+    await pool.execute('DELETE FROM transactions WHERE business_id = ?', [businessId]);
+    
+    // Finally delete the business
+    const [result] = await pool.execute(
+      'DELETE FROM businesses WHERE id = ?',
+      [businessId]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    res.json({ success: true, message: 'Business deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET all feedbacks (for Super Admin)
 app.get('/api/super-admin/feedbacks', superAdminAuthMiddleware, async (req, res) => {
   try {
