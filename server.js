@@ -365,8 +365,13 @@ app.post('/api/register', async (req, res) => {
     }
 
     // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
-    const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-    if (!pwdPolicy.test(password)) {
+    const hasLowercase = /[a-z]/.test(password);
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    const hasMinLength = password.length >= 8;
+    
+    if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
       return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
     }
 
@@ -1726,8 +1731,13 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
   try {
     // If password provided, enforce strong policy
     if (password) {
-      const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-      if (!pwdPolicy.test(password)) {
+      const hasLowercase = /[a-z]/.test(password);
+      const hasUppercase = /[A-Z]/.test(password);
+      const hasNumber = /\d/.test(password);
+      const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+      const hasMinLength = password.length >= 8;
+      
+      if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
         return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
       }
     }
@@ -1750,8 +1760,13 @@ app.put('/api/employees/:id', authMiddleware, async (req, res) => {
   try {
     // If password provided, enforce strong policy
     if (password) {
-      const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-      if (!pwdPolicy.test(password)) {
+      const hasLowercase = /[a-z]/.test(password);
+      const hasUppercase = /[A-Z]/.test(password);
+      const hasNumber = /\d/.test(password);
+      const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+      const hasMinLength = password.length >= 8;
+      
+      if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
         return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
       }
     }

@@ -41,8 +41,13 @@ const Register = () => {
 
         // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
         const pwd = formData.password || '';
-        const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-        if (!pwdPolicy.test(pwd)) {
+        const hasLowercase = /[a-z]/.test(pwd);
+        const hasUppercase = /[A-Z]/.test(pwd);
+        const hasNumber = /\d/.test(pwd);
+        const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
+        const hasMinLength = pwd.length >= 8;
+        
+        if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
             setError("Password must be at least 8 characters and include lowercase, uppercase, number and special character");
             return;
         }
