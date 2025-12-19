@@ -5,20 +5,49 @@ import { getToken } from '../services/auth';
 import { useBusinessContext } from '../services/BusinessContext';
 
 interface LandingContent {
-  hero?: { title: string; subtitle: string; backgroundImage: string };
+  hero?: { 
+    title: string; 
+    subtitle: string; 
+    backgroundImage: string;
+    backgroundSize?: string;
+    backgroundPosition?: string;
+    backgroundOpacity?: number;
+    backgroundTransparency?: number;
+    titleColor?: string;
+    titleShadow?: string;
+    titleFontSize?: string;
+    titleFontStyle?: string;
+    titleFontFamily?: string;
+    subtitleColor?: string;
+    subtitleFontSize?: string;
+    subtitleFontFamily?: string;
+  };
   features?: Array<{ title: string; desc: string }>;
   plans?: Array<{ name: string; price: number | string; period: string; features: string[]; recommended?: boolean }>;
   testimonials?: Array<{ name: string; quote: string }>;
   cta?: { heading: string; subtext: string; buttonText: string; buttonUrl: string };
   footer?: { text: string; copyrightYear: number };
   navbar?: { companyName: string; whatsappNumber: string; logo?: string };
+  background?: { image: string; position: string; repeat: string; size: string; attachment: string; overlay?: boolean; overlayOpacity?: number };
 }
 
 const DEFAULT_LANDING_CONTENT: LandingContent = {
   hero: {
     title: "Manage your entire business in one tab.",
     subtitle: "The all-in-one platform for Retail, Art Schools, and Community Memberships. POS, Inventory, Finance, and CRM unified.",
-    backgroundImage: ""
+    backgroundImage: "",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundOpacity: 100,
+    backgroundTransparency: 0,
+    titleColor: "#0f172a",
+    titleShadow: "none",
+    titleFontSize: "56px",
+    titleFontStyle: "bold",
+    titleFontFamily: "Arial",
+    subtitleColor: "#64748b",
+    subtitleFontSize: "18px",
+    subtitleFontFamily: "Arial"
   },
   features: [
     { title: "Smart POS System", desc: "Thermal & A4 receipts, barcode support, and instant stock updates." },
@@ -181,7 +210,7 @@ const SuperAdminLandingConfig = () => {
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="mb-4 flex gap-2 flex-wrap">
-          {['Navbar', 'Hero', 'Carousel', 'Features', 'Plans', 'Testimonials', 'CTA', 'Footer'].map(t => (
+          {['Navbar', 'Hero', 'Carousel', 'Features', 'Plans', 'Testimonials', 'CTA', 'Footer', 'Background'].map(t => (
             <button
               key={t}
               onClick={() => setActiveLandingTab(t)}
@@ -278,31 +307,198 @@ const SuperAdminLandingConfig = () => {
 
         {/* Hero Section */}
         {activeLandingTab === 'Hero' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Hero Title</label>
-              <input
-                type="text"
-                className="w-full border rounded p-2"
-                value={(settings.landingContent as any)?.hero?.title || ''}
-                onChange={e =>
-                  updateLanding({ hero: { ...(settings.landingContent as any)?.hero, title: e.target.value } })
-                }
-              />
+          <div className="space-y-6">
+            {/* Hero Text */}
+            <div className="border-b pb-4">
+              <h3 className="font-semibold text-slate-800 mb-4">Hero Text Content</h3>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Hero Title</label>
+                <input
+                  type="text"
+                  className="w-full border rounded p-2"
+                  value={(settings.landingContent as any)?.hero?.title || ''}
+                  onChange={e =>
+                    updateLanding({ hero: { ...(settings.landingContent as any)?.hero, title: e.target.value } })
+                  }
+                />
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Hero Subtitle</label>
+                <textarea
+                  className="w-full border rounded p-2"
+                  rows={3}
+                  value={(settings.landingContent as any)?.hero?.subtitle || ''}
+                  onChange={e =>
+                    updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitle: e.target.value } })
+                  }
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Hero Subtitle</label>
-              <textarea
-                className="w-full border rounded p-2"
-                rows={3}
-                value={(settings.landingContent as any)?.hero?.subtitle || ''}
-                onChange={e =>
-                  updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitle: e.target.value } })
-                }
-              />
+
+            {/* Title Styling */}
+            <div className="border-b pb-4">
+              <h3 className="font-semibold text-slate-800 mb-4">Title Styling</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Title Color</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      className="h-10 w-16 border rounded cursor-pointer"
+                      value={(settings.landingContent as any)?.hero?.titleColor || '#0f172a'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleColor: e.target.value } })
+                      }
+                    />
+                    <input
+                      type="text"
+                      className="flex-1 border rounded p-2 text-sm"
+                      value={(settings.landingContent as any)?.hero?.titleColor || '#0f172a'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleColor: e.target.value } })
+                      }
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Title Font Size</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded p-2"
+                    placeholder="e.g., 56px"
+                    value={(settings.landingContent as any)?.hero?.titleFontSize || '56px'}
+                    onChange={e =>
+                      updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleFontSize: e.target.value } })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Title Font Style</label>
+                  <select
+                    className="w-full border rounded p-2"
+                    value={(settings.landingContent as any)?.hero?.titleFontStyle || 'bold'}
+                    onChange={e =>
+                      updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleFontStyle: e.target.value } })
+                    }
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="bold">Bold</option>
+                    <option value="italic">Italic</option>
+                    <option value="bold italic">Bold Italic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Title Shadow</label>
+                  <select
+                    className="w-full border rounded p-2"
+                    value={(settings.landingContent as any)?.hero?.titleShadow || 'none'}
+                    onChange={e =>
+                      updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleShadow: e.target.value } })
+                    }
+                  >
+                    <option value="none">None</option>
+                    <option value="0 2px 4px rgba(0,0,0,0.1)">Light Shadow</option>
+                    <option value="0 4px 6px rgba(0,0,0,0.2)">Medium Shadow</option>
+                    <option value="0 10px 15px rgba(0,0,0,0.3)">Strong Shadow</option>
+                    <option value="2px 2px 0px rgba(0,0,0,0.5)">Bold Shadow</option>
+                  </select>
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Title Font Family</label>
+                <select
+                  className="w-full border rounded p-2"
+                  value={(settings.landingContent as any)?.hero?.titleFontFamily || 'Arial'}
+                  onChange={e =>
+                    updateLanding({ hero: { ...(settings.landingContent as any)?.hero, titleFontFamily: e.target.value } })
+                  }
+                >
+                  <option value="Arial">Arial</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Verdana">Verdana</option>
+                  <option value="Courier New">Courier New</option>
+                  <option value="Comic Sans MS">Comic Sans MS</option>
+                  <option value="Trebuchet MS">Trebuchet MS</option>
+                  <option value="Impact">Impact</option>
+                  <option value="Palatino">Palatino</option>
+                  <option value="Garamond">Garamond</option>
+                  <option value="Helvetica">Helvetica</option>
+                  <option value="Tahoma">Tahoma</option>
+                  <option value="Lucida Console">Lucida Console</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Hero Background Image</label>
+
+            {/* Subtitle Styling */}
+            <div className="border-b pb-4">
+              <h3 className="font-semibold text-slate-800 mb-4">Subtitle Styling</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Subtitle Color</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      className="h-10 w-16 border rounded cursor-pointer"
+                      value={(settings.landingContent as any)?.hero?.subtitleColor || '#64748b'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitleColor: e.target.value } })
+                      }
+                    />
+                    <input
+                      type="text"
+                      className="flex-1 border rounded p-2 text-sm"
+                      value={(settings.landingContent as any)?.hero?.subtitleColor || '#64748b'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitleColor: e.target.value } })
+                      }
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Subtitle Font Size</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded p-2"
+                    placeholder="e.g., 18px"
+                    value={(settings.landingContent as any)?.hero?.subtitleFontSize || '18px'}
+                    onChange={e =>
+                      updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitleFontSize: e.target.value } })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">Subtitle Font Family</label>
+                <select
+                  className="w-full border rounded p-2"
+                  value={(settings.landingContent as any)?.hero?.subtitleFontFamily || 'Arial'}
+                  onChange={e =>
+                    updateLanding({ hero: { ...(settings.landingContent as any)?.hero, subtitleFontFamily: e.target.value } })
+                  }
+                >
+                  <option value="Arial">Arial</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Verdana">Verdana</option>
+                  <option value="Courier New">Courier New</option>
+                  <option value="Comic Sans MS">Comic Sans MS</option>
+                  <option value="Trebuchet MS">Trebuchet MS</option>
+                  <option value="Impact">Impact</option>
+                  <option value="Palatino">Palatino</option>
+                  <option value="Garamond">Garamond</option>
+                  <option value="Helvetica">Helvetica</option>
+                  <option value="Tahoma">Tahoma</option>
+                  <option value="Lucida Console">Lucida Console</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Hero Background Image */}
+            <div className="border-b pb-4">
+              <h3 className="font-semibold text-slate-800 mb-4">Hero Background Image</h3>
               <div className="border-2 border-dashed border-slate-300 rounded-lg p-4">
                 {(settings.landingContent as any)?.hero?.backgroundImage ? (
                   <div className="relative group">
@@ -348,7 +544,103 @@ const SuperAdminLandingConfig = () => {
                   </label>
                 )}
               </div>
+              {(settings.landingContent as any)?.hero?.backgroundImage && (
+                <button
+                  onClick={() =>
+                    updateLanding({
+                      hero: { ...(settings.landingContent as any)?.hero, backgroundImage: "" }
+                    })
+                  }
+                  className="mt-3 px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition-colors"
+                >
+                  Remove Background
+                </button>
+              )}
             </div>
+
+            {/* Hero Background Styling */}
+            {(settings.landingContent as any)?.hero?.backgroundImage && (
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-4">Background Image Styling</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Size</label>
+                    <select
+                      className="w-full border rounded p-2"
+                      value={(settings.landingContent as any)?.hero?.backgroundSize || 'cover'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, backgroundSize: e.target.value } })
+                      }
+                    >
+                      <option value="cover">Cover (Fill)</option>
+                      <option value="contain">Contain (Fit)</option>
+                      <option value="auto">Auto</option>
+                      <option value="100% 100%">Stretch (100% 100%)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Position</label>
+                    <select
+                      className="w-full border rounded p-2"
+                      value={(settings.landingContent as any)?.hero?.backgroundPosition || 'center'}
+                      onChange={e =>
+                        updateLanding({ hero: { ...(settings.landingContent as any)?.hero, backgroundPosition: e.target.value } })
+                      }
+                    >
+                      <option value="center">Center</option>
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                      <option value="top left">Top Left</option>
+                      <option value="top right">Top Right</option>
+                      <option value="bottom left">Bottom Left</option>
+                      <option value="bottom right">Bottom Right</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Opacity</label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={(settings.landingContent as any)?.hero?.backgroundOpacity || 100}
+                        onChange={e =>
+                          updateLanding({
+                            hero: { ...(settings.landingContent as any)?.hero, backgroundOpacity: parseInt(e.target.value) }
+                          })
+                        }
+                        className="flex-1"
+                      />
+                      <span className="text-sm font-medium text-slate-700 w-12">{(settings.landingContent as any)?.hero?.backgroundOpacity || 100}%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Transparency</label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={(settings.landingContent as any)?.hero?.backgroundTransparency || 0}
+                        onChange={e =>
+                          updateLanding({
+                            hero: { ...(settings.landingContent as any)?.hero, backgroundTransparency: parseInt(e.target.value) }
+                          })
+                        }
+                        className="flex-1"
+                      />
+                      <span className="text-sm font-medium text-slate-700 w-12">{(settings.landingContent as any)?.hero?.backgroundTransparency || 0}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -661,6 +953,221 @@ const SuperAdminLandingConfig = () => {
                 }
               />
             </div>
+          </div>
+        )}
+
+        {/* Background Section */}
+        {activeLandingTab === 'Background' && (
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-blue-900 text-sm">
+                📌 Upload and customize the background image for the entire landing page. Configure how the image repeats, positions, and scales.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Background Image</label>
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-6">
+                {(settings.landingContent as any)?.background?.image ? (
+                  <div className="space-y-4">
+                    <div className="relative group">
+                      <img
+                        src={(settings.landingContent as any).background.image}
+                        alt="Background"
+                        className="w-full h-40 object-cover rounded"
+                      />
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded">
+                        <span className="text-white text-sm font-bold flex items-center gap-2">
+                          <Upload size={16} /> Change Image
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async e => {
+                            const url = await uploadLandingImage(e.target.files?.[0]);
+                            if (url)
+                              updateLanding({
+                                background: { ...(settings.landingContent as any)?.background, image: url }
+                              });
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateLanding({ background: { ...(settings.landingContent as any)?.background, image: "" } })}
+                      className="text-red-600 text-sm hover:text-red-700 font-medium"
+                    >
+                      Remove Image
+                    </button>
+                  </div>
+                ) : (
+                  <label className="w-full h-40 flex flex-col items-center justify-center text-slate-400 cursor-pointer">
+                    <Upload size={32} className="mb-2" />
+                    <span className="text-sm font-medium">Click to upload background image</span>
+                    <span className="text-xs text-slate-500 mt-1">PNG, JPG, GIF up to 10MB</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async e => {
+                        const url = await uploadLandingImage(e.target.files?.[0]);
+                        if (url)
+                          updateLanding({
+                            background: { ...(settings.landingContent as any)?.background || {}, image: url }
+                          });
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
+            {(settings.landingContent as any)?.background?.image && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Position</label>
+                    <select
+                      className="w-full border border-slate-300 rounded p-2"
+                      value={(settings.landingContent as any)?.background?.position || 'center'}
+                      onChange={e =>
+                        updateLanding({
+                          background: { ...(settings.landingContent as any)?.background, position: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="center">Center</option>
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                      <option value="top left">Top Left</option>
+                      <option value="top right">Top Right</option>
+                      <option value="bottom left">Bottom Left</option>
+                      <option value="bottom right">Bottom Right</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Repeat</label>
+                    <select
+                      className="w-full border border-slate-300 rounded p-2"
+                      value={(settings.landingContent as any)?.background?.repeat || 'no-repeat'}
+                      onChange={e =>
+                        updateLanding({
+                          background: { ...(settings.landingContent as any)?.background, repeat: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="no-repeat">No Repeat</option>
+                      <option value="repeat">Repeat (Both)</option>
+                      <option value="repeat-x">Repeat Horizontally</option>
+                      <option value="repeat-y">Repeat Vertically</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Size</label>
+                    <select
+                      className="w-full border border-slate-300 rounded p-2"
+                      value={(settings.landingContent as any)?.background?.size || 'cover'}
+                      onChange={e =>
+                        updateLanding({
+                          background: { ...(settings.landingContent as any)?.background, size: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="cover">Cover (Fill)</option>
+                      <option value="contain">Contain (Fit)</option>
+                      <option value="auto">Auto</option>
+                      <option value="100% 100%">Stretch (100% 100%)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Background Attachment</label>
+                    <select
+                      className="w-full border border-slate-300 rounded p-2"
+                      value={(settings.landingContent as any)?.background?.attachment || 'scroll'}
+                      onChange={e =>
+                        updateLanding({
+                          background: { ...(settings.landingContent as any)?.background, attachment: e.target.value }
+                        })
+                      }
+                    >
+                      <option value="scroll">Scroll (Normal)</option>
+                      <option value="fixed">Fixed (Parallax)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={(settings.landingContent as any)?.background?.overlay || false}
+                      onChange={e =>
+                        updateLanding({
+                          background: { ...(settings.landingContent as any)?.background, overlay: e.target.checked }
+                        })
+                      }
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-medium text-slate-700">Add Dark Overlay (for better text readability)</span>
+                  </label>
+                </div>
+
+                {(settings.landingContent as any)?.background?.overlay && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Overlay Opacity</label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={((settings.landingContent as any)?.background?.overlayOpacity || 30)}
+                        onChange={e =>
+                          updateLanding({
+                            background: { ...(settings.landingContent as any)?.background, overlayOpacity: parseInt(e.target.value) }
+                          })
+                        }
+                        className="flex-1"
+                      />
+                      <span className="text-sm font-medium text-slate-700 w-12">{((settings.landingContent as any)?.background?.overlayOpacity || 30)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-slate-50 p-4 rounded-lg">
+                  <p className="text-sm text-slate-700 font-medium mb-2">Preview:</p>
+                  <div
+                    className="w-full h-40 rounded border border-slate-200"
+                    style={{
+                      backgroundImage: `url(${(settings.landingContent as any).background.image})`,
+                      backgroundPosition: (settings.landingContent as any).background.position || 'center',
+                      backgroundRepeat: (settings.landingContent as any).background.repeat || 'no-repeat',
+                      backgroundSize: (settings.landingContent as any).background.size || 'cover',
+                      backgroundAttachment: (settings.landingContent as any).background.attachment || 'scroll',
+                      position: 'relative'
+                    }}
+                  >
+                    {(settings.landingContent as any)?.background?.overlay && (
+                      <div
+                        style={{
+                          backgroundColor: `rgba(0, 0, 0, ${((settings.landingContent as any)?.background?.overlayOpacity || 30) / 100})`,
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: '0.5rem'
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,23 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Users, TrendingUp, Shield, Smartphone, Globe, CheckCircle, ArrowRight, Menu, X } from 'lucide-react';
+import { ShoppingBag, Users, TrendingUp, Shield, Smartphone, Globe, CheckCircle, ArrowRight, Menu, X, Phone } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
 
 interface LandingSettings {
-  hero?: { title: string; subtitle: string; backgroundImage: string };
+  hero?: { 
+    title: string; 
+    subtitle: string; 
+    backgroundImage: string;
+    backgroundSize?: string;
+    backgroundPosition?: string;
+    backgroundOpacity?: number;
+    backgroundTransparency?: number;
+    titleColor?: string;
+    titleShadow?: string;
+    titleFontSize?: string;
+    titleFontStyle?: string;
+    titleFontFamily?: string;
+    subtitleColor?: string;
+    subtitleFontSize?: string;
+    subtitleFontFamily?: string;
+  };
   features?: Array<{ title: string; desc: string }>;
   plans?: Array<{ name: string; price: number | string; period: string; features: string[]; recommended?: boolean }>;
   testimonials?: Array<{ name: string; quote: string }>;
   cta?: { heading: string; subtext: string; buttonText: string; buttonUrl: string };
   footer?: { text: string; copyrightYear: number };
   navbar?: { companyName: string; whatsappNumber: string; logo?: string };
+  background?: { image: string; position: string; repeat: string; size: string; attachment: string; overlay?: boolean; overlayOpacity?: number };
 }
 
 const DEFAULT_SETTINGS: LandingSettings = {
   hero: {
     title: "Manage your entire business in one tab.",
     subtitle: "The all-in-one platform for Retail, Art Schools, and Community Memberships. POS, Inventory, Finance, and CRM unified.",
-    backgroundImage: ""
+    backgroundImage: "",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundOpacity: 100,
+    backgroundTransparency: 0,
+    titleColor: "#0f172a",
+    titleShadow: "none",
+    titleFontSize: "56px",
+    titleFontStyle: "bold",
+    titleFontFamily: "Arial",
+    subtitleColor: "#64748b",
+    subtitleFontSize: "18px",
+    subtitleFontFamily: "Arial"
   },
   features: [
     { title: "Smart POS System", desc: "Thermal & A4 receipts, barcode support, and instant stock updates." },
@@ -70,6 +99,25 @@ const Landing = () => {
     fetchLandingSettings();
   }, []);
 
+  // Autoplay carousel
+  useEffect(() => {
+    if ((settings.carousel || []).length > 0) {
+      const interval = setInterval(() => {
+        setCarouselIndex(prev => (prev + 1) % (settings.carousel || []).length);
+      }, 5000); // Change slide every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [settings.carousel]);
+
+  // Handle smooth scroll to sections
+  const handleAnchorClick = (e: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
+    e.preventDefault();
+    const element = document.getElementById(sectionId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   const fetchLandingSettings = async () => {
     try {
       const response = await fetch('/api/landing/settings');
@@ -112,9 +160,10 @@ const Landing = () => {
       setSubmitting(false);
     }
   };
+// remove the opacity and transparency from the plancards including the most popular badge and section
 
   const PlanCard: React.FC<{plan: any}> = ({ plan }) => (
-    <div className={`rounded-2xl p-8 border ${plan.recommended ? 'border-brand-500 shadow-2xl relative' : 'border-slate-200 bg-slate-50/50'}`}>
+    <div className={`rounded-2xl p-8 border ${plan.recommended ? 'border-brand-500 shadow-2xl bg-slate-50 relative' : 'border-slate-200 bg-slate-50'}`}>
       {plan.recommended && <span className="absolute -top-4 left-1/2 -translate-x-1/2 bg-brand-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Most Popular</span>}
       <h3 className="font-bold text-xl text-slate-900">{plan.name}</h3>
       <div className="my-6">
@@ -135,7 +184,32 @@ const Landing = () => {
   );
 
   return (
-    <div className="min-h-screen bg-white font-sans text-slate-900">
+    <div
+      className="min-h-screen bg-white font-sans text-slate-900"
+      style={
+        settings.background && settings.background.image
+          ? {
+              backgroundImage: `url(${settings.background.image})`,
+              backgroundPosition: settings.background.position || 'center',
+              backgroundRepeat: settings.background.repeat || 'no-repeat',
+              backgroundSize: settings.background.size || 'cover',
+              backgroundAttachment: settings.background.attachment || 'scroll'
+            }
+          : {}
+      }
+    >
+      {/* Background Overlay */}
+      {settings.background?.overlay && settings.background?.image && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            backgroundColor: `rgba(0, 0, 0, ${(settings.background?.overlayOpacity || 30) / 100})`,
+            zIndex: 10
+          }}
+        />
+      )}
+      
+      <div className="relative z-20">
       {/* Navbar */}
       <nav className="fixed w-full bg-white/90 backdrop-blur-md z-50 border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -152,9 +226,9 @@ const Landing = () => {
             </div>
             
             <div className="hidden md:flex items-center gap-8">
-              <a href="#features" className="text-sm font-medium text-slate-600 hover:text-brand-600">Features</a>
-              <a href="#pricing" className="text-sm font-medium text-slate-600 hover:text-brand-600">Pricing</a>
-              <a href="#contact" className="text-sm font-medium text-slate-600 hover:text-brand-600">Contact</a>
+              <a href="#features" onClick={(e) => handleAnchorClick(e, 'features')} className="text-sm font-medium text-slate-600 hover:text-brand-600">Features</a>
+              <a href="#pricing" onClick={(e) => handleAnchorClick(e, 'pricing')} className="text-sm font-medium text-slate-600 hover:text-brand-600">Pricing</a>
+              <a href="#contact" onClick={(e) => handleAnchorClick(e, 'contact')} className="text-sm font-medium text-slate-600 hover:text-brand-600">Contact</a>
               <button onClick={() => navigate('/login')} className="text-sm font-bold text-slate-900 hover:text-brand-600">Sign In</button>
               <button onClick={() => navigate('/register')} className="bg-brand-600 text-white px-5 py-2.5 rounded-full font-bold text-sm hover:bg-brand-700 transition-all shadow-lg shadow-brand-500/30">
                 Get Started
@@ -170,8 +244,9 @@ const Landing = () => {
         {/* Mobile Menu */}
         {isMenuOpen && (
              <div className="md:hidden bg-white border-t p-4 flex flex-col gap-4 shadow-xl">
-                <a href="#features" className="text-slate-600 font-medium">Features</a>
-                <a href="#pricing" className="text-slate-600 font-medium">Pricing</a>
+                <a href="#features" onClick={(e) => { handleAnchorClick(e, 'features'); setIsMenuOpen(false); }} className="text-slate-600 font-medium">Features</a>
+                <a href="#pricing" onClick={(e) => { handleAnchorClick(e, 'pricing'); setIsMenuOpen(false); }} className="text-slate-600 font-medium">Pricing</a>
+                <a href="#contact" onClick={(e) => { handleAnchorClick(e, 'contact'); setIsMenuOpen(false); }} className="text-slate-600 font-medium">Contact</a>
                 <button onClick={() => navigate('/login')} className="text-left font-bold text-brand-600">Sign In</button>
                 <button onClick={() => navigate('/register')} className="bg-brand-600 text-white py-2 rounded font-bold">Register Now</button>
              </div>
@@ -181,14 +256,36 @@ const Landing = () => {
       {/* Hero */}
       <section
         className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden relative"
-        style={settings.hero && settings.hero.backgroundImage ? { backgroundImage: `url(${settings.hero.backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+        style={settings.hero && settings.hero.backgroundImage ? {
+          backgroundImage: `url(${settings.hero.backgroundImage})`,
+          backgroundSize: settings.hero.backgroundSize || 'cover',
+          backgroundPosition: settings.hero.backgroundPosition || 'center',
+          opacity: ((settings.hero.backgroundOpacity || 100) / 100) * (1 - ((settings.hero.backgroundTransparency || 0) / 100))
+        } : {}}
       >
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-brand-50 rounded-full blur-3xl opacity-50 -z-10" />
         <div className="max-w-7xl mx-auto px-4 text-center">
-          <h1 className="text-5xl lg:text-7xl font-extrabold text-slate-900 tracking-tight mb-6">
+          <h1
+            className="text-5xl lg:text-7xl font-extrabold tracking-tight mb-6"
+            style={{
+              color: settings.hero?.titleColor || '#0f172a',
+              fontSize: settings.hero?.titleFontSize || '56px',
+              fontWeight: settings.hero?.titleFontStyle?.includes('bold') ? 'bold' : 'normal',
+              fontStyle: settings.hero?.titleFontStyle?.includes('italic') ? 'italic' : 'normal',
+              textShadow: settings.hero?.titleShadow === 'none' ? 'none' : settings.hero?.titleShadow || 'none',
+              fontFamily: settings.hero?.titleFontFamily || 'Arial'
+            }}
+          >
             {settings.hero?.title || DEFAULT_SETTINGS.hero?.title}
           </h1>
-          <p className="text-lg text-slate-500 mb-10 max-w-2xl mx-auto leading-relaxed">
+          <p
+            className="mb-10 max-w-2xl mx-auto leading-relaxed"
+            style={{
+              color: settings.hero?.subtitleColor || '#64748b',
+              fontSize: settings.hero?.subtitleFontSize || '18px',
+              fontFamily: settings.hero?.subtitleFontFamily || 'Arial'
+            }}
+          >
             {settings.hero?.subtitle || DEFAULT_SETTINGS.hero?.subtitle}
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -286,6 +383,17 @@ const Landing = () => {
       <section id="contact" className="py-20 bg-slate-900 text-white">
           <div className="max-w-4xl mx-auto px-4 text-center">
               <h2 className="text-3xl font-bold mb-8">{settings.cta?.heading || DEFAULT_SETTINGS.cta?.heading}</h2>
+              {settings.navbar?.whatsappNumber && (
+                <div className="mb-8 flex items-center justify-center gap-2">
+                  <Phone size={20} className="text-brand-400" />
+                  <a
+                    href={`tel:${settings.navbar.whatsappNumber}`}
+                    className="text-lg font-bold text-brand-300 hover:text-brand-200 transition-colors"
+                  >
+                    {settings.navbar.whatsappNumber}
+                  </a>
+                </div>
+              )}
               <div className="bg-white/10 backdrop-blur-lg p-8 rounded-2xl border border-white/10 text-left">
                   <form onSubmit={handleFeedbackSubmit} className="space-y-6">
                       {submitStatus === 'success' && (
@@ -344,6 +452,7 @@ const Landing = () => {
           </svg>
         </div>
       </a>
+      </div>
     </div>
   );
 };
