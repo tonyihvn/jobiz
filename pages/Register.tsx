@@ -1,39 +1,61 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import db from '../services/apiClient';
-import { Store, Mail, Lock, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Store, Mail, Lock, CheckCircle, ArrowLeft, Smartphone } from 'lucide-react';
 
 const Register = () => {
   const [formData, setFormData] = useState({
       companyName: '',
       email: '',
+      phone: '',
       password: '',
       confirmPassword: ''
   });
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(1); // 1: registration form, 2: verification (email + OTP)
   const [error, setError] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState('');
+  const [formattedPhone, setFormattedPhone] = useState('');
   const navigate = useNavigate();
+
+  // Format phone number: remove leading 0 and add +234 prefix
+  const formatPhoneNumber = (phone: string) => {
+    let cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    return `+234${cleaned}`;
+  };
 
   const handleRegister = (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
 
         if (formData.password !== formData.confirmPassword) {
-                setError("Passwords do not match");
-                return;
+            setError("Passwords do not match");
+            return;
         }
 
-        if (formData.password.length < 6) {
-                setError("Password must be at least 6 characters");
-                return;
+        // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
+        const pwd = formData.password || '';
+        const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+        if (!pwdPolicy.test(pwd)) {
+            setError("Password must be at least 8 characters and include lowercase, uppercase, number and special character");
+            return;
         }
 
         (async () => {
             try {
                 if (db.auth && db.auth.register) {
-                    const result = await db.auth.register(formData.companyName, '', formData.email, formData.password);
+                    const phone = formData.phone ? formatPhoneNumber(formData.phone) : '';
+                    setFormattedPhone(phone);
+                    const result = await db.auth.register(formData.companyName, formData.email, formData.password, phone);
                     if (result && result.success) {
                         setStep(2);
+                        // Both email and OTP are sent automatically by backend
                     } else {
                         setError(result?.message || 'Registration failed');
                     }
@@ -45,6 +67,78 @@ const Register = () => {
                 console.error('Registration error:', err);
             }
         })();
+  };
+
+  const handleResendEmail = async () => {
+    setResendLoading(true);
+    setResendMessage('');
+    try {
+        const response = await fetch('/api/resend-verification-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: formData.email })
+        });
+        const result = await response.json();
+        if (result.success) {
+            setResendMessage({ type: 'success', text: '✅ Verification email resent! Check your inbox.' });
+        } else {
+            setResendMessage({ type: 'error', text: result.message || 'Failed to resend email' });
+        }
+    } catch (err: any) {
+        setResendMessage({ type: 'error', text: 'Error resending email. Please try again.' });
+    } finally {
+        setResendLoading(false);
+    }
+  };
+
+  const handleSendOtp = async (phone?: string) => {
+    const phoneNumber = phone || formatPhoneNumber(formData.phone);
+    setOtpLoading(true);
+    setOtpError('');
+    try {
+        const response = await fetch('/api/send-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: phoneNumber })
+        });
+        const result = await response.json();
+        if (result.success) {
+            setOtpError('');
+        } else {
+            setOtpError(result.message || 'Failed to send OTP');
+        }
+    } catch (err: any) {
+        setOtpError('Error sending OTP. Please try again.');
+    } finally {
+        setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length !== 6) {
+        setOtpError('Please enter a valid 6-digit OTP');
+        return;
+    }
+    setOtpLoading(true);
+    setOtpError('');
+    try {
+        const response = await fetch('/api/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: formattedPhone, otp })
+        });
+        const result = await response.json();
+        if (result.success) {
+            navigate('/login');
+            setOtp('');
+        } else {
+            setOtpError(result.message || 'Invalid OTP');
+        }
+    } catch (err: any) {
+        setOtpError('Error verifying OTP. Please try again.');
+    } finally {
+        setOtpLoading(false);
+    }
   };
 
   return (
@@ -97,6 +191,21 @@ const Register = () => {
                         </div>
                     </div>
 
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Admin Phone (Optional)</label>
+                        <div className="relative">
+                            <Smartphone className="absolute left-3 top-3 text-slate-400 w-5 h-5" />
+                            <input 
+                                type="tel" 
+                                className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-500"
+                                placeholder="+234 or 080..."
+                                value={formData.phone}
+                                onChange={e => setFormData({...formData, phone: e.target.value})}
+                            />
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">For phone verification (include country code or starts with 0)</p>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
@@ -130,7 +239,8 @@ const Register = () => {
                     </button>
                 </form>
              </div>
-        ) : (
+        ) : step === 2 ? (
+            // Verification screen - both email and phone OTP
             <div className="p-12 text-center">
                  <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
                      <CheckCircle size={40} />
@@ -140,28 +250,76 @@ const Register = () => {
                      <p>
                          Your account has been created and saved to our database.
                      </p>
-                     <p>
-                         ✉️ We have sent a <strong>verification email</strong> to <strong>{formData.email}</strong>
-                     </p>
-                     <div className="bg-amber-50 border border-amber-200 rounded p-3 mt-4">
-                         <p className="font-semibold text-amber-900 mb-2">🔄 What Happens Next:</p>
-                         <ol className="text-amber-800 text-left space-y-1">
-                             <li>1. ✅ Check your inbox for the verification email</li>
-                             <li>2. 🔗 Click the verification link in the email</li>
-                             <li>3. 💳 Complete payment details on the next page</li>
-                             <li>4. ⏳ Wait for our team to approve your registration</li>
-                             <li>5. 🚀 You'll be ready to access OmniSales!</li>
-                         </ol>
+                     <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
+                         <p className="font-semibold text-blue-900 mb-3">✅ Choose Your Verification Method:</p>
+                         
+                         {/* Email Verification */}
+                         <div className="text-left mb-4">
+                             <p className="text-blue-800 text-xs font-bold mb-2">📧 EMAIL VERIFICATION:</p>
+                             <p className="text-blue-700 text-xs mb-3">Verification email sent to <strong>{formData.email}</strong></p>
+                             <div className="space-y-2">
+                                 <p className="text-xs text-slate-600">Check your inbox and click the verification link in the email.</p>
+                                 {resendMessage && (
+                                     <div className={`p-2 rounded text-xs font-medium ${resendMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                         {resendMessage.text}
+                                     </div>
+                                 )}
+                                 <button 
+                                     onClick={handleResendEmail} 
+                                     disabled={resendLoading}
+                                     className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white px-3 py-2 rounded text-xs font-bold transition-all">
+                                      {resendLoading ? 'Sending...' : '📧 Resend Email'}
+                                 </button>
+                             </div>
+                         </div>
+
+                         <div className="border-t border-blue-200 my-4"></div>
+
+                         {/* Phone Verification */}
+                         {formattedPhone && (
+                             <div className="text-left">
+                                 <p className="text-blue-800 text-xs font-bold mb-2">📱 PHONE VERIFICATION (FASTER):</p>
+                                 <p className="text-blue-700 text-xs mb-3">OTP sent to <strong>{formattedPhone}</strong></p>
+                                 <div className="space-y-2">
+                                     {otpError && (
+                                         <div className="p-2 bg-rose-50 text-rose-700 text-xs rounded border border-rose-200 font-medium">
+                                             {otpError}
+                                         </div>
+                                     )}
+                                     <div>
+                                         <label className="block text-xs font-bold text-slate-600 mb-1">Enter 6-digit OTP:</label>
+                                         <input 
+                                             type="text" 
+                                             maxLength={6}
+                                             className="w-full px-3 py-2 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-brand-500 text-center text-xl tracking-widest font-mono"
+                                             placeholder="000000"
+                                             value={otp}
+                                             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                                         />
+                                     </div>
+                                     <button 
+                                         onClick={handleVerifyOtp} 
+                                         disabled={otpLoading || otp.length !== 6}
+                                         className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-3 py-2 rounded text-xs font-bold transition-all">
+                                          {otpLoading ? 'Verifying...' : 'Verify OTP'}
+                                     </button>
+                                 </div>
+                             </div>
+                         )}
                      </div>
+
+                     <p className="text-xs text-slate-400 mt-4">✨ Complete verification via either method to proceed to payment. Whichever completes first will verify your account!</p>
                  </div>
                  <div className="space-y-2">
-                     <p className="text-xs text-slate-400">
-                         Didn't receive the email? Check your spam folder or contact support.
-                     </p>
-                     <button onClick={() => navigate('/login')} className="bg-slate-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-800">
+                     <button onClick={() => navigate('/login')} className="w-full bg-slate-900 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-800 text-sm">
                          Return to Login
                      </button>
                  </div>
+            </div>
+        ) : (
+            // Fallback - shouldn't show
+            <div className="p-12 text-center">
+                <p>Unknown registration state</p>
             </div>
         )}
       </div>

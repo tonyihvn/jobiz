@@ -3,10 +3,29 @@ import { authFetch, login as authLogin, logout as authLogout, getToken, register
 async function safeJson(res: Response) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
-    try { const j = await res.json(); if (j && j.error) msg = j.error; } catch {}
+    try {
+      const j = await res.json();
+      if (j && j.error) msg = j.error;
+    } catch (e) {
+      try {
+        const txt = await res.text();
+        if (txt && !txt.toLowerCase().includes('<!doctype') && !txt.toLowerCase().includes('<html')) {
+          msg = txt;
+        }
+      } catch {}
+    }
     throw new Error(msg);
   }
-  return res.json();
+  try {
+    const txt = await res.text();
+    // If response is HTML or empty, return empty object (something went wrong but we got a response)
+    if (!txt || txt.toLowerCase().includes('<!doctype') || txt.toLowerCase().includes('<html')) {
+      return {};
+    }
+    return JSON.parse(txt);
+  } catch (e) {
+    return {};
+  }
 }
 
 function toSnake(obj: any, mapping: Record<string,string> = {}) {

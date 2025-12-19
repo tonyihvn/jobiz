@@ -11,6 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -94,6 +95,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  connectionTimeout: 5000,
+  socketTimeout: 5000,
+  tls: {
+    rejectUnauthorized: false
+  }
 });
 
 // SMS Configuration
@@ -190,7 +196,7 @@ app.post('/api/forgot-password', async (req, res) => {
     const user = rows[0];
     
     // Generate reset token
-    const resetToken = require('crypto').randomBytes(32).toString('hex');
+    const resetToken = crypto.randomBytes(32).toString('hex');
     const tokenId = 'reset_' + Date.now();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
@@ -201,7 +207,7 @@ app.post('/api/forgot-password', async (req, res) => {
     );
 
     // Send reset email
-    const resetLink = `${process.env.APP_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.APP_URL || 'http://localhost:5173'}/#/reset-password?token=${resetToken}`;
     
     try {
       await transporter.sendMail({
@@ -330,7 +336,7 @@ app.post('/api/login', async (req, res) => {
 
 // Registration endpoint
 app.post('/api/register', async (req, res) => {
-  const { companyName, email, password } = req.body;
+  const { companyName, email, password, phone } = req.body;
   
   try {
     // Validation
@@ -338,8 +344,10 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: companyName, email, password' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
+    const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+    if (!pwdPolicy.test(password)) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
     }
 
     // Check if email already exists
@@ -353,8 +361,8 @@ app.post('/api/register', async (req, res) => {
     const businessStatus = 'pending'; // Await super admin approval
     
     await pool.execute(
-      'INSERT INTO businesses (id, name, email, status, paymentStatus, registeredAt) VALUES (?, ?, ?, ?, ?, NOW())',
-      [businessId, companyName, email, businessStatus, 'unpaid']
+      'INSERT INTO businesses (id, name, email, phone, status, paymentStatus, registeredAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+      [businessId, companyName, email, phone || null, businessStatus, 'unpaid']
     );
 
     // Create admin employee for this business
@@ -362,8 +370,8 @@ app.post('/api/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     await pool.execute(
-      'INSERT INTO employees (id, business_id, name, email, password, is_super_admin, role_id, email_verified, account_approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [employeeId, businessId, companyName + ' Admin', email, hashedPassword, 0, 'admin', 0, 0]
+      'INSERT INTO employees (id, business_id, name, email, phone, password, is_super_admin, role_id, account_approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [employeeId, businessId, companyName + ' Admin', email, phone || null, hashedPassword, 0, 'admin', 0]
     );
 
     // Create default settings for business
@@ -373,7 +381,7 @@ app.post('/api/register', async (req, res) => {
     );
 
     // Generate email verification token
-    const verificationToken = require('crypto').randomBytes(32).toString('hex');
+    const verificationToken = crypto.randomBytes(32).toString('hex');
     const tokenId = 'email_verify_' + Date.now();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
@@ -385,46 +393,105 @@ app.post('/api/register', async (req, res) => {
     
     // Send verification email
     try {
-      const verifyLink = `${process.env.APP_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
+      const verifyLink = `${process.env.APP_URL || 'http://localhost:5173'}/#/verify-email?token=${verificationToken}`;
+      const appUrl = process.env.APP_URL || 'http://localhost:5173';
       const mailOptions = {
         from: process.env.SMTP_FROM || 'noreply@omnisales.com',
         to: email,
-        subject: 'Verify Your Email - OmniSales Registration',
+        subject: `Welcome to ${process.env.APP_NAME || "JOBIZ!"} Verify Your Email`,
         html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Welcome to OmniSales, ${companyName}!</h2>
-            
-            <p>Thank you for registering. To complete your registration, please verify your email address.</p>
-            
-            <div style="margin: 30px 0;">
-              <a href="${verifyLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-                Verify Email Address
-              </a>
-            </div>
-
-            <p>Or copy this link: <a href="${verifyLink}">${verifyLink}</a></p>
-            
-            <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
-              <h3>Registration Steps:</h3>
-              <ul>
-                <li><strong>1. Verify Email:</strong> Click the link above to verify your email address</li>
-                <li><strong>2. Add Payment Details:</strong> Complete payment information after email verification</li>
-                <li><strong>3. Admin Approval:</strong> Our team will review and approve your account</li>
-                <li><strong>4. Access Dashboard:</strong> Once approved, you can access all features</li>
-              </ul>
-            </div>
-            
-            <p style="color: #666; font-size: 12px; margin-top: 30px;">
-              This verification link will expire in 24 hours. If you did not register for this account, please ignore this email.
-            </p>
-          </div>
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .header h1 { margin: 0; font-size: 28px; }
+                .content { background: white; padding: 40px 20px; border: 1px solid #e5e7eb; }
+                .button { display: inline-block; background: #3b82f6; color: white; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-weight: bold; margin: 20px 0; }
+                .button:hover { background: #2563eb; }
+                .steps { background: #f9fafb; padding: 20px; border-left: 4px solid #3b82f6; margin: 20px 0; border-radius: 4px; }
+                .steps h3 { margin-top: 0; color: #1f2937; }
+                .steps ol { margin: 10px 0; padding-left: 20px; }
+                .steps li { margin: 8px 0; }
+                .footer { background: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
+                .highlight { color: #667eea; font-weight: bold; }
+                .warning { background: #fef3c7; padding: 15px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #f59e0b; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>🎉 Welcome to ${process.env.APP_NAME || "JOBIZ!"}</h1>
+                  <p style="margin: 10px 0 0 0; font-size: 16px;">Complete Your Registration</p>
+                </div>
+                
+                <div class="content">
+                  <p>Hi <span class="highlight">${companyName}</span>,</p>
+                  
+                  <p>Thank you for choosing ${process.env.APP_NAME || "JOBIZ"}! We're excited to help you manage your business more efficiently.</p>
+                  
+                  <p><strong>Your registration is almost complete.</strong> We just need to verify your email address to proceed.</p>
+                  
+                  <center>
+                    <a href="${verifyLink}" class="button">Verify My Email Address</a>
+                  </center>
+                  
+                  <p style="text-align: center; color: #6b7280; font-size: 14px;">
+                    Or copy this link: <br>
+                    <code style="background: #f3f4f6; padding: 8px 12px; border-radius: 4px; word-break: break-all; display: inline-block; margin-top: 8px;">
+                      ${verifyLink}
+                    </code>
+                  </p>
+                  
+                  <div class="steps">
+                    <h3>📋 What Happens Next:</h3>
+                    <ol>
+                      <li><strong>Verify Your Email:</strong> Click the button above to confirm your email address</li>
+                      <li><strong>Add Payment Details:</strong> You'll be directed to enter your payment information</li>
+                      <li><strong>Admin Review:</strong> Our team will review your application and payment</li>
+                      <li><strong>Account Activation:</strong> Once approved, you can access your dashboard immediately</li>
+                    </ol>
+                  </div>
+                  
+                  <div class="warning">
+                    ⏰ <strong>Important:</strong> This verification link expires in 24 hours. Please verify your email soon to avoid losing access.
+                  </div>
+                  
+                  <p style="color: #6b7280; font-size: 13px;">
+                    Questions? Reply to this email or contact our support team at <a href="mailto:support@jobiz.ng" style="color: #3b82f6;">support@omnisales.com</a>
+                  </p>
+                </div>
+                
+                <div class="footer">
+                  <p style="margin: 0;">
+                    © ${new Date().getFullYear()} OmniSales. All rights reserved.<br>
+                    <a href="${appUrl}" style="color: #3b82f6; text-decoration: none;">Visit Our Website</a>
+                  </p>
+                </div>
+              </div>
+            </body>
+          </html>
         `
       };
       
-      await transporter.sendMail(mailOptions);
-      console.log('Verification email sent to', email);
+      // Add timeout to email sending (max 8 seconds)
+      const emailTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Email sending timeout')), 8000)
+      );
+      
+      try {
+        console.log('Sending verification email:', { from: mailOptions.from, to: mailOptions.to, subject: mailOptions.subject });
+        const result = await Promise.race([transporter.sendMail(mailOptions), emailTimeout]);
+        console.log('✅ Verification email sent successfully to', email, 'Response:', result);
+      } catch (mailErr) {
+        console.warn('❌ Failed to send verification email to', email, ':', mailErr.message);
+      }
     } catch (emailErr) {
-      console.warn('Failed to send verification email:', emailErr.message);
+      console.warn('Failed to prepare verification email:', emailErr.message);
       // Don't fail the registration if email fails
     }
 
@@ -445,9 +512,100 @@ app.post('/api/register', async (req, res) => {
         `
       };
       
-      await transporter.sendMail(mailOptions);
+      // Add timeout to email sending (max 5 seconds)
+      const emailTimeout = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Admin email timeout')), 5000)
+      );
+      
+      await Promise.race([transporter.sendMail(mailOptions), emailTimeout]);
     } catch (emailErr) {
       console.warn('Failed to send admin notification:', emailErr.message);
+    }
+
+    // Send OTP to phone number if provided
+    if (phone) {
+      try {
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpId = 'otp_' + Date.now();
+        const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+        // Store OTP
+        await pool.execute(
+          'INSERT INTO phone_otp_tokens (id, employee_id, phone, otp, attempts, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [otpId, employeeId, phone, otp, 0, otpExpiresAt]
+        );
+
+        // Send OTP via SMS
+        const smsMessage = `Your OmniSales verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
+        
+        // Use SMSLive247 if configured
+        if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
+          try {
+            const https = await import('https');
+            const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
+            // Remove + sign from phone for SMS gateway
+            const phoneForSMS = phone.replace(/^\+/, '');
+            const payload = {
+              api_key: process.env.SMSLIVE_API_KEY,
+              sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
+              messages: [{ to: phoneForSMS, message: smsMessage }]
+            };
+
+            const smsTimeout = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('SMS sending timeout')), 10000)
+            );
+
+            const sendSmsPromise = new Promise((resolve, reject) => {
+              const reqOpts = {
+                method: 'POST',
+                hostname: url.hostname,
+                port: url.port || 443,
+                path: url.pathname + (url.search || ''),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
+                  'Accept': 'application/json'
+                }
+              };
+
+              const request = https.request(reqOpts, (resp) => {
+                let data = '';
+                resp.on('data', (chunk) => { data += chunk; });
+                resp.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(data || '{}');
+                    if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
+                      resolve(parsed);
+                    } else {
+                      reject(new Error('SMS provider error: ' + parsed.message));
+                    }
+                  } catch (e) {
+                    reject(new Error('SMS provider returned invalid JSON'));
+                  }
+                });
+              });
+
+              request.on('error', (e) => {
+                reject(new Error('Failed to contact SMS provider: ' + (e && e.message ? e.message : String(e))));
+              });
+              request.write(JSON.stringify(payload));
+              request.end();
+            });
+
+            await Promise.race([sendSmsPromise, smsTimeout]);
+            console.log('✅ OTP sent successfully to', phone);
+          } catch (err) {
+            console.warn('❌ Failed to send OTP to', phone, ':', err.message);
+          }
+        } else {
+          // Fallback: if SMS not configured, just log the OTP for testing
+          console.log('📱 OTP for phone verification:', otp, 'Phone:', phone);
+        }
+      } catch (otpErr) {
+        console.warn('Failed to generate/send OTP:', otpErr.message);
+        // Don't fail registration if OTP fails
+      }
     }
 
     // Return success with business and employee info
@@ -497,6 +655,261 @@ app.post('/api/verify-email', async (req, res) => {
   } catch (err) {
     console.error('Email verification error:', err);
     res.status(500).json({ error: 'Failed to verify email' });
+  }
+});
+
+// Resend verification email endpoint
+app.post('/api/resend-verification-email', async (req, res) => {
+  const { email } = req.body;
+  try {
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Find employee by email
+    const [empRows] = await pool.execute(
+      'SELECT id, name FROM employees WHERE email = ? LIMIT 1',
+      [email]
+    );
+
+    if (!empRows || empRows.length === 0) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const employee = empRows[0];
+
+    // Check if already verified
+    const [verified] = await pool.execute(
+      'SELECT email_verified FROM employees WHERE email = ?',
+      [email]
+    );
+
+    if (verified && verified[0] && verified[0].email_verified) {
+      return res.status(400).json({ error: 'Email already verified' });
+    }
+
+    // Delete old token if exists
+    await pool.execute('DELETE FROM email_verification_tokens WHERE email = ?', [email]);
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const tokenId = 'email_verify_' + Date.now();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Store verification token
+    await pool.execute(
+      'INSERT INTO email_verification_tokens (id, employee_id, email, token, expires_at) VALUES (?, ?, ?, ?, ?)',
+      [tokenId, employee.id, email, verificationToken, expiresAt]
+    );
+
+    // Send verification email
+    const verifyLink = `${process.env.APP_URL || 'http://localhost:5173'}/#/verify-email?token=${verificationToken}`;
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    
+    const mailOptions = {
+      from: process.env.SMTP_FROM || 'info@jobiz.ng',
+      to: email,
+      subject: 'Verify Your OmniSales Email',
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+              .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; }
+            </style>
+          </head>
+          <body>
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h2>Verify Your Email</h2>
+              <p>Hi ${employee.name},</p>
+              <p>Please verify your email address by clicking the button below:</p>
+              <center>
+                <a href="${verifyLink}" class="button">Verify Email</a>
+              </center>
+              <p>Or copy this link: <code>${verifyLink}</code></p>
+              <p>This link expires in 24 hours.</p>
+            </div>
+          </body>
+        </html>
+      `
+    };
+
+    const emailTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Email sending timeout')), 8000)
+    );
+
+    try {
+      console.log('Resending verification email to:', email);
+      await Promise.race([transporter.sendMail(mailOptions), emailTimeout]);
+      console.log('✅ Resend verification email sent to', email);
+      res.json({ success: true, message: 'Verification email resent successfully!' });
+    } catch (mailErr) {
+      console.warn('❌ Failed to resend verification email to', email, ':', mailErr.message);
+      res.status(500).json({ error: 'Failed to send email. Please try again later.' });
+    }
+  } catch (err) {
+    console.error('Resend verification error:', err);
+    res.status(500).json({ error: 'Failed to resend verification email' });
+  }
+});
+
+// Send OTP to phone endpoint
+app.post('/api/send-otp', async (req, res) => {
+  const { phone } = req.body;
+  try {
+    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpId = 'otp_' + Date.now();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+
+    // Find employee by phone (assuming they just registered)
+    const [employees] = await pool.execute('SELECT id FROM employees WHERE phone = ? ORDER BY id DESC LIMIT 1', [phone]);
+    if (!employees || employees.length === 0) {
+      return res.status(400).json({ error: 'Phone number not found in registration' });
+    }
+    const employeeId = employees[0].id;
+
+    // Store OTP
+    await pool.execute(
+      'INSERT INTO phone_otp_tokens (id, employee_id, phone, otp, attempts, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [otpId, employeeId, phone, otp, 0, expiresAt]
+    );
+
+    // Send OTP via SMS
+    const smsMessage = `Your OmniSales verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
+    
+    // Use SMSLive247 if configured
+    if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
+      try {
+        const https = await import('https');
+        const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
+        // Remove + sign from phone for SMS gateway
+        const phoneForSMS = phone.replace(/^\+/, '');
+        const payload = {
+          api_key: process.env.SMSLIVE_API_KEY,
+          sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
+          messages: [{ to: phoneForSMS, message: smsMessage }]
+        };
+
+        const smsTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('SMS sending timeout')), 10000)
+        );
+
+        const sendSmsPromise = new Promise((resolve, reject) => {
+          const reqOpts = {
+            method: 'POST',
+            hostname: url.hostname,
+            port: url.port || 443,
+            path: url.pathname + (url.search || ''),
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
+              'Accept': 'application/json'
+            }
+          };
+
+          const request = https.request(reqOpts, (resp) => {
+            let data = '';
+            resp.on('data', (chunk) => { data += chunk; });
+            resp.on('end', () => {
+              try {
+                const parsed = JSON.parse(data || '{}');
+                if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
+                  resolve(parsed);
+                } else {
+                  reject(new Error('SMS provider error: ' + parsed.message));
+                }
+              } catch (e) {
+                reject(new Error('SMS provider returned invalid JSON'));
+              }
+            });
+          });
+
+          request.on('error', (e) => {
+            reject(new Error('Failed to contact SMS provider: ' + (e && e.message ? e.message : String(e))));
+          });
+          request.write(JSON.stringify(payload));
+          request.end();
+        });
+
+        await Promise.race([sendSmsPromise, smsTimeout]);
+        console.log('✅ OTP sent successfully to', phone);
+        res.json({ success: true, message: 'OTP sent successfully to your phone' });
+      } catch (err) {
+        console.warn('❌ Failed to send OTP to', phone, ':', err.message);
+        res.status(500).json({ error: 'Failed to send OTP: ' + err.message });
+      }
+    } else {
+      // Fallback: if SMS not configured, just log the OTP for testing
+      console.log('📱 OTP for phone verification:', otp, 'Phone:', phone);
+      res.json({ success: true, message: 'OTP sent successfully (development mode)' });
+    }
+  } catch (err) {
+    console.error('Send OTP error:', err);
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+// Verify OTP endpoint
+app.post('/api/verify-otp', async (req, res) => {
+  const { phone, otp } = req.body;
+  try {
+    if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
+    if (otp.length !== 6) return res.status(400).json({ error: 'OTP must be 6 digits' });
+
+    // Find the latest OTP for this phone
+    const [otpRecords] = await pool.execute(
+      'SELECT id, employee_id, otp, attempts, expires_at FROM phone_otp_tokens WHERE phone = ? AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1',
+      [phone]
+    );
+
+    if (!otpRecords || otpRecords.length === 0) {
+      return res.status(400).json({ error: 'No OTP found for this phone number. Please request a new one.' });
+    }
+
+    const otpRecord = otpRecords[0];
+    const now = new Date();
+
+    // Check if OTP has expired
+    if (now > new Date(otpRecord.expires_at)) {
+      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+    }
+
+    // Check attempt limit (max 5 attempts)
+    if (otpRecord.attempts >= 5) {
+      return res.status(400).json({ error: 'Too many attempts. Please request a new OTP.' });
+    }
+
+    // Verify OTP
+    if (otpRecord.otp !== otp) {
+      // Increment attempts
+      await pool.execute(
+        'UPDATE phone_otp_tokens SET attempts = attempts + 1 WHERE id = ?',
+        [otpRecord.id]
+      );
+      return res.status(400).json({ error: 'Invalid OTP. Please try again.' });
+    }
+
+    // OTP verified! Mark as verified and update employee
+    const verifiedAt = new Date();
+    await pool.execute(
+      'UPDATE phone_otp_tokens SET verified_at = ? WHERE id = ?',
+      [verifiedAt, otpRecord.id]
+    );
+
+    // Mark BOTH phone and email as verified (either method completes the verification)
+    await pool.execute(
+      'UPDATE employees SET phone_verified = 1, phone_verified_at = ?, email_verified = 1, email_verified_at = ? WHERE id = ?',
+      [verifiedAt, verifiedAt, otpRecord.employee_id]
+    );
+
+    console.log('✅ Account verified successfully via phone OTP for employee:', otpRecord.employee_id);
+    res.json({ success: true, message: 'Phone verified successfully. You can now proceed to payment.' });
+  } catch (err) {
+    console.error('Verify OTP error:', err);
+    res.status(500).json({ error: 'Failed to verify OTP' });
   }
 });
 
@@ -1291,6 +1704,13 @@ app.get('/api/employees', authMiddleware, async (req, res) => {
 app.post('/api/employees', authMiddleware, async (req, res) => {
   const { id, name, role_id, email, phone, password, default_location_id, is_super_admin, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
   try {
+    // If password provided, enforce strong policy
+    if (password) {
+      const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+      if (!pwdPolicy.test(password)) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
+      }
+    }
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     if (!bizRows || !bizRows[0]) return res.status(400).json({ error: 'Business not found' });
     const businessId = bizRows[0].business_id;
@@ -1308,6 +1728,13 @@ app.put('/api/employees/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, role_id, email, phone, password, default_location_id, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
   try {
+    // If password provided, enforce strong policy
+    if (password) {
+      const pwdPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+      if (!pwdPolicy.test(password)) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
+      }
+    }
     const hashed = password ? await bcrypt.hash(password, 10) : null;
     if (hashed) {
       await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, password = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, hashed, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, id, req.user.id]);
@@ -2147,7 +2574,7 @@ app.delete('/api/super-admin/feedbacks/:id', superAdminAuthMiddleware, async (re
 // PUBLIC endpoint - get landing page settings (no auth required)
 app.get('/api/landing/settings', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_org" LIMIT 1');
     const settings = rows && rows[0] ? rows[0] : {};
     
     // Parse JSON fields if they exist
@@ -2164,8 +2591,8 @@ app.get('/api/landing/settings', async (req, res) => {
 
 app.get('/api/super-admin/settings', superAdminAuthMiddleware, async (req, res) => {
   try {
-    // For super admin, we store a global settings record with special business_id
-    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    // For super admin, we store settings under the super admin org business id
+    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = "super_admin_org" LIMIT 1');
     const settings = rows && rows[0] ? rows[0] : {};
     
     // Parse JSON fields if they exist
@@ -2189,21 +2616,21 @@ app.post('/api/super-admin/settings', superAdminAuthMiddleware, async (req, res)
       return res.status(400).json({ error: 'Landing content is required' });
     }
 
-    // Check if global settings exist
-    const [existing] = await pool.execute('SELECT business_id FROM settings WHERE business_id = "super_admin_global" LIMIT 1');
+    // Check if super admin org settings exist
+    const [existing] = await pool.execute('SELECT business_id FROM settings WHERE business_id = "super_admin_org" LIMIT 1');
     
     const landingContentJson = typeof landingContent === 'string' ? landingContent : JSON.stringify(landingContent);
     
     if (existing && existing[0]) {
       // Update existing
       await pool.execute(
-        'UPDATE settings SET landing_content = ? WHERE business_id = "super_admin_global"',
+        'UPDATE settings SET landing_content = ? WHERE business_id = "super_admin_org"',
         [landingContentJson]
       );
     } else {
-      // Insert new
+      // Insert new under the super admin org business id
       await pool.execute(
-        'INSERT INTO settings (business_id, landing_content) VALUES ("super_admin_global", ?)',
+        'INSERT INTO settings (business_id, landing_content) VALUES ("super_admin_org", ?)',
         [landingContentJson]
       );
     }
@@ -2385,7 +2812,7 @@ async function ensureSuperAdmin() {
     const perms = 'all';
     await pool.execute(`INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)`, ['super_role', superBusinessId, 'Super Administrator', perms]);
 
-    const superPass = process.env.SUPER_ADMIN_PASSWORD || 'super';
+    const superPass = process.env.SUPER_ADMIN_PASSWORD || '@@BJAdmin22';
     const hashed = await bcrypt.hash(superPass, 10);
     await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone) VALUES (?, ?, 1, ?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email), password = VALUES(password)`, ['usr_super', superBusinessId, 'Super Admin', 'super_role', hashed, 'super@omnisales.com', '000']);
 
@@ -2398,18 +2825,14 @@ async function ensureSuperAdmin() {
 // Ensure global settings business record exists
 async function ensureGlobalSettingsBusiness() {
   try {
-    const [existing] = await pool.execute('SELECT id FROM businesses WHERE id = "super_admin_global" LIMIT 1');
+    // Ensure the super admin org exists and use it for global settings
+    const [existing] = await pool.execute('SELECT id FROM businesses WHERE id = "super_admin_org" LIMIT 1');
     if (existing && existing[0]) {
       return; // Already exists
     }
-    
-    // Create the global settings business record
-    await pool.execute(
-      `INSERT INTO businesses (id, name, email, status, paymentStatus, registeredAt) 
-       VALUES ("super_admin_global", "Super Admin Global Settings", "global@omnisales.com", "active", "paid", NOW())`,
-      []
-    );
-    console.log('Global settings business record created.');
+    // If super admin org is missing, create it (ensureSuperAdmin will also create)
+    console.log('super_admin_org business missing; creating via ensureSuperAdmin()');
+    await ensureSuperAdmin();
   } catch (err) {
     console.error('Failed to ensure global settings business:', err.message || err);
   }
@@ -2531,5 +2954,45 @@ async function startServer() {
     console.log(`Server running on port ${port}`);
   });
 }
+
+// TEST EMAIL ENDPOINT (for debugging)
+app.post('/api/test-email', async (req, res) => {
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Email address required' });
+  
+  // Create a timeout promise that rejects after 10 seconds
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Email sending timeout - SMTP server not responding')), 10000)
+  );
+  
+  try {
+    console.log('Testing email to:', to);
+    console.log('SMTP Config:', {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER,
+      from: process.env.SMTP_FROM
+    });
+    
+    const mailOptions = {
+      from: process.env.SMTP_FROM || 'info@jobiz.ng',
+      to: to,
+      subject: 'Test Email from OmniSales',
+      html: `
+        <h2>Test Email</h2>
+        <p>If you received this email, SMTP is working correctly!</p>
+        <p>Sent at: ${new Date().toISOString()}</p>
+      `
+    };
+    
+    console.log('Sending email with options:', { from: mailOptions.from, to: mailOptions.to });
+    await Promise.race([transporter.sendMail(mailOptions), timeoutPromise]);
+    console.log('Test email sent successfully to', to);
+    res.json({ success: true, message: 'Test email sent successfully!' });
+  } catch (err) {
+    console.error('Test email error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to send test email' });
+  }
+});
 
 startServer();

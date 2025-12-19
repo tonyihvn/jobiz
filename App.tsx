@@ -34,6 +34,7 @@ import SuperAdminActivation from './pages/SuperAdminActivation';
 import SuperAdminFeedbacks from './pages/SuperAdminFeedbacks';
 import SuperAdminData from './pages/SuperAdminData';
 import SuperAdminLandingConfig from './pages/SuperAdminLandingConfig';
+import UserProfile from './pages/UserProfile';
 import db from './services/apiClient';
 import { CurrencyProvider } from './services/CurrencyContext';
 import { BusinessProvider } from './services/BusinessContext';
@@ -130,6 +131,7 @@ const App = () => {
                  <Route path="sales-history" element={<SalesHistory />} />
                  <Route path="service-history" element={<ServiceHistory />} />
                  <Route path="finance" element={<Finance />} />
+                 <Route path="user-profile/:id" element={<UserProfile />} />
                  <Route path="tasks" element={<Tasks />} />
                  <Route path="reports" element={<Reports />} />
                  <Route path="audit-trails" element={<AuditTrails />} />

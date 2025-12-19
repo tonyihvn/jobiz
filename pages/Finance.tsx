@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
 import { Transaction, TransactionType, AccountHead, Employee, Role, Customer, Supplier } from '../types';
@@ -9,6 +10,7 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Finance = () => {
     const { symbol } = useCurrency();
+    const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'transactions' | 'heads' | 'personnel'>('transactions');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHeads, setAccountHeads] = useState<AccountHead[]>([]);
@@ -59,11 +61,8 @@ const Finance = () => {
             let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll() : [];
             let sals = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
             if (!Array.isArray(txs) || txs.length === 0) {
-                txs = [
-                        { id: '1', businessId, date: new Date().toISOString(), accountHead: 'Sales Revenue', type: TransactionType.INFLOW, amount: 1200.50, particulars: 'Daily Sales', paidBy: 'Customers', receivedBy: 'Admin', approvedBy: 'Admin' },
-                        { id: '2', businessId, date: new Date().toISOString(), accountHead: 'Rent Payment', type: TransactionType.EXPENDITURE, amount: 5000.00, particulars: 'Office Rent Oct', paidBy: 'Admin', receivedBy: 'Landlord', approvedBy: 'Director' },
-                ];
-                try { if (db.transactions && (db.transactions as any).save) await (db.transactions as any).save(txs); } catch (e) { /* ignore */ }
+                    // No default transactions - start empty
+                    txs = [];
             }
             setTransactions(Array.isArray(txs) ? txs : []);
             setSales(Array.isArray(sals) ? sals : []);
@@ -248,20 +247,21 @@ const Finance = () => {
     { header: 'Salary', accessor: (e: Employee) => `${symbol}${fmt(Number(e.salary || 0), 2)}`, key: 'salary', sortable: true, filterable: true },
     { 
         header: 'Actions', 
-        accessor: (item: Employee) => (
+        accessor: (item: Employee) => {
+            return (
             <div className="flex gap-2">
-                {hasPermission('employees', 'update') && (
-                    <button onClick={() => handleEditEmployee(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
-                        <Edit2 size={16} />
-                    </button>
-                )}
-                {hasPermission('employees', 'delete') && (
-                    <button onClick={() => handleDeleteEmployee(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
-                        <Trash2 size={16} />
-                    </button>
-                )}
+                <button onClick={() => navigate(`/user-profile/${item.id}`)} className="text-slate-700 hover:bg-slate-50 p-1 rounded">
+                    Profile
+                </button>
+                <button onClick={() => handleEditEmployee(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
+                    <Edit2 size={16} />
+                </button>
+                <button onClick={() => handleDeleteEmployee(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
+                    <Trash2 size={16} />
+                </button>
             </div>
-        ), 
+            );
+        },
         key: 'actions' 
     }
   ];

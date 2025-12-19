@@ -55,6 +55,7 @@ const Landing = () => {
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [settings, setSettings] = React.useState<LandingSettings>(DEFAULT_SETTINGS);
+  const [carouselIndex, setCarouselIndex] = React.useState(0);
   const [formData, setFormData] = React.useState({
     companyName: '',
     fullName: '',
@@ -178,7 +179,10 @@ const Landing = () => {
       </nav>
 
       {/* Hero */}
-      <section className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden relative">
+      <section
+        className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden relative"
+        style={settings.hero && settings.hero.backgroundImage ? { backgroundImage: `url(${settings.hero.backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+      >
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-brand-50 rounded-full blur-3xl opacity-50 -z-10" />
         <div className="max-w-7xl mx-auto px-4 text-center">
           <h1 className="text-5xl lg:text-7xl font-extrabold text-slate-900 tracking-tight mb-6">
@@ -202,9 +206,19 @@ const Landing = () => {
                    <div className="w-3 h-3 rounded-full bg-yellow-400"></div>
                    <div className="w-3 h-3 rounded-full bg-green-400"></div>
                </div>
-               {/* Placeholder for App Screenshot */}
-               <div className="bg-slate-50 p-8 flex items-center justify-center h-[400px] text-slate-300 font-bold text-2xl">
-                   Dashboard Interface Preview
+               {/* Dashboard preview carousel or placeholder */}
+               <div className="bg-slate-50 p-4 flex items-center justify-center h-[400px] text-slate-300 font-bold text-2xl relative">
+                   {Array.isArray(settings.carousel) && (settings.carousel || []).length > 0 ? (
+                     <div className="w-full h-full relative">
+                       <img src={(settings.carousel || [])[carouselIndex]} alt="slide" className="w-full h-full object-cover" />
+                       <button onClick={() => setCarouselIndex(i => (i - 1 + (settings.carousel || []).length) % (settings.carousel || []).length)} className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-2">‹</button>
+                       <button onClick={() => setCarouselIndex(i => (i + 1) % (settings.carousel || []).length)} className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/80 rounded-full p-2">›</button>
+                     </div>
+                   ) : (
+                     <div className="bg-slate-50 p-8 flex items-center justify-center h-[400px] text-slate-300 font-bold text-2xl">
+                         Dashboard Interface Preview
+                     </div>
+                   )}
                </div>
           </div>
         </div>

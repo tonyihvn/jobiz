@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS employees (
   default_location_id VARCHAR(64) DEFAULT NULL,
   email_verified TINYINT(1) DEFAULT 0,
   email_verified_at TIMESTAMP NULL,
+  phone_verified TINYINT(1) DEFAULT 0,
+  phone_verified_at TIMESTAMP NULL,
   account_approved TINYINT(1) DEFAULT 0,
   account_approved_at TIMESTAMP NULL,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
@@ -197,10 +199,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Indexes for common lookups
-CREATE INDEX idx_products_business ON products(business_id);
-CREATE INDEX idx_stock_product ON stock_entries(product_id);
-CREATE INDEX idx_locations_business ON locations(business_id);
+-- Indexes for common lookups (IF NOT EXISTS would be ideal, but most DB versions don't support it for indexes)
+-- Commenting out as they may already exist
+-- CREATE INDEX idx_products_business ON products(business_id);
+-- CREATE INDEX idx_stock_product ON stock_entries(product_id);
+-- CREATE INDEX idx_locations_business ON locations(business_id);
 
 -- Example seeding (optional)
 -- INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES ('biz_demo_123','OmniSales Demo','admin@omnisales.com','active','paid','plan_pro', '2030-01-01','2025-01-01');
@@ -319,6 +322,22 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
   FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
 );
 
+-- Phone OTP verification
+CREATE TABLE IF NOT EXISTS phone_otp_tokens (
+  id VARCHAR(255) PRIMARY KEY,
+  employee_id VARCHAR(255) NOT NULL,
+  phone VARCHAR(255) NOT NULL,
+  otp VARCHAR(6) NOT NULL,
+  attempts INT DEFAULT 0,
+  expires_at TIMESTAMP NOT NULL,
+  verified_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX (phone),
+  INDEX (employee_id),
+  INDEX (expires_at),
+  FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+);
+
 -- Business payments
 CREATE TABLE IF NOT EXISTS business_payments (
   id VARCHAR(255) PRIMARY KEY,
@@ -347,7 +366,7 @@ CREATE TABLE IF NOT EXISTS plans (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   price DECIMAL(12, 2) NOT NULL,
-  interval ENUM('monthly', 'yearly') DEFAULT 'monthly',
+  billing_interval ENUM('monthly', 'yearly') DEFAULT 'monthly',
   features JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX (price)

@@ -6,12 +6,13 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
-        port: Number(process.env.PORT) ||3000,
+        // Use a dedicated dev port env var so production `PORT` (set by cPanel) isn't picked up
+        port: Number(process.env.VITE_DEV_SERVER_PORT) || 3000,
         host: '0.0.0.0',
         proxy: {
-          // Forward API requests to backend server during development
+          // Forward API requests to backend server during development. Use configured VITE_API_URL when available.
           '/api': {
-            target: 'http://localhost:3001',
+            target: env.VITE_API_URL || 'http://localhost:3001',
             changeOrigin: true,
             secure: false,
           }

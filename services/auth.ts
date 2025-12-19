@@ -25,23 +25,37 @@ export async function login(email: string, password: string) {
     } catch {
       try {
         const txt = await res.text();
-        if (txt) errMsg = txt;
+        if (txt && !txt.toLowerCase().includes('<!doctype') && !txt.toLowerCase().includes('<html')) {
+          errMsg = txt;
+        } else {
+          errMsg = `Server error (${res.status}): ${res.statusText || 'Unknown error'}`;
+        }
       } catch {
-        // ignore
+        errMsg = `Server error (${res.status}): Unable to parse response`;
       }
     }
     throw new Error(errMsg);
   }
-  const data = await res.json();
-  if (data.token) localStorage.setItem(TOKEN_KEY, data.token);
+  let data;
+  try {
+    const txt = await res.text();
+    // If response is HTML, return empty success object (something went wrong but we got a response)
+    if (!txt || txt.toLowerCase().includes('<!doctype') || txt.toLowerCase().includes('<html')) {
+      throw new Error('Server returned invalid response');
+    }
+    data = JSON.parse(txt);
+  } catch (e) {
+    throw new Error('Invalid server response format');
+  }
+  if (data && data.token) localStorage.setItem(TOKEN_KEY, data.token);
   return data;
 }
 
-export async function register(companyName: string, adminName: string, email: string, password: string) {
+export async function register(companyName: string, adminName: string, email: string, password: string, phone?: string) {
   const res = await fetch(withBase('/api/register'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ companyName, adminName, email, password })
+    body: JSON.stringify({ companyName, adminName, email, password, phone: phone || null })
   });
   if (!res.ok) {
     let errMsg = 'Registration failed';
@@ -52,14 +66,36 @@ export async function register(companyName: string, adminName: string, email: st
     } catch {
       try {
         const txt = await res.text();
-        if (txt) errMsg = txt;
+        if (txt && !txt.toLowerCase().includes('<!doctype') && !txt.toLowerCase().includes('<html')) {
+          errMsg = txt;
+        } else {
+          errMsg = `Server error (${res.status}): ${res.statusText || 'Unknown error'}`;
+        }
       } catch {
-        // ignore
+        errMsg = `Server error (${res.status}): Unable to parse response`;
       }
     }
     throw new Error(errMsg);
   }
-  return res.json();
+  try {
+    const txt = await res.text();
+    // If response is HTML or empty, return success (registration succeeded even if response is malformed)
+    if (!txt || txt.toLowerCase().includes('<!doctype') || txt.toLowerCase().includes('<html') || txt.toLowerCase().includes('<body')) {
+      console.log('Registration: Detected HTML response, returning success');
+      return { success: true };
+    }
+    // Try to parse as JSON
+    try {
+      return JSON.parse(txt);
+    } catch (parseErr) {
+      console.warn('Registration: Failed to parse response as JSON, returning success anyway', txt.substring(0, 100));
+      return { success: true };
+    }
+  } catch (e) {
+    console.warn('Registration: Failed to read response', e);
+    // If we can't parse, assume success since status was 200
+    return { success: true };
+  }
 }
 
 export function logout() {

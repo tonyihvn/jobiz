@@ -100,8 +100,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </form>
 
             <div className="mt-6 text-center text-xs text-slate-400">
-                <p>Default Tenant: admin@omnisales.com | admin</p>
-                <p>Super Admin: super@omnisales.com | super</p>
                 <p className="mt-4 text-brand-600 cursor-pointer hover:underline" onClick={() => navigate('/register')}>
                     Register your business
                 </p>

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, AlertCircle, Check, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Save, Plus, Trash2, AlertCircle, Check, Upload, Lock } from 'lucide-react';
 import { getToken } from '../services/auth';
+import { useBusinessContext } from '../services/BusinessContext';
 
 interface LandingContent {
   hero?: { title: string; subtitle: string; backgroundImage: string };
@@ -51,15 +53,24 @@ const DEFAULT_LANDING_CONTENT: LandingContent = {
 };
 
 const SuperAdminLandingConfig = () => {
+  const navigate = useNavigate();
+  const { selectedBusiness } = useBusinessContext();
   const [settings, setSettings] = useState<{ landingContent: LandingContent }>({ landingContent: DEFAULT_LANDING_CONTENT });
   const [activeLandingTab, setActiveLandingTab] = useState<string>('Hero');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
+    // Check if user is Super Admin
+    if (selectedBusiness && selectedBusiness.id !== 'super_admin_org') {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     fetchSettings();
-  }, []);
+  }, [selectedBusiness]);
 
   const fetchSettings = async () => {
     try {
@@ -141,6 +152,24 @@ const SuperAdminLandingConfig = () => {
     return <div className="p-8 text-center">Loading...</div>;
   }
 
+  if (accessDenied) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="bg-white p-8 rounded-xl shadow-lg border border-red-200 max-w-md text-center">
+          <Lock className="text-red-500 w-12 h-12 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">Access Denied</h1>
+          <p className="text-slate-600 mb-6">Only Super Admin can modify the Landing Page Configuration. Contact your Super Admin for assistance.</p>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
+          >
+            Go to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -152,7 +181,7 @@ const SuperAdminLandingConfig = () => {
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
         <div className="mb-4 flex gap-2 flex-wrap">
-          {['Navbar', 'Hero', 'Features', 'Plans', 'Testimonials', 'CTA', 'Footer'].map(t => (
+          {['Navbar', 'Hero', 'Carousel', 'Features', 'Plans', 'Testimonials', 'CTA', 'Footer'].map(t => (
             <button
               key={t}
               onClick={() => setActiveLandingTab(t)}
@@ -318,6 +347,40 @@ const SuperAdminLandingConfig = () => {
                     />
                   </label>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Carousel Section */}
+        {activeLandingTab === 'Carousel' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Carousel Slides (upload multiple)</label>
+              <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  {(((settings.landingContent as any)?.carousel) || []).map((img: string, idx: number) => (
+                    <div key={idx} className="relative group rounded overflow-hidden border">
+                      <img src={img} className="w-full h-28 object-cover" alt={`slide-${idx}`} />
+                      <button className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded" onClick={() => {
+                        const arr = [...((settings.landingContent as any)?.carousel || [])]; arr.splice(idx, 1); updateLanding({ carousel: arr });
+                      }}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <input type="file" id="carousel-upload" accept="image/*" multiple className="hidden" onChange={async e => {
+                    const files = Array.from(e.target.files || []);
+                    for (const f of files) {
+                      const url = await uploadLandingImage(f as File);
+                      if (url) {
+                        const arr = [...((settings.landingContent as any)?.carousel || [])]; arr.push(url); updateLanding({ carousel: arr });
+                      }
+                    }
+                  }} />
+                  <button onClick={() => document.getElementById('carousel-upload')?.click()} className="px-3 py-2 bg-slate-100 rounded">Upload Slides</button>
+                </div>
               </div>
             </div>
           </div>
