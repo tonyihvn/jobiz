@@ -81,14 +81,19 @@ const SuperAdminActivation = () => {
           'Authorization': `Bearer ${getToken()}`
         }
       });
+      
+      const data = await response.json();
+      
       if (response.ok) {
+        alert('Business deleted successfully');
         fetchBusinesses();
       } else {
-        alert('Failed to delete business');
+        alert(`Failed to delete business: ${data.error || 'Unknown error'}`);
+        console.error('Delete error:', data);
       }
     } catch (error) {
       console.error('Failed to delete business:', error);
-      alert('Error deleting business');
+      alert(`Error deleting business: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

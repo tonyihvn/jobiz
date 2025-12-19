@@ -2529,30 +2529,59 @@ app.delete('/api/super-admin/delete-business/:id', superAdminAuthMiddleware, asy
   try {
     const businessId = decodeURIComponent(req.params.id);
     
-    // Delete related data first (foreign key constraints)
-    await pool.execute('DELETE FROM settings WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM products WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM sales WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM expenses WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM users WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM services WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM courses WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM suppliers WHERE business_id = ?', [businessId]);
-    await pool.execute('DELETE FROM transactions WHERE business_id = ?', [businessId]);
+    console.log('Attempting to delete business:', businessId);
     
-    // Finally delete the business
-    const [result] = await pool.execute(
-      'DELETE FROM businesses WHERE id = ?',
-      [businessId]
-    );
-    
-    if (result.affectedRows === 0) {
+    // Verify business exists before deleting
+    const [business] = await pool.execute('SELECT id FROM businesses WHERE id = ?', [businessId]);
+    if (!business || business.length === 0) {
+      console.log('Business not found:', businessId);
       return res.status(404).json({ error: 'Business not found' });
     }
     
+    // Delete related data in correct order (respect foreign key constraints)
+    const tablesToDelete = [
+      'audit_logs',
+      'stock_history',
+      'sale_items',
+      'sales',
+      'stock_entries',
+      'products',
+      'customers',
+      'suppliers',
+      'services',
+      'reports',
+      'tasks',
+      'categories',
+      'transactions',
+      'account_heads',
+      'settings',
+      'employees',
+      'roles',
+      'locations'
+    ];
+    
+    for (const table of tablesToDelete) {
+      try {
+        await pool.execute(`DELETE FROM ${table} WHERE business_id = ?`, [businessId]);
+      } catch (err) {
+        // Table might not exist or error might be expected, continue
+        console.log(`Note: Could not delete from ${table}:`, err.message);
+      }
+    }
+    
+    // Finally delete the business
+    const [result] = await pool.execute('DELETE FROM businesses WHERE id = ?', [businessId]);
+    
+    if (result.affectedRows === 0) {
+      console.log('Failed to delete business after cleanup:', businessId);
+      return res.status(500).json({ error: 'Failed to delete business' });
+    }
+    
+    console.log('Business deleted successfully:', businessId);
     res.json({ success: true, message: 'Business deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Delete business error:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 
