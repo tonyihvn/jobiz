@@ -39,16 +39,14 @@ const Register = () => {
             return;
         }
 
-        // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
+        // Enforce password policy: minimum 8 characters, at least one number and at least one letter
         const pwd = formData.password || '';
-        const hasLowercase = /[a-z]/.test(pwd);
-        const hasUppercase = /[A-Z]/.test(pwd);
+        const hasLetter = /[a-zA-Z]/.test(pwd);
         const hasNumber = /\d/.test(pwd);
-        const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd);
         const hasMinLength = pwd.length >= 8;
         
-        if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
-            setError("Password must be at least 8 characters and include lowercase, uppercase, number and special character");
+        if (!hasMinLength || !hasLetter || !hasNumber) {
+            setError("Password must be at least 8 characters and include both letters and numbers");
             return;
         }
 
@@ -57,7 +55,7 @@ const Register = () => {
                 if (db.auth && db.auth.register) {
                     const phone = formData.phone ? formatPhoneNumber(formData.phone) : '';
                     setFormattedPhone(phone);
-                    const result = await db.auth.register(formData.companyName, formData.email, formData.password, phone);
+                    const result = await db.auth.register(formData.companyName, formData.companyName + ' Admin', formData.email, formData.password, phone);
                     if (result && result.success) {
                         setStep(2);
                         // Both email and OTP are sent automatically by backend
@@ -211,7 +209,7 @@ const Register = () => {
                         <p className="text-xs text-slate-400 mt-1">For phone verification (include country code or starts with 0)</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-3">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
                             <div className="relative">
@@ -220,22 +218,67 @@ const Register = () => {
                                     type="password" 
                                     required
                                     className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-500"
-                                    placeholder="******"
+                                    placeholder="At least 8 characters"
                                     value={formData.password}
                                     onChange={e => setFormData({...formData, password: e.target.value})}
                                 />
                             </div>
+                            
+                            {/* Password Strength Indicator */}
+                            {formData.password && (
+                                <div className="mt-3 space-y-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                    <p className="text-xs font-bold text-slate-600 mb-2">Password Requirements:</p>
+                                    <div className="space-y-1.5">
+                                        {/* Minimum 8 characters */}
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${formData.password.length >= 8 ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                {formData.password.length >= 8 ? '✓' : '○'}
+                                            </div>
+                                            <span className={`text-xs ${formData.password.length >= 8 ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                At least 8 characters ({formData.password.length}/8)
+                                            </span>
+                                        </div>
+                                        
+                                        {/* At least one letter */}
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${/[a-zA-Z]/.test(formData.password) ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                {/[a-zA-Z]/.test(formData.password) ? '✓' : '○'}
+                                            </div>
+                                            <span className={`text-xs ${/[a-zA-Z]/.test(formData.password) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                At least one letter (a-z, A-Z)
+                                            </span>
+                                        </div>
+                                        
+                                        {/* At least one number */}
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${/\d/.test(formData.password) ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                {/\d/.test(formData.password) ? '✓' : '○'}
+                                            </div>
+                                            <span className={`text-xs ${/\d/.test(formData.password) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                At least one number (0-9)
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Confirm</label>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Confirm Password</label>
                             <input 
                                 type="password" 
                                 required
                                 className="w-full px-4 py-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-brand-500"
-                                placeholder="******"
+                                placeholder="Re-enter password"
                                 value={formData.confirmPassword}
                                 onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
                             />
+                            {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                                <p className="text-xs text-rose-600 mt-1 font-medium">Passwords do not match</p>
+                            )}
+                            {formData.password && formData.confirmPassword && formData.password === formData.confirmPassword && (
+                                <p className="text-xs text-emerald-600 mt-1 font-medium">✓ Passwords match</p>
+                            )}
                         </div>
                     </div>
 

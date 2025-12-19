@@ -93,6 +93,19 @@ const pool = mysql.createPool({
   multipleStatements: true
 });
 
+// Test database connection early
+(async () => {
+  try {
+    const conn = await pool.getConnection();
+    console.log('✅ Database connection established');
+    conn.release();
+  } catch (err) {
+    console.error('❌ Failed to connect to database:', err.message || err);
+    console.error('Please ensure MySQL is running and credentials in .env are correct');
+    process.exit(1);
+  }
+})();
+
 // Small migration: ensure `is_service` column exists on `sale_items`
 (async () => {
   try {
@@ -266,8 +279,13 @@ app.post('/api/reset-password', async (req, res) => {
   try {
     if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required' });
     
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Enforce password policy: minimum 8 characters, at least one number and at least one letter
+    const hasLetter = /[a-zA-Z]/.test(newPassword);
+    const hasNumber = /\d/.test(newPassword);
+    const hasMinLength = newPassword.length >= 8;
+    
+    if (!hasMinLength || !hasLetter || !hasNumber) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters and include both letters and numbers' });
     }
 
     // Find valid reset token
@@ -364,15 +382,13 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: companyName, email, password' });
     }
 
-    // Enforce password policy: minimum 8 characters, at least one lowercase, one uppercase, one digit and one special
-    const hasLowercase = /[a-z]/.test(password);
-    const hasUppercase = /[A-Z]/.test(password);
+    // Enforce password policy: minimum 8 characters, at least one number and at least one letter
+    const hasLetter = /[a-zA-Z]/.test(password);
     const hasNumber = /\d/.test(password);
-    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
     const hasMinLength = password.length >= 8;
     
-    if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' });
+    if (!hasMinLength || !hasLetter || !hasNumber) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters and include both letters and numbers' });
     }
 
     // Check if email already exists
@@ -1734,7 +1750,7 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
       const hasLowercase = /[a-z]/.test(password);
       const hasUppercase = /[A-Z]/.test(password);
       const hasNumber = /\d/.test(password);
-      const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+      const hasSpecialChar = /[^\w]/.test(password); // Any non-alphanumeric character
       const hasMinLength = password.length >= 8;
       
       if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
@@ -1763,7 +1779,7 @@ app.put('/api/employees/:id', authMiddleware, async (req, res) => {
       const hasLowercase = /[a-z]/.test(password);
       const hasUppercase = /[A-Z]/.test(password);
       const hasNumber = /\d/.test(password);
-      const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+      const hasSpecialChar = /[^\w]/.test(password); // Any non-alphanumeric character
       const hasMinLength = password.length >= 8;
       
       if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {

@@ -13,6 +13,7 @@ const Admin = () => {
   const [menuPermissions, setMenuPermissions] = useState<Array<{id:string,label:string}>>([]);
   const [resourcePermissions, setResourcePermissions] = useState<Array<{id:string,label:string}>>([]);
   const [editingResource, setEditingResource] = useState<{id: string, label: string} | null>(null);
+  const [rolesStatus, setRolesStatus] = useState<{type: 'idle' | 'saving' | 'success' | 'error', message: string}>({type: 'idle', message: ''});
 
   // Locations management
   const [locations, setLocations] = useState<Array<{id: string; name: string; address?: string}>>([]);
@@ -93,7 +94,11 @@ const Admin = () => {
 
   const handleAddRole = () => {
       (async () => {
-        if(!newRoleName) return;
+        if(!newRoleName) {
+          setRolesStatus({type: 'error', message: 'Role name cannot be empty'});
+          return;
+        }
+        setRolesStatus({type: 'saving', message: 'Creating role...'});
         const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
         const newRole: Role = {
             id: newRoleName.toLowerCase().replace(/\s+/g, '_'),
@@ -103,8 +108,26 @@ const Admin = () => {
         };
         const updated = [...roles, newRole];
         setRoles(updated);
-        try { if (db.roles && db.roles.save) await db.roles.save(updated); }
-        catch (e) { console.warn('Failed to save roles', e); }
+        try {
+          if (db.roles && db.roles.save) {
+            const result = await db.roles.save(updated);
+            const failed = !result || (Array.isArray(result) && result.some(r => r === null));
+            if (failed) {
+              const msg = 'Failed to save role: server returned an error or unauthorised';
+              setRolesStatus({ type: 'error', message: msg });
+              console.error('Failed to save roles - result:', result);
+            } else {
+              setRolesStatus({type: 'success', message: 'Role created successfully!'});
+              setTimeout(() => setRolesStatus({type: 'idle', message: ''}), 3000);
+            }
+          } else {
+            throw new Error('Roles service not available');
+          }
+        } catch (e: any) {
+          const msg = e && e.message ? e.message : 'Failed to save role';
+          setRolesStatus({type: 'error', message: msg});
+          console.error('Failed to save roles', e);
+        }
         setNewRoleName('');
       })();
   };
@@ -128,7 +151,23 @@ const Admin = () => {
     const updatedRoles = roles.map(r => r.id === updatedRole.id ? updatedRole : r);
     setRoles(updatedRoles);
     setSelectedRole(updatedRole);
-    db.roles.save(updatedRoles);
+    setRolesStatus({type: 'saving', message: 'Saving permissions...'});
+    (async () => {
+      try {
+        const result = await db.roles.save(updatedRoles);
+        const failed = !result || (Array.isArray(result) && result.some(r => r === null));
+        if (failed) {
+          setRolesStatus({type: 'error', message: 'Failed to save permissions: server error or unauthorized'});
+          console.error('Failed to save permissions - result:', result);
+        } else {
+          setRolesStatus({type: 'success', message: 'Permissions saved successfully!'});
+          setTimeout(() => setRolesStatus({type: 'idle', message: ''}), 3000);
+        }
+      } catch (e: any) {
+        setRolesStatus({type: 'error', message: e?.message || 'Failed to save permissions'});
+        console.error('Failed to save permissions', e);
+      }
+    })();
   };
 
   const toggleResourceAction = (resourceId: string, action: 'create' | 'read' | 'update' | 'delete') => {
@@ -256,10 +295,20 @@ const Admin = () => {
                           value={newRoleName}
                           onChange={e => setNewRoleName(e.target.value)}
                       />
-                      <button onClick={handleAddRole} className="bg-brand-600 text-white p-2 rounded hover:bg-brand-700">
+                      <button onClick={handleAddRole} className="bg-brand-600 text-white p-2 rounded hover:bg-brand-700 disabled:opacity-50" disabled={rolesStatus.type === 'saving'}>
                           <Plus size={16} />
                       </button>
                   </div>
+                  {rolesStatus.message && (
+                    <div className={`mt-2 text-sm rounded px-2 py-1 ${
+                      rolesStatus.type === 'success' ? 'bg-green-100 text-green-800' :
+                      rolesStatus.type === 'error' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {rolesStatus.type === 'success' && <Check className="w-4 h-4 inline mr-1" />}
+                      {rolesStatus.message}
+                    </div>
+                  )}
               </div>
           </div>
 
