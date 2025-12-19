@@ -48,6 +48,26 @@ const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
+// Rate limiting for feedback form (protect from spam/bot attacks)
+const feedbackRateLimit = new Map();
+const FEEDBACK_LIMIT = 5; // max 5 submissions
+const FEEDBACK_WINDOW = 3600000; // per hour
+const isRateLimited = (ip) => {
+  const now = Date.now();
+  if (!feedbackRateLimit.has(ip)) {
+    feedbackRateLimit.set(ip, []);
+  }
+  const submissions = feedbackRateLimit.get(ip).filter(time => now - time < FEEDBACK_WINDOW);
+  feedbackRateLimit.set(ip, submissions);
+  return submissions.length >= FEEDBACK_LIMIT;
+};
+const recordFeedbackSubmission = (ip) => {
+  if (!feedbackRateLimit.has(ip)) {
+    feedbackRateLimit.set(ip, []);
+  }
+  feedbackRateLimit.get(ip).push(Date.now());
+};
+
 // Multer setup for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -2364,15 +2384,30 @@ app.get('/api/feedbacks', authMiddleware, async (req, res) => {
 // POST create feedback
 app.post('/api/feedbacks', async (req, res) => {
   try {
-    const { name, email, message } = req.body;
+    const clientIp = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+    
+    // Check rate limit
+    if (isRateLimited(clientIp)) {
+      return res.status(429).json({ error: 'Too many submissions. Please try again later.' });
+    }
+    
+    const { name, email, phone, companyName, message } = req.body;
     if (!name || !email || !message) return res.status(400).json({ error: 'Missing required fields' });
+    
+    // Basic validation to prevent common bot patterns
+    if (message.length < 10) return res.status(400).json({ error: 'Message too short' });
+    if (message.length > 5000) return res.status(400).json({ error: 'Message too long' });
     
     const id = 'feedback_' + Date.now();
     await pool.execute(
-      'INSERT INTO feedbacks (id, name, email, message, status, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
-      [id, name, email, message, 'new']
+      'INSERT INTO feedbacks (id, name, email, phone, companyName, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+      [id, name, email, phone || null, companyName || null, message, 'new']
     );
-    res.json({ id, name, email, message, status: 'new' });
+    
+    // Record submission for rate limiting
+    recordFeedbackSubmission(clientIp);
+    
+    res.json({ id, name, email, phone, companyName, message, status: 'new' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2477,9 +2512,11 @@ app.put('/api/super-admin/toggle-business/:id', superAdminAuthMiddleware, async 
     const { status } = req.body;
     if (!status) return res.status(400).json({ error: 'Status required' });
     
+    const businessId = decodeURIComponent(req.params.id);
+    
     await pool.execute(
       'UPDATE businesses SET status = ? WHERE id = ?',
-      [status, req.params.id]
+      [status, businessId]
     );
     res.json({ success: true });
   } catch (err) {
@@ -2490,7 +2527,7 @@ app.put('/api/super-admin/toggle-business/:id', superAdminAuthMiddleware, async 
 // DELETE business (for Super Admin)
 app.delete('/api/super-admin/delete-business/:id', superAdminAuthMiddleware, async (req, res) => {
   try {
-    const businessId = req.params.id;
+    const businessId = decodeURIComponent(req.params.id);
     
     // Delete related data first (foreign key constraints)
     await pool.execute('DELETE FROM settings WHERE business_id = ?', [businessId]);
@@ -2535,12 +2572,23 @@ app.get('/api/super-admin/feedbacks', superAdminAuthMiddleware, async (req, res)
     const selectParts = [];
     // id
     selectParts.push('id');
+    // name
+    if (colSet.has('name')) selectParts.push('name');
+    else selectParts.push('NULL as name');
+    // email
+    if (colSet.has('email')) selectParts.push('email');
+    else selectParts.push('NULL as email');
+    // phone
+    if (colSet.has('phone')) selectParts.push('phone');
+    else selectParts.push('NULL as phone');
+    // companyName
+    if (colSet.has('companyName')) selectParts.push('companyName');
+    else selectParts.push('NULL as companyName');
     // business_id may not exist in landing-page feedbacks
     if (colSet.has('business_id')) selectParts.push('business_id');
     else selectParts.push('NULL as business_id');
     // subject may be named 'subject' or stored in 'name' for simple feedbacks
     if (colSet.has('subject')) selectParts.push('subject');
-    else if (colSet.has('name')) selectParts.push('name as subject');
     else selectParts.push('NULL as subject');
     // message
     if (colSet.has('message')) selectParts.push('message');

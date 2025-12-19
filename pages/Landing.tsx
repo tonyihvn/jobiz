@@ -89,6 +89,7 @@ const Landing = () => {
     companyName: '',
     fullName: '',
     email: '',
+    phone: '',
     message: ''
   });
   const [submitting, setSubmitting] = React.useState(false);
@@ -143,12 +144,14 @@ const Landing = () => {
         body: JSON.stringify({
           name: formData.fullName,
           email: formData.email,
-          message: `Company: ${formData.companyName}\n\n${formData.message}`
+          phone: formData.phone,
+          companyName: formData.companyName,
+          message: formData.message
         })
       });
       if (response.ok) {
         setSubmitStatus('success');
-        setFormData({ companyName: '', fullName: '', email: '', message: '' });
+        setFormData({ companyName: '', fullName: '', email: '', phone: '', message: '' });
         setTimeout(() => setSubmitStatus('idle'), 3000);
       } else {
         setSubmitStatus('error');
@@ -406,6 +409,8 @@ const Landing = () => {
                               Failed to send. Please try again.
                           </div>
                       )}
+                      {/* Honeypot field for bot protection */}
+                      <input type="hidden" name="website" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
                               <label className="block text-sm font-medium text-slate-300 mb-1">Company Name</label>
@@ -416,9 +421,15 @@ const Landing = () => {
                               <input type="text" required value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
                           </div>
                       </div>
-                      <div>
-                          <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                          <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+                              <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-300 mb-1">Phone Number</label>
+                              <input type="tel" required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-brand-500 outline-none"/>
+                          </div>
                       </div>
                       <div>
                           <label className="block text-sm font-medium text-slate-300 mb-1">Message</label>

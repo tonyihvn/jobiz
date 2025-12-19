@@ -54,7 +54,7 @@ const SuperAdminActivation = () => {
 
   const toggleBusinessStatus = async (businessId: string, newStatus: 'active' | 'suspended') => {
     try {
-      const response = await fetch(`/api/super-admin/toggle-business/${businessId}`, {
+      const response = await fetch(`/api/super-admin/toggle-business/${encodeURIComponent(businessId)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -75,7 +75,7 @@ const SuperAdminActivation = () => {
       return;
     }
     try {
-      const response = await fetch(`/api/super-admin/delete-business/${businessId}`, {
+      const response = await fetch(`/api/super-admin/delete-business/${encodeURIComponent(businessId)}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${getToken()}`

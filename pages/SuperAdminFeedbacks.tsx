@@ -4,6 +4,10 @@ import { getToken } from '../services/auth';
 
 interface Feedback {
   id: string;
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
   business_id: string;
   businessName: string;
   subject: string;
@@ -140,14 +144,14 @@ return (
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-slate-900">{feedback.subject}</h3>
+                        <h3 className="font-semibold text-slate-900">{feedback.name}</h3>
                         <div className="flex">
                           {[...Array(feedback.rating)].map((_, i) => (
                             <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                           ))}
                         </div>
                       </div>
-                      <p className="text-sm text-slate-600 mb-1">{feedback.businessName}</p>
+                      <p className="text-sm text-slate-600 mb-1">{feedback.companyName || feedback.businessName}</p>
                       <p className="text-sm text-slate-500">{feedback.message.substring(0, 100)}...</p>
                     </div>
                     <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ml-2 ${
@@ -171,7 +175,19 @@ return (
               <h3 className="font-semibold text-lg text-slate-900">{selectedFeedback.subject}</h3>
               <div>
                 <p className="text-sm text-slate-600 mb-1">From:</p>
-                <p className="font-medium text-slate-900">{selectedFeedback.businessName}</p>
+                <p className="font-medium text-slate-900">{selectedFeedback.name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600 mb-1">Company:</p>
+                <p className="font-medium text-slate-900">{selectedFeedback.companyName || 'Not provided'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600 mb-1">Email:</p>
+                <p className="text-slate-700"><a href={`mailto:${selectedFeedback.email}`} className="text-blue-600 hover:underline">{selectedFeedback.email}</a></p>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600 mb-1">Phone:</p>
+                <p className="text-slate-700"><a href={`tel:${selectedFeedback.phone}`} className="text-blue-600 hover:underline">{selectedFeedback.phone || 'Not provided'}</a></p>
               </div>
               <div>
                 <p className="text-sm text-slate-600 mb-1">Rating:</p>

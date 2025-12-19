@@ -287,6 +287,8 @@ CREATE TABLE IF NOT EXISTS feedbacks (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
+  phone VARCHAR(20),
+  companyName VARCHAR(255),
   message TEXT NOT NULL,
   subject VARCHAR(255),
   business_id VARCHAR(255),
