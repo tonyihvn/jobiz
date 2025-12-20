@@ -233,6 +233,14 @@ export default function PaymentRegistration() {
                 </button>
               </div>
             </form>
+            <br /><br />
+            <hr></hr>
+            <p className="text-2xl font-bold text-gray-900 mb-2">Bank Transfer</p>
+                      <p className="text-gray-600">You can also send to our bank account and forward the evidence to: payments@jobiz.ng</p>
+
+                        <p className="text-3xl mb-2">Gintec Global Services. FCMB. <b>466 511 6017</b></p>
+
+
           </div>
         )}
 

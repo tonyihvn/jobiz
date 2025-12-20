@@ -588,9 +588,9 @@ app.post('/api/register', async (req, res) => {
             // Remove + sign from phone for SMS gateway
             const phoneForSMS = phone.replace(/^\+/, '');
             const payload = {
-              api_key: process.env.SMSLIVE_API_KEY,
-              sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
-              messages: [{ to: phoneForSMS, message: smsMessage }]
+              phoneNumbers: [phoneForSMS],
+              messageText: smsMessage,
+              senderID: process.env.SMSLIVE_SENDER || 'INFO'
             };
 
             const smsTimeout = new Promise((_, reject) => 
@@ -606,7 +606,8 @@ app.post('/api/register', async (req, res) => {
                 headers: {
                   'Content-Type': 'application/json',
                   'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-                  'Accept': 'application/json'
+                  'Accept': 'application/json',
+                  'Authorization': process.env.SMSLIVE_API_KEY
                 }
               };
 
@@ -829,9 +830,9 @@ app.post('/api/send-otp', async (req, res) => {
         // Remove + sign from phone for SMS gateway
         const phoneForSMS = phone.replace(/^\+/, '');
         const payload = {
-          api_key: process.env.SMSLIVE_API_KEY,
-          sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
-          messages: [{ to: phoneForSMS, message: smsMessage }]
+          phoneNumbers: [phoneForSMS],
+          messageText: smsMessage,
+          senderID: process.env.SMSLIVE_SENDER || 'INFO'
         };
 
         const smsTimeout = new Promise((_, reject) => 
@@ -847,7 +848,8 @@ app.post('/api/send-otp', async (req, res) => {
             headers: {
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              'Authorization': process.env.SMSLIVE_API_KEY
             }
           };
 
@@ -3157,15 +3159,15 @@ app.post('/api/test-sms', async (req, res) => {
         // Remove + sign from phone for SMS gateway
         const phoneForSMS = phone.replace(/^\+/, '');
         const payload = {
-          api_key: process.env.SMSLIVE_API_KEY,
-          sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || 'INFO',
-          messages: [{ to: phoneForSMS, message: message }]
+          phoneNumbers: [phoneForSMS],
+          messageText: message,
+          senderID: process.env.SMSLIVE_SENDER || 'INFO'
         };
 
         console.log('SMS Payload:', {
-          to: phoneForSMS,
-          sender: payload.sender,
-          message: message,
+          phoneNumbers: payload.phoneNumbers,
+          senderID: payload.senderID,
+          messageText: payload.messageText,
           url: url.href
         });
 
@@ -3182,7 +3184,8 @@ app.post('/api/test-sms', async (req, res) => {
             headers: {
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-              'Accept': 'application/json'
+              'Accept': 'application/json',
+              'Authorization': process.env.SMSLIVE_API_KEY
             }
           };
 
