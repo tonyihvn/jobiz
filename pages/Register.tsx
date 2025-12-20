@@ -55,7 +55,7 @@ const Register = () => {
                 if (db.auth && db.auth.register) {
                     const phone = formData.phone ? formatPhoneNumber(formData.phone) : '';
                     setFormattedPhone(phone);
-                    const result = await db.auth.register(formData.companyName, formData.companyName + ' Admin', formData.email, formData.password, phone);
+                    const result = await db.auth.register(formData.companyName, formData.email, formData.password, phone);
                     if (result && result.success) {
                         setStep(2);
                         // Both email and OTP are sent automatically by backend

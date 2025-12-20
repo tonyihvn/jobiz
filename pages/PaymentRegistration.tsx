@@ -1,5 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+interface LandingPlan {
+  name: string;
+  price: number | string;
+  period: string;
+  features: string[];
+  recommended?: boolean;
+}
+
+interface PaymentPlan extends LandingPlan {
+  id: string;
+  description: string;
+}
 
 export default function PaymentRegistration() {
   const navigate = useNavigate();
@@ -9,16 +22,54 @@ export default function PaymentRegistration() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [amount, setAmount] = useState(0);
+  const [plans, setPlans] = useState<PaymentPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
 
-  const plans = [
-    { id: 'starter', name: 'Starter', price: 9.99, description: 'Perfect for small businesses' },
-    { id: 'professional', name: 'Professional', price: 29.99, description: 'For growing businesses' },
-    { id: 'enterprise', name: 'Enterprise', price: 99.99, description: 'For large organizations' }
-  ];
+  // Fetch plans from landing settings API
+  useEffect(() => {
+    fetchPlans();
+  }, []);
 
-  const handlePlanSelect = (plan: typeof plans[0]) => {
+  const fetchPlans = async () => {
+    try {
+      const response = await fetch('/api/landing/settings');
+      if (response.ok) {
+        const data = await response.json();
+        const landingContent = data.landing_content || data.landingContent;
+        if (landingContent?.plans && Array.isArray(landingContent.plans)) {
+          // Transform landing plans to payment plans format
+          const transformedPlans = landingContent.plans.map((plan: LandingPlan, index: number) => ({
+            id: plan.name.toLowerCase().replace(/\s+/g, '-'),
+            name: plan.name,
+            price: plan.price,
+            period: plan.period || '/mo',
+            features: plan.features || [],
+            recommended: plan.recommended || false,
+            description: plan.features?.[0] || 'Business plan'
+          }));
+          setPlans(transformedPlans);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch plans:', err);
+      // Fallback to default plans if API fails
+      setPlans([
+        { id: 'starter', name: 'Starter', price: 29, period: '/mo', features: ['1 User Admin', 'Basic POS', 'Inventory Mgmt', '100 Products', 'Email Support'], description: 'Perfect for small businesses' },
+        { id: 'professional', name: 'Professional', price: 79, period: '/mo', features: ['5 Users', 'Advanced POS & Returns', 'Finance Module', 'Unlimited Products', 'Priority Support', 'Membership System'], recommended: true, description: 'For growing businesses' },
+        { id: 'enterprise', name: 'Enterprise', price: 'Custom', period: '', features: ['Unlimited Users', 'Multi-Branch Support', 'Dedicated Manager', 'API Access', 'White Labeling'], description: 'For large organizations' }
+      ]);
+    } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  const handlePlanSelect = (plan: PaymentPlan) => {
     setSelectedPlan(plan.id);
-    setAmount(plan.price);
+    // Convert price to number, handle "Custom" price
+    const planPrice = typeof plan.price === 'string' && plan.price.toLowerCase() === 'custom' 
+      ? 0 
+      : Number(plan.price);
+    setAmount(planPrice);
     setStep('payment');
   };
 
@@ -88,25 +139,52 @@ export default function PaymentRegistration() {
 
         {/* Plan Selection Step */}
         {step === 'plan' && (
-          <div className="grid md:grid-cols-3 gap-6 mb-8">
-            {plans.map((plan) => (
-              <button
-                key={plan.id}
-                onClick={() => handlePlanSelect(plan)}
-                className={`p-6 rounded-lg transition transform hover:scale-105 ${
-                  selectedPlan === plan.id
-                    ? 'bg-indigo-600 text-white shadow-lg'
-                    : 'bg-white text-gray-900 shadow-md hover:shadow-lg'
-                }`}
-              >
-                <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
-                <p className="text-3xl font-bold mb-2">${plan.price.toFixed(2)}</p>
-                <p className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600'}>{plan.description}</p>
-                <button className="mt-4 w-full py-2 rounded bg-opacity-20 hover:bg-opacity-30 transition">
-                  Select
-                </button>
-              </button>
-            ))}
+          <div>
+            {plansLoading ? (
+              <div className="text-center py-12">
+                <p className="text-gray-600">Loading plans...</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-3 gap-6 mb-8">
+                {plans.map((plan) => (
+                  <button
+                    key={plan.id}
+                    onClick={() => handlePlanSelect(plan)}
+                    className={`p-6 rounded-lg transition transform hover:scale-105 ${
+                      selectedPlan === plan.id
+                        ? 'bg-indigo-600 text-white shadow-lg'
+                        : 'bg-white text-gray-900 shadow-md hover:shadow-lg'
+                    }`}
+                  >
+                    {plan.recommended && (
+                      <div className="mb-2 inline-block px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full">
+                        RECOMMENDED
+                      </div>
+                    )}
+                    <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
+                    <p className="text-3xl font-bold mb-2">
+                      {typeof plan.price === 'string' && plan.price.toLowerCase() === 'custom' 
+                        ? 'Custom' 
+                        : `$${Number(plan.price).toFixed(2)}`}
+                    </p>
+                    {plan.period && <p className="text-sm text-gray-500 mb-2">{plan.period}</p>}
+                    <p className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600 text-sm'}>{plan.description}</p>
+                    {plan.features && plan.features.length > 0 && (
+                      <ul className="text-sm mt-4 space-y-1">
+                        {plan.features.slice(0, 3).map((feature, idx) => (
+                          <li key={idx} className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600'}>
+                            • {feature}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <button className="mt-4 w-full py-2 rounded bg-opacity-20 hover:bg-opacity-30 transition">
+                      Select
+                    </button>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
