@@ -63,7 +63,14 @@ const SuperAdminApprovals = () => {
         }
       });
       if (response.ok) {
-        fetchBusinesses();
+        // Update the business status locally first for immediate feedback
+        const updatedBusinesses = businesses.map(b => 
+          b.id === businessId ? { ...b, status: 'approved' as const } : b
+        );
+        setBusinesses(updatedBusinesses);
+        filterBusinesses(updatedBusinesses, filter);
+        // Then fetch fresh data
+        setTimeout(fetchBusinesses, 500);
       }
     } catch (error) {
       console.error('Failed to approve business:', error);
@@ -79,10 +86,34 @@ const SuperAdminApprovals = () => {
         }
       });
       if (response.ok) {
-        fetchBusinesses();
+        // Update the business status locally first for immediate feedback
+        const updatedBusinesses = businesses.map(b => 
+          b.id === businessId ? { ...b, status: 'rejected' as const } : b
+        );
+        setBusinesses(updatedBusinesses);
+        filterBusinesses(updatedBusinesses, filter);
+        // Then fetch fresh data
+        setTimeout(fetchBusinesses, 500);
       }
     } catch (error) {
       console.error('Failed to reject business:', error);
+    }
+  };
+
+  const deactivateBusiness = async (businessId: string) => {
+    if (!window.confirm('Are you sure you want to deactivate this business?')) return;
+    try {
+      const response = await fetch(`/api/super-admin/deactivate-business/${businessId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      if (response.ok) {
+        fetchBusinesses();
+      }
+    } catch (error) {
+      console.error('Failed to deactivate business:', error);
     }
   };
 
@@ -175,6 +206,19 @@ return (
                           Reject
                         </button>
                       </>
+                    )}
+                    {business.status === 'approved' && (
+                      <>
+                        <button
+                          onClick={() => deactivateBusiness(business.id)}
+                          className="text-orange-600 hover:text-orange-700 font-medium"
+                        >
+                          Deactivate
+                        </button>
+                      </>
+                    )}
+                    {business.status === 'rejected' && (
+                      <span className="text-slate-400 text-sm">No actions</span>
                     )}
                   </td>
                 </tr>
