@@ -526,7 +526,7 @@ const Payment = () => {
 
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-900">
-            ℹ️ Questions about payment? Email us at <a href="mailto:billing@omnisales.com" className="font-semibold underline">billing@omnisales.com</a>
+            ℹ️ Questions about payment? Email us at <a href="mailto:billing@jobiz.ng" className="font-semibold underline">billing@jobiz.ng</a>
           </p>
         </div>
       </div>

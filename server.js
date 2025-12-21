@@ -240,13 +240,13 @@ app.post('/api/forgot-password', async (req, res) => {
     );
 
     // Send reset email
-    const resetLink = `${process.env.APP_URL || 'http://localhost:5173'}/#/reset-password?token=${resetToken}`;
+    const resetLink = `${process.env.APP_URL || 'http://jobiz.ng'}/#/reset-password?token=${resetToken}`;
     
     try {
       await transporter.sendMail({
-        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        from: process.env.SMTP_FROM || 'noreply@jobiz.ng',
         to: email,
-        subject: 'Password Reset Request - OmniSales',
+        subject: 'Password Reset Request - Jobiz',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Password Reset Request</h2>
@@ -437,7 +437,7 @@ app.post('/api/register', async (req, res) => {
       const verifyLink = `${process.env.APP_URL || 'http://localhost:5173'}/#/verify-email?token=${verificationToken}`;
       const appUrl = process.env.APP_URL || 'http://localhost:5173';
       const mailOptions = {
-        from: process.env.SMTP_FROM || 'noreply@omnisales.com',
+        from: process.env.SMTP_FROM || 'noreply@jobiz.ng',
         to: email,
         subject: `Welcome to ${process.env.APP_NAME || "JOBIZ!"} Verify Your Email`,
         html: `
@@ -749,7 +749,7 @@ app.post('/api/resend-verification-email', async (req, res) => {
     const mailOptions = {
       from: process.env.SMTP_FROM || 'info@jobiz.ng',
       to: email,
-      subject: 'Verify Your OmniSales Email',
+      subject: 'Verify Your JOBIZ Email',
       html: `
         <!DOCTYPE html>
         <html>
@@ -820,7 +820,7 @@ app.post('/api/send-otp', async (req, res) => {
     );
 
     // Send OTP via SMS
-    const smsMessage = `Your OmniSales verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
+    const smsMessage = `Your JOBIZ verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
     
     // Use SMSLive247 if configured
     if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
@@ -2948,7 +2948,7 @@ async function ensureSuperAdmin() {
 
     console.log('Creating default Super Admin account...');
     const superBusinessId = 'super_admin_org';
-    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [superBusinessId, 'Super Admin Org', 'super@omnisales.com', 'plan_pro', '2030-01-01']);
+    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [superBusinessId, 'Super Admin Org', 'super@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // default role
     const perms = 'all';
@@ -2956,7 +2956,7 @@ async function ensureSuperAdmin() {
 
     const superPass = process.env.SUPER_ADMIN_PASSWORD || '@@BJAdmin22';
     const hashed = await bcrypt.hash(superPass, 10);
-    await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone) VALUES (?, ?, 1, ?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email), password = VALUES(password)`, ['usr_super', superBusinessId, 'Super Admin', 'super_role', hashed, 'super@omnisales.com', '000']);
+    await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone) VALUES (?, ?, 1, ?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email), password = VALUES(password)`, ['usr_super', superBusinessId, 'Super Admin', 'super_role', hashed, 'super@jobiz.ng', '000']);
 
     console.log('Super Admin ensured (id: usr_super). Use env SUPER_ADMIN_PASSWORD to set a custom password.');
   } catch (err) {
@@ -3013,10 +3013,10 @@ async function ensureDemoSeed() {
       console.log('Seeding demo data for business:', demoBiz);
     }
     // Insert business
-    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [demoBiz, 'OmniSales Demo Corp', 'admin@omnisales.com', 'plan_pro', '2030-01-01']);
+    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [demoBiz, 'Jobiz Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // Roles
-    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','service_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete','tasks:create','tasks:read','tasks:update','tasks:delete','reports:create','reports:read','reports:update','reports:delete','inventory:move','pos:any_location']);
+    const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','service_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete', 'tasks:create', 'tasks:read', 'tasks:update', 'tasks:delete', 'reports:create', 'reports:read', 'reports:update', 'reports:delete', 'inventory:move', 'pos:any_location']);
     await pool.execute('INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)', ['admin', demoBiz, 'Administrator', adminPerms]);
 
     // Employees (ensure demo admin exists). Create with hashed password; only overwrite existing password when env var provided.
@@ -3028,19 +3028,19 @@ async function ensureDemoSeed() {
       if (empCnt === 0) {
         const usePass = providedPass || 'admin';
         const hashed = await bcrypt.hash(usePass, 10);
-        await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email)`, [adminId, demoBiz, 'Demo Admin', 'admin', hashed, 5000, 'admin@omnisales.com', '555-0123', 'loc_main']);
+        await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email)`, [adminId, demoBiz, 'Demo Admin', 'admin', hashed, 5000, 'admin@jobiz.ng', '555-0123', 'loc_main']);
         if (providedPass) {
-          console.log('Demo Admin created: admin@omnisales.com / (from DEMO_ADMIN_PASSWORD env)');
+          console.log('Demo Admin created: admin@jobiz.ng / (from DEMO_ADMIN_PASSWORD env)');
         } else {
-          console.log('Demo Admin created: admin@omnisales.com / admin (default)');
+          console.log('Demo Admin created: admin@jobiz.ng / admin (default)');
         }
       } else if (providedPass) {
         // Update password only when env var provided
         const hashed = await bcrypt.hash(providedPass, 10);
         await pool.execute('UPDATE employees SET password = ? WHERE id = ?', [hashed, adminId]);
-        console.log('Demo Admin password updated from env var (admin@omnisales.com).');
+        console.log('Demo Admin password updated from env var (admin@jobiz.ng).');
       } else {
-        console.log('Demo Admin already exists (admin@omnisales.com). Password preserved.');
+        console.log('Demo Admin already exists (admin@jobiz.ng). Password preserved.');
       }
     } catch (e) {
       console.warn('Failed to ensure demo admin user:', e.message || e);
@@ -3070,9 +3070,9 @@ async function ensureDemoSeed() {
     }
 
     if (process.env.DEMO_ADMIN_PASSWORD) {
-      console.log('Demo seed complete. Admin login: admin@omnisales.com /', process.env.DEMO_ADMIN_PASSWORD);
+      console.log('Demo seed complete. Admin login: admin@jobiz.ng /', process.env.DEMO_ADMIN_PASSWORD);
     } else {
-      console.log('Demo seed complete. Admin login: admin@omnisales.com / (existing password preserved or default: admin)');
+      console.log('Demo seed complete. Admin login: admin@jobiz.ng / (existing password preserved or default: admin)');
     }
   } catch (err) {
     console.error('Demo seeding failed:', err.message || err);
@@ -3119,7 +3119,7 @@ app.post('/api/test-email', async (req, res) => {
     const mailOptions = {
       from: process.env.SMTP_FROM || 'info@jobiz.ng',
       to: to,
-      subject: 'Test Email from OmniSales',
+      subject: 'Test Email from JOBIZ',
       html: `
         <h2>Test Email</h2>
         <p>If you received this email, SMTP is working correctly!</p>

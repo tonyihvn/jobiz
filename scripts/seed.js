@@ -14,7 +14,7 @@ require('dotenv').config();
   try {
     // Seed demo business
     const businessId = 'biz_demo_123';
-    await conn.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [businessId, 'OmniSales Demo Corp', 'admin@omnisales.com', 'plan_pro', '2030-01-01']);
+    await conn.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [businessId, 'JOBIZ Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // Roles
     await conn.execute(`INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)`, ['admin', businessId, 'Administrator', 'inventory:create,inventory:read,inventory:update,inventory:delete,inventory:move,pos:any_location']);

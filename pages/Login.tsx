@@ -49,7 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <button onClick={() => navigate('/landing')} className="absolute left-4 top-4 text-slate-400 hover:text-white">
                 <ArrowLeft size={20} />
             </button>
-            <h1 className="text-2xl font-bold text-white mb-2">OmniSales Manager</h1>
+            <h1 className="text-2xl font-bold text-white mb-2">Jobiz Manager</h1>
             <p className="text-slate-400 text-sm">Sign in to access your business dashboard</p>
         </div>
         
