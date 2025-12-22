@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import db from '../services/apiClient';
 import { Role } from '../types';
 import { Shield, Check, Plus, Save, X, Settings, Menu, Database, MapPin, Trash2, Edit2 } from 'lucide-react';
+import { useContextBusinessId } from '../services/useContextBusinessId';
 
 const Admin = () => {
+  const { businessId } = useContextBusinessId();
   const [activeTab, setActiveTab] = useState<'roles' | 'locations'>('roles');
   
   // Roles management
@@ -87,7 +89,7 @@ const Admin = () => {
             }
         })();
         return () => { mounted = false; };
-  }, []);
+  }, [businessId]);
 
     // menuPermissions and resourcePermissions are built dynamically and stored in state
     // They default to empty until categories are loaded (built in useEffect)
@@ -98,35 +100,43 @@ const Admin = () => {
           setRolesStatus({type: 'error', message: 'Role name cannot be empty'});
           return;
         }
+        if (!businessId) {
+          setRolesStatus({type: 'error', message: 'No business selected or not loaded'});
+          return;
+        }
         setRolesStatus({type: 'saving', message: 'Creating role...'});
-        const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
         const newRole: Role = {
             id: newRoleName.toLowerCase().replace(/\s+/g, '_'),
-            businessId: currentUser?.businessId || '',
+            businessId: businessId,
             name: newRoleName,
             permissions: ['dashboard']
         };
-        const updated = [...roles, newRole];
-        setRoles(updated);
         try {
-          if (db.roles && db.roles.save) {
-            const result = await db.roles.save(updated);
-            const failed = !result || (Array.isArray(result) && result.some(r => r === null));
-            if (failed) {
-              const msg = 'Failed to save role: server returned an error or unauthorised';
-              setRolesStatus({ type: 'error', message: msg });
-              console.error('Failed to save roles - result:', result);
-            } else {
+          console.log('[ADMIN-ADD-ROLE] Creating new role with businessId:', businessId, newRole);
+          if (db.roles && db.roles.add) {
+            // Use the add method for new roles instead of save which tries to save all
+            const result = await db.roles.add(newRole);
+            console.log('[ADMIN-ADD-ROLE] Result:', result);
+            
+            if (result && result.success) {
+              // Only update local state after successful save
+              const updated = [...roles, newRole];
+              setRoles(updated);
               setRolesStatus({type: 'success', message: 'Role created successfully!'});
+              setNewRoleName('');
               setTimeout(() => setRolesStatus({type: 'idle', message: ''}), 3000);
+            } else {
+              const msg = result?.error || 'Failed to save role: server error';
+              setRolesStatus({ type: 'error', message: msg });
+              console.error('[ADMIN-ADD-ROLE] Failed:', result);
             }
           } else {
             throw new Error('Roles service not available');
           }
         } catch (e: any) {
-          const msg = e && e.message ? e.message : 'Failed to save role';
+          const msg = e && e.message ? e.message : 'Failed to create role';
           setRolesStatus({type: 'error', message: msg});
-          console.error('Failed to save roles', e);
+          console.error('[ADMIN-ADD-ROLE] Exception:', e);
         }
         setNewRoleName('');
       })();
@@ -148,24 +158,28 @@ const Admin = () => {
   const updateRolePermissions = (newPerms: string[]) => {
     if (!selectedRole) return;
     const updatedRole = { ...selectedRole, permissions: newPerms };
-    const updatedRoles = roles.map(r => r.id === updatedRole.id ? updatedRole : r);
-    setRoles(updatedRoles);
     setSelectedRole(updatedRole);
     setRolesStatus({type: 'saving', message: 'Saving permissions...'});
     (async () => {
       try {
-        const result = await db.roles.save(updatedRoles);
-        const failed = !result || (Array.isArray(result) && result.some(r => r === null));
-        if (failed) {
-          setRolesStatus({type: 'error', message: 'Failed to save permissions: server error or unauthorized'});
-          console.error('Failed to save permissions - result:', result);
-        } else {
+        console.log('[ADMIN-UPDATE-PERMISSIONS] Updating role:', updatedRole);
+        // Use update method for single role instead of save for all roles
+        const result = await db.roles.update(updatedRole.id, updatedRole);
+        
+        if (result && result.success) {
+          // Only update local state after successful save
+          const updatedRoles = roles.map(r => r.id === updatedRole.id ? updatedRole : r);
+          setRoles(updatedRoles);
           setRolesStatus({type: 'success', message: 'Permissions saved successfully!'});
           setTimeout(() => setRolesStatus({type: 'idle', message: ''}), 3000);
+        } else {
+          const msg = result?.error || 'Failed to save permissions';
+          setRolesStatus({type: 'error', message: msg});
+          console.error('[ADMIN-UPDATE-PERMISSIONS] Failed:', result);
         }
       } catch (e: any) {
         setRolesStatus({type: 'error', message: e?.message || 'Failed to save permissions'});
-        console.error('Failed to save permissions', e);
+        console.error('[ADMIN-UPDATE-PERMISSIONS] Exception:', e);
       }
     })();
   };

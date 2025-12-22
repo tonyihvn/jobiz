@@ -7,9 +7,11 @@ import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2 } from 'lucide-react';
 import RichTextEditor from '../components/Shared/RichTextEditor';
+import { useContextBusinessId } from '../services/useContextBusinessId';
 
 const Finance = () => {
     const { symbol } = useCurrency();
+    const { businessId } = useContextBusinessId();
     const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'transactions' | 'heads' | 'personnel'>('transactions');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -53,11 +55,10 @@ const Finance = () => {
                     } catch (e) { /* ignore */ }
             } catch (e) { console.warn('Failed to load user roles', e); }
         })();
-    }, []);
+    }, [businessId]);
 
     const refreshData = async () => {
         try {
-            const businessId = (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || 'demo' : 'demo';
             let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll() : [];
             let sals = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
             if (!Array.isArray(txs) || txs.length === 0) {
@@ -120,7 +121,7 @@ const Finance = () => {
         if (!newTx.amount || !newTx.accountHead || !newTx.date) return;
         const tx: Transaction = {
                 id: Date.now().toString(),
-                businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
+                businessId: businessId || '',
                 date: newTx.date!,
                 accountHead: newTx.accountHead!,
                 type: newTx.type!,
@@ -141,7 +142,7 @@ const Finance = () => {
         if (!newHead.title) return;
         const head: AccountHead = {
                 id: editingId || Date.now().toString(),
-                businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
+                businessId: businessId || '',
                 title: newHead.title!,
                 type: newHead.type!,
                 description: newHead.description || ''
@@ -163,7 +164,7 @@ const Finance = () => {
         if (!newEmp.name || (!newEmp.password && !editingId)) return;
         const emp: any = {
                 id: editingId || Date.now().toString(),
-                businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
+                businessId: businessId || '',
                 name: newEmp.name!,
                 roleId: newEmp.roleId || 'staff',
                 password: newEmp.password,

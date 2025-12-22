@@ -155,7 +155,10 @@ const db = {
   // Transactions (server implements /api/transactions)
   transactions: {
     getAll: () => authFetch('/api/transactions').then(safeJson).catch(() => []),
-    add: (t: any) => authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).then(safeJson).catch(() => null)
+    add: (t: any) => {
+      const body = toSnake(t, { accountHead: 'account_head', paidBy: 'paid_by', receivedBy: 'received_by', approvedBy: 'approved_by', businessId: 'business_id' });
+      return authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
+    }
   },
   // Suppliers compatibility on db (adds delete/update/save helpers)
   suppliers: {
@@ -204,8 +207,34 @@ const db = {
   },
   roles: {
     getAll: () => authFetch('/api/roles').then(safeJson).catch(() => []),
-    add: (r: any) => authFetch('/api/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(r) }).then(safeJson).catch(() => null),
-    update: (id: string, r: any) => authFetch(`/api/roles/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(r) }).then(safeJson).catch(() => null),
+    add: (r: any) => {
+      console.log('[API-ROLES-ADD] Creating role:', r);
+      return authFetch('/api/roles', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(r) 
+      }).then(res => {
+        console.log('[API-ROLES-ADD] Response status:', res.status);
+        return safeJson(res);
+      }).catch(err => {
+        console.error('[API-ROLES-ADD] Error:', err);
+        return null;
+      });
+    },
+    update: (id: string, r: any) => {
+      console.log('[API-ROLES-UPDATE] Updating role:', { id, data: r });
+      return authFetch(`/api/roles/${id}`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(r) 
+      }).then(res => {
+        console.log('[API-ROLES-UPDATE] Response status:', res.status);
+        return safeJson(res);
+      }).catch(err => {
+        console.error('[API-ROLES-UPDATE] Error:', err);
+        return null;
+      });
+    },
     delete: (id: string) => authFetch(`/api/roles/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
     ,
     save: async (items: any[]) => {
@@ -214,11 +243,34 @@ const db = {
       for (const it of items) {
         try {
           if (it && it.id) {
-            res.push(await authFetch(`/api/roles/${it.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(it) }).then(safeJson).catch(() => null));
+            // For update, convert businessId to business_id if needed
+            const roleData = { ...it };
+            if (roleData.businessId && !roleData.business_id) {
+              roleData.business_id = roleData.businessId;
+              delete roleData.businessId;
+            }
+            console.log('[ROLES-SAVE-UPDATE] Updating role:', roleData);
+            res.push(await authFetch(`/api/roles/${it.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
+              console.error('[ROLES-SAVE-UPDATE] Error:', err);
+              return null;
+            }));
           } else {
-            res.push(await authFetch('/api/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(it) }).then(safeJson).catch(() => null));
+            // For create, convert businessId to business_id if needed
+            const roleData = { ...it };
+            if (roleData.businessId && !roleData.business_id) {
+              roleData.business_id = roleData.businessId;
+              delete roleData.businessId;
+            }
+            console.log('[ROLES-SAVE-CREATE] Creating role:', roleData);
+            res.push(await authFetch('/api/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
+              console.error('[ROLES-SAVE-CREATE] Error:', err);
+              return null;
+            }));
           }
-        } catch (e) { res.push(null); }
+        } catch (e) { 
+          console.error('[ROLES-SAVE] Catch error:', e);
+          res.push(null); 
+        }
       }
       return res;
     }
@@ -251,7 +303,10 @@ const db = {
   },
   reports: {
     getAll: () => authFetch('/api/reports').then(safeJson).catch(() => []),
-    add: (r: any) => authFetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(r) }).then(safeJson).catch(() => null),
+    add: (r: any) => {
+      const body = toSnake(r, { relatedTaskId: 'related_task_id', createdBy: 'created_by', createdAt: 'created_at', businessId: 'business_id' });
+      return authFetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
+    },
     delete: (id: string) => authFetch(`/api/reports/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
   },
   tasks: {

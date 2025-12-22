@@ -279,10 +279,26 @@ app.post('/api/reset-password', async (req, res) => {
   try {
     if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required' });
     
-    // Enforce password policy: minimum 8 characters, at least one number and at least one letter
-    const hasLetter = /[a-zA-Z]/.test(newPassword);
-    const hasNumber = /\d/.test(newPassword);
-    const hasMinLength = newPassword.length >= 8;
+    // Trim password and enforce policy: minimum 8 characters, at least one number and at least one letter
+    const trimmedPassword = (newPassword || '').trim();
+    
+    // Validate each requirement separately
+    const letters = [];
+    const numbers = [];
+    for (let i = 0; i < trimmedPassword.length; i++) {
+      const char = trimmedPassword[i];
+      const code = char.charCodeAt(0);
+      if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+        letters.push(char);
+      }
+      if (code >= 48 && code <= 57) {
+        numbers.push(char);
+      }
+    }
+    
+    const hasLetter = letters.length > 0;
+    const hasNumber = numbers.length > 0;
+    const hasMinLength = trimmedPassword.length >= 8;
     
     if (!hasMinLength || !hasLetter || !hasNumber) {
       return res.status(400).json({ error: 'Password must be at least 8 characters and include both letters and numbers' });
@@ -301,7 +317,7 @@ app.post('/api/reset-password', async (req, res) => {
     const { email } = tokenRows[0];
 
     // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
 
     // Update employee password
     await pool.execute('UPDATE employees SET password = ? WHERE email = ?', [hashedPassword, email]);
@@ -377,19 +393,55 @@ app.post('/api/register', async (req, res) => {
   const { companyName, email, password, phone } = req.body;
   
   try {
+    // DEBUG: Log what we received
+    console.log('=== REGISTRATION DEBUG ===');
+    console.log('companyName:', companyName, 'type:', typeof companyName);
+    console.log('email:', email, 'type:', typeof email);
+    console.log('password:', password, 'type:', typeof password);
+    console.log('password length:', (password || '').length);
+    console.log('password chars:', password ? password.split('').map(c => `${c}(${c.charCodeAt(0)})`) : 'N/A');
+    console.log('phone:', phone, 'type:', typeof phone);
+    
     // Validation
     if (!companyName || !email || !password) {
+      console.log('VALIDATION FAILED: Missing fields');
       return res.status(400).json({ error: 'Missing required fields: companyName, email, password' });
     }
 
-    // Enforce password policy: minimum 8 characters, at least one number and at least one letter
-    const hasLetter = /[a-zA-Z]/.test(password);
-    const hasNumber = /\d/.test(password);
-    const hasMinLength = password.length >= 8;
+    // Trim password and enforce policy: minimum 8 characters, at least one number and at least one letter
+    const trimmedPassword = (password || '').trim();
+    console.log('trimmedPassword:', trimmedPassword);
+    console.log('trimmedPassword length:', trimmedPassword.length);
+    
+    // Validate each requirement separately
+    const letters = [];
+    const numbers = [];
+    for (let i = 0; i < trimmedPassword.length; i++) {
+      const char = trimmedPassword[i];
+      const code = char.charCodeAt(0);
+      if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+        letters.push(char);
+      }
+      if (code >= 48 && code <= 57) {
+        numbers.push(char);
+      }
+    }
+    
+    const hasLetter = letters.length > 0;
+    const hasNumber = numbers.length > 0;
+    const hasMinLength = trimmedPassword.length >= 8;
+    
+    console.log('Password validation:');
+    console.log('  hasLetter:', hasLetter, `(found: ${letters.join('')})`);
+    console.log('  hasNumber:', hasNumber, `(found: ${numbers.join('')})`);
+    console.log('  hasMinLength:', hasMinLength, `(length ${trimmedPassword.length} >= 8)`);
     
     if (!hasMinLength || !hasLetter || !hasNumber) {
+      console.log('PASSWORD VALIDATION FAILED - Returning error');
       return res.status(400).json({ error: 'Password must be at least 8 characters and include both letters and numbers' });
     }
+
+    console.log('PASSWORD VALIDATION PASSED');
 
     // Check if email already exists
     const [existingEmail] = await pool.execute('SELECT id FROM employees WHERE email = ?', [email]);
@@ -408,7 +460,7 @@ app.post('/api/register', async (req, res) => {
 
     // Create admin employee for this business
     const employeeId = Date.now().toString() + '_admin';
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
     
     await pool.execute(
       'INSERT INTO employees (id, business_id, name, email, phone, password, is_super_admin, role_id, account_approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -1079,9 +1131,9 @@ app.post('/api/super-admin/reject-payment/:paymentId', superAdminAuthMiddleware,
   }
 });
 
-app.get('/api/products', async (req, res) => {
+app.get('/api/products', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
+    const [rows] = await pool.execute('SELECT * FROM products WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY name', [req.user.id]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1974,11 +2026,30 @@ app.delete('/api/suppliers/:id', authMiddleware, async (req, res) => {
 // Roles CRUD
 app.get('/api/roles', authMiddleware, async (req, res) => {
   try {
+    console.log('[GET-ROLES] Fetching roles for user:', req.user.id);
+    
     const [rows] = await pool.execute('SELECT id, name, permissions FROM roles WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+    
+    console.log('[GET-ROLES] Found roles:', rows ? rows.length : 0);
+    
     // parse permissions JSON if stored as JSON
-    const out = (rows || []).map(r => ({ id: r.id, name: r.name, permissions: (() => { try { return JSON.parse(r.permissions); } catch (e) { return r.permissions || []; } })() }));
+    const out = (rows || []).map(r => ({ 
+      id: r.id, 
+      name: r.name, 
+      permissions: (() => { 
+        try { 
+          return JSON.parse(r.permissions); 
+        } catch (e) { 
+          console.log('[GET-ROLES] Could not parse permissions for role', r.id);
+          return r.permissions || []; 
+        } 
+      })() 
+    }));
+    
+    console.log('[GET-ROLES] Returning:', out);
     res.json(out);
   } catch (err) {
+    console.error('[GET-ROLES] ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1986,17 +2057,39 @@ app.get('/api/roles', authMiddleware, async (req, res) => {
 app.post('/api/roles', authMiddleware, async (req, res) => {
   const { id, name, permissions } = req.body;
   try {
+    console.log('[POST-ROLES] Request received:', { id, name, permissions });
+    
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     let businessId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
     if (!businessId && req.user && (req.user.businessId || req.user.business_id)) {
       businessId = req.user.businessId || req.user.business_id;
     }
-    if (!businessId) return res.status(400).json({ error: 'Business not found for current user' });
+    if (!businessId) {
+      console.log('[POST-ROLES] ERROR: Business not found');
+      return res.status(400).json({ error: 'Business not found for current user' });
+    }
+    
+    console.log('[POST-ROLES] Business ID:', businessId);
+    
     const rid = id || Date.now().toString();
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
-    await pool.execute('INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), permissions=VALUES(permissions)', [rid, businessId, name, permsStr]);
+    
+    console.log('[POST-ROLES] Creating role:', { rid, businessId, name, permsStr });
+    
+    const insertResult = await pool.execute(
+      'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), permissions=VALUES(permissions)', 
+      [rid, businessId, name, permsStr]
+    );
+    
+    console.log('[POST-ROLES] Insert result:', insertResult[0]);
+    
+    // Verify the role was created
+    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [rid, businessId]);
+    console.log('[POST-ROLES] Verification:', verifyRole && verifyRole.length > 0 ? verifyRole[0] : 'NOT FOUND');
+    
     res.json({ success: true, id: rid });
   } catch (err) {
+    console.error('[POST-ROLES] ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2005,6 +2098,8 @@ app.put('/api/roles/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, permissions } = req.body;
   try {
+    console.log('[PUT-ROLES] Request:', { id, name, permissions });
+    
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
     // resolve business id similar to other endpoints to avoid errors when employee row is missing
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
@@ -2012,11 +2107,23 @@ app.put('/api/roles/:id', authMiddleware, async (req, res) => {
     if (!businessId && req.user && (req.user.businessId || req.user.business_id)) {
       businessId = req.user.businessId || req.user.business_id;
     }
-    if (!businessId) return res.status(400).json({ error: 'Business not found for current user' });
+    if (!businessId) {
+      console.log('[PUT-ROLES] ERROR: Business not found');
+      return res.status(400).json({ error: 'Business not found for current user' });
+    }
 
-    await pool.execute('UPDATE roles SET name = ?, permissions = ? WHERE id = ? AND business_id = ?', [name, permsStr, id, businessId]);
+    console.log('[PUT-ROLES] Updating role:', { id, businessId, name, permsStr });
+    
+    const updateResult = await pool.execute('UPDATE roles SET name = ?, permissions = ? WHERE id = ? AND business_id = ?', [name, permsStr, id, businessId]);
+    console.log('[PUT-ROLES] Update result:', updateResult[0]);
+    
+    // Verify the role was updated
+    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [id, businessId]);
+    console.log('[PUT-ROLES] Verification:', verifyRole && verifyRole.length > 0 ? verifyRole[0] : 'NOT FOUND');
+    
     res.json({ success: true });
   } catch (err) {
+    console.error('[PUT-ROLES] ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2515,12 +2622,70 @@ app.put('/api/super-admin/payments/:id', superAdminAuthMiddleware, async (req, r
 app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, async (req, res) => {
   try {
     const businessId = req.params.id;
-    await pool.execute(
+    console.log(`[APPROVE-BUSINESS] Processing business: ${businessId}`);
+    
+    // Update business status to approved
+    const updateResult = await pool.execute(
       'UPDATE businesses SET status = ? WHERE id = ?',
       ['approved', businessId]
     );
-    res.json({ success: true });
+    console.log(`[APPROVE-BUSINESS] Business status updated: ${updateResult[0].affectedRows} rows`);
+    
+    // Check if admin role already exists for this business
+    const [existingRole] = await pool.execute(
+      'SELECT id FROM roles WHERE business_id = ? AND name = ?',
+      [businessId, 'Admin']
+    );
+    console.log(`[APPROVE-BUSINESS] Checking for existing role: ${existingRole ? existingRole.length : 0} found`);
+    
+    let roleId;
+    if (existingRole && existingRole.length > 0) {
+      roleId = existingRole[0].id;
+      console.log(`[APPROVE-BUSINESS] Using existing role: ${roleId}`);
+    } else {
+      // Create admin role for the business
+      roleId = 'role_' + businessId + '_admin';
+      const adminPermissions = JSON.stringify({
+        dashboard: true,
+        sales: true,
+        inventory: true,
+        customers: true,
+        employees: true,
+        finance: true,
+        reports: true,
+        settings: true,
+        audit: true
+      });
+      
+      console.log(`[APPROVE-BUSINESS] Creating new role: ${roleId}`);
+      console.log(`[APPROVE-BUSINESS] Permissions: ${adminPermissions}`);
+      
+      const roleInsertResult = await pool.execute(
+        'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?)',
+        [roleId, businessId, 'Admin', adminPermissions]
+      );
+      console.log(`[APPROVE-BUSINESS] Role inserted: ${roleInsertResult[0].affectedRows} rows affected`);
+      console.log(`[APPROVE-BUSINESS] Role insert response:`, roleInsertResult[0]);
+    }
+    
+    // Update all employees in this business to have account_approved = 1 and assign admin role
+    const empUpdateResult = await pool.execute(
+      'UPDATE employees SET account_approved = 1, account_approved_at = NOW(), role_id = ? WHERE business_id = ?',
+      [roleId, businessId]
+    );
+    console.log(`[APPROVE-BUSINESS] Employees updated: ${empUpdateResult[0].affectedRows} rows affected`);
+    
+    // Verify the role was actually created
+    const [verifyRole] = await pool.execute(
+      'SELECT id, name, permissions FROM roles WHERE business_id = ? AND id = ?',
+      [businessId, roleId]
+    );
+    console.log(`[APPROVE-BUSINESS] Role verification:`, verifyRole && verifyRole.length > 0 ? verifyRole[0] : 'NOT FOUND');
+    
+    console.log(`[APPROVE-BUSINESS] SUCCESS: Approved business ${businessId} with admin role ${roleId}`);
+    res.json({ success: true, roleId });
   } catch (err) {
+    console.error('[APPROVE-BUSINESS] ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2535,6 +2700,28 @@ app.post('/api/super-admin/reject-business/:id', superAdminAuthMiddleware, async
     );
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST deactivate business (change status from approved back to pending/suspended)
+app.post('/api/super-admin/deactivate-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    // Update business status back to pending
+    await pool.execute(
+      'UPDATE businesses SET status = ? WHERE id = ?',
+      ['pending', businessId]
+    );
+    // Revoke account approval and clear role for all employees in this business
+    await pool.execute(
+      'UPDATE employees SET account_approved = 0, role_id = NULL WHERE business_id = ?',
+      [businessId]
+    );
+    console.log(`Deactivated business ${businessId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Deactivate business error:', err);
     res.status(500).json({ error: err.message });
   }
 });

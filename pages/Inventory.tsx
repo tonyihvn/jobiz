@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
-import { fmt } from '../services/format';
+import { fmt, getImageUrl } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { Product, Category, CategoryGroup, Role } from '../types';
 import { Plus, Package, Layers, X, Save, Printer, Barcode, Edit2, Trash2, Upload, Truck } from 'lucide-react';
@@ -216,7 +216,7 @@ const Inventory = () => {
         accessor: (item: Product) => (
             <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden">
                 {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={getImageUrl(item.imageUrl) || item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">No Img</div>
                 )}
@@ -426,7 +426,7 @@ const Inventory = () => {
                         <label className="block text-sm font-medium text-slate-700 mb-1">Product Image</label>
                         <div className="flex gap-4 items-center">
                             {newProduct.imageUrl && (
-                                <img src={newProduct.imageUrl} alt="Preview" className="w-16 h-16 rounded object-cover border" />
+                                <img src={getImageUrl(newProduct.imageUrl) || newProduct.imageUrl} alt="Preview" className="w-16 h-16 rounded object-cover border" />
                             )}
                             <label className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-3 flex flex-col items-center justify-center text-slate-500 cursor-pointer hover:bg-slate-50">
                                 <Upload size={20} className="mb-1" />

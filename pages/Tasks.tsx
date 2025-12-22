@@ -4,8 +4,10 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 import db from '../services/apiClient';
 import { Task, TaskStatus, Employee } from '../types';
 import { Plus, X, Save, Edit2, Trash2, Calendar, CheckCircle, Clock } from 'lucide-react';
+import { useContextBusinessId } from '../services/useContextBusinessId';
 
 const Tasks = () => {
+  const { businessId } = useContextBusinessId();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -20,7 +22,7 @@ const Tasks = () => {
 
   useEffect(() => {
     (async () => { await refreshData(); })();
-  }, []);
+  }, [businessId]);
 
   const refreshData = () => {
     (async () => {
@@ -64,7 +66,7 @@ const Tasks = () => {
 
     const task: Task = {
       id: editingId || Date.now().toString(),
-      businessId: currentUser?.businessId || '',
+      businessId: businessId || '',
       title: newTask.title!,
       description: newTask.description || '',
       assignedTo: newTask.assignedTo!,

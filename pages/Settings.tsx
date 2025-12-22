@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import db from '../services/apiClient';
 import { CompanySettings, Role } from '../types';
 import { Save, Download, Upload, Image as ImageIcon, Plus, Check, AlertCircle } from 'lucide-react';
+import { getImageUrl } from '../services/format';
 
 const Settings = () => {
     const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
@@ -186,7 +187,7 @@ const handleBackup = async () => {
                     <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
                          {settings.headerImageUrl ? (
                              <div className="relative group">
-                                <img src={settings.headerImageUrl} alt="Header" className="w-full h-24 object-contain bg-white" />
+                                <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-24 object-contain bg-white" />
                                 <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
                                     <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'headerImageUrl')} />
@@ -207,7 +208,7 @@ const handleBackup = async () => {
                     <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
                          {settings.footerImageUrl ? (
                              <div className="relative group">
-                                <img src={settings.footerImageUrl} alt="Footer" className="w-full h-24 object-contain bg-white" />
+                                <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full h-24 object-contain bg-white" />
                                 <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
                                     <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'footerImageUrl')} />

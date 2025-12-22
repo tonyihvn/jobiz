@@ -3,6 +3,7 @@ import { HashRouter as Router, Routes, Route, Outlet, Navigate } from 'react-rou
 import Sidebar from './components/Layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
+import PrintReceipt from './pages/PrintReceipt';
 import Inventory from './pages/Inventory';
 import Stock from './pages/Stock';
 import Suppliers from './pages/Suppliers';
@@ -109,6 +110,7 @@ const App = () => {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/payment-registration" element={<PaymentRegistration />} />
+            <Route path="/print-receipt" element={<PrintReceipt />} />
             
             {/* Payment Route - Accessible if authenticated but not active */}
             <Route path="/payment" element={isAuthenticated ? <Payment /> : <Navigate to="/login" />} />

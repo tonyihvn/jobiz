@@ -5,8 +5,10 @@ import db from '../services/apiClient';
 import { Product, Supplier, TransactionType, Transaction, Location } from '../types';
 import { PackagePlus, AlertTriangle, Save, X, Plus, Trash2, Package, History, Edit2 } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
+import { useContextBusinessId } from '../services/useContextBusinessId';
 
 const Stock: React.FC = () => {
+    const { businessId } = useContextBusinessId();
     const [products, setProducts] = useState<Product[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
@@ -32,7 +34,7 @@ const Stock: React.FC = () => {
 
     const { symbol } = useCurrency();
 
-    useEffect(() => { (async () => { await refreshData(); })(); }, []);
+    useEffect(() => { (async () => { await refreshData(); })(); }, [businessId]);
 
     const refreshData = async () => {
         try {
@@ -136,7 +138,7 @@ const Stock: React.FC = () => {
         const currentUser = await db.auth.getCurrentUser();
         const tx: Transaction = {
             id: Date.now().toString(),
-            businessId: (currentUser && currentUser.businessId) || '',
+            businessId: businessId || '',
             date: restockDate,
             accountHead: 'Inventory Purchase',
             type: TransactionType.EXPENDITURE,

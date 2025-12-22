@@ -15,6 +15,12 @@ export default defineConfig(({ mode }) => {
             target: env.VITE_API_URL || 'http://localhost:3001',
             changeOrigin: true,
             secure: false,
+          },
+          // Forward uploads requests to backend server for image access
+          '/uploads': {
+            target: env.VITE_API_URL || 'http://localhost:3001',
+            changeOrigin: true,
+            secure: false,
           }
         },
       },

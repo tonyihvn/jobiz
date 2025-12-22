@@ -3,8 +3,10 @@ import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
 import { Customer, Role } from '../types';
 import { Plus, X, Save, Edit2, Trash2 } from 'lucide-react';
+import { useContextBusinessId } from '../services/useContextBusinessId';
 
 const Customers = () => {
+  const { businessId } = useContextBusinessId();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({});
@@ -25,7 +27,7 @@ const Customers = () => {
                 console.warn('Failed to load customers', e);
             }
         })();
-    }, []);
+    }, [businessId]);
 
   const hasPermission = (action: string) => {
     if (!userRole) return false;
@@ -52,7 +54,7 @@ const Customers = () => {
         if (!newCustomer.name) return;
         const c: Customer = {
                 id: editingId || Date.now().toString(),
-                businessId: (db.auth && db.auth.getCurrentUser) ? (await db.auth.getCurrentUser())?.businessId || '' : '',
+                businessId: businessId || '',
                 name: newCustomer.name!,
                 phone: newCustomer.phone || '',
                 email: newCustomer.email || '',

@@ -208,14 +208,12 @@ return (
                       </>
                     )}
                     {business.status === 'approved' && (
-                      <>
-                        <button
-                          onClick={() => deactivateBusiness(business.id)}
-                          className="text-orange-600 hover:text-orange-700 font-medium"
-                        >
-                          Deactivate
-                        </button>
-                      </>
+                      <button
+                        onClick={() => deactivateBusiness(business.id)}
+                        className="text-orange-600 hover:text-orange-700 font-medium"
+                      >
+                        Deactivate
+                      </button>
                     )}
                     {business.status === 'rejected' && (
                       <span className="text-slate-400 text-sm">No actions</span>

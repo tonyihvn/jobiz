@@ -40,9 +40,26 @@ const Register = () => {
         }
 
         // Enforce password policy: minimum 8 characters, at least one number and at least one letter
-        const pwd = formData.password || '';
-        const hasLetter = /[a-zA-Z]/.test(pwd);
-        const hasNumber = /\d/.test(pwd);
+        const pwd = (formData.password || '').trim();
+        
+        // Validate each requirement separately with explicit character code checking
+        const letters: string[] = [];
+        const numbers: string[] = [];
+        for (let i = 0; i < pwd.length; i++) {
+          const char = pwd[i];
+          const code = char.charCodeAt(0);
+          // Check for letters (A-Z: 65-90, a-z: 97-122)
+          if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+            letters.push(char);
+          }
+          // Check for digits (0-9: 48-57)
+          if (code >= 48 && code <= 57) {
+            numbers.push(char);
+          }
+        }
+        
+        const hasLetter = letters.length > 0;
+        const hasNumber = numbers.length > 0;
         const hasMinLength = pwd.length >= 8;
         
         if (!hasMinLength || !hasLetter || !hasNumber) {
@@ -55,7 +72,7 @@ const Register = () => {
                 if (db.auth && db.auth.register) {
                     const phone = formData.phone ? formatPhoneNumber(formData.phone) : '';
                     setFormattedPhone(phone);
-                    const result = await db.auth.register(formData.companyName, formData.email, formData.password, phone);
+                    const result = await db.auth.register(formData.companyName, formData.email, pwd, phone);
                     if (result && result.success) {
                         setStep(2);
                         // Both email and OTP are sent automatically by backend
@@ -241,22 +258,38 @@ const Register = () => {
                                         
                                         {/* At least one letter */}
                                         <div className="flex items-center gap-2">
-                                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${/[a-zA-Z]/.test(formData.password) ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                                                {/[a-zA-Z]/.test(formData.password) ? '✓' : '○'}
-                                            </div>
-                                            <span className={`text-xs ${/[a-zA-Z]/.test(formData.password) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                                                At least one letter (a-z, A-Z)
-                                            </span>
+                                            {(() => {
+                                                  const has = Array.from(formData.password).some((c) => {
+                                                    const code = (c as string).charCodeAt(0);
+                                                    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+                                                  });
+                                              return <>
+                                                <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${has ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                    {has ? '✓' : '○'}
+                                                </div>
+                                                <span className={`text-xs ${has ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                    At least one letter (a-z, A-Z)
+                                                </span>
+                                              </>;
+                                            })()}
                                         </div>
                                         
-                                        {/* At least one number */}
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${/\d/.test(formData.password) ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                                                {/\d/.test(formData.password) ? '✓' : '○'}
-                                            </div>
-                                            <span className={`text-xs ${/\d/.test(formData.password) ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
-                                                At least one number (0-9)
-                                            </span>
+{/* At least one number */}
+<div className="flex items-center gap-2">
+    {(() => {
+                                                  const has = Array.from(formData.password).some((c) => {
+                                                    const code = (c as string).charCodeAt(0);
+                                                    return code >= 48 && code <= 57;
+                                                  });
+                                              return <>
+                                                <div className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${has ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                                                    {has ? '✓' : '○'}
+                                                </div>
+                                                <span className={`text-xs ${has ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                                                    At least one number (0-9)
+                                                </span>
+                                              </>;
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
