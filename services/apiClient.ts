@@ -154,7 +154,18 @@ const db = {
   },
   // Transactions (server implements /api/transactions)
   transactions: {
-    getAll: () => authFetch('/api/transactions').then(safeJson).catch(() => []),
+    getAll: () => authFetch('/api/transactions').then(safeJson).then((data: any[]) => 
+      (data || []).map(t => ({
+        ...t,
+        accountHead: t.account_head || t.accountHead,
+        paidBy: t.paid_by || t.paidBy,
+        receivedBy: t.received_by || t.receivedBy,
+        approvedBy: t.approved_by || t.approvedBy,
+        businessId: t.business_id || t.businessId,
+        // Also handle date normalization
+        date: t.date || t.created_at
+      }))
+    ).catch(() => []),
     add: (t: any) => {
       const body = toSnake(t, { accountHead: 'account_head', paidBy: 'paid_by', receivedBy: 'received_by', approvedBy: 'approved_by', businessId: 'business_id' });
       return authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);

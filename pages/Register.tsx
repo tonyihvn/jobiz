@@ -42,24 +42,17 @@ const Register = () => {
         // Enforce password policy: minimum 8 characters, at least one number and at least one letter
         const pwd = (formData.password || '').trim();
         
-        // Validate each requirement separately with explicit character code checking
-        const letters: string[] = [];
-        const numbers: string[] = [];
-        for (let i = 0; i < pwd.length; i++) {
-          const char = pwd[i];
-          const code = char.charCodeAt(0);
-          // Check for letters (A-Z: 65-90, a-z: 97-122)
-          if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
-            letters.push(char);
-          }
-          // Check for digits (0-9: 48-57)
-          if (code >= 48 && code <= 57) {
-            numbers.push(char);
-          }
-        }
+        // Validate using the same logic as the display
+        const hasLetter = Array.from(pwd).some((c) => {
+          const code = (c as string).charCodeAt(0);
+          return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+        });
         
-        const hasLetter = letters.length > 0;
-        const hasNumber = numbers.length > 0;
+        const hasNumber = Array.from(pwd).some((c) => {
+          const code = (c as string).charCodeAt(0);
+          return code >= 48 && code <= 57;
+        });
+        
         const hasMinLength = pwd.length >= 8;
         
         if (!hasMinLength || !hasLetter || !hasNumber) {
@@ -72,7 +65,9 @@ const Register = () => {
                 if (db.auth && db.auth.register) {
                     const phone = formData.phone ? formatPhoneNumber(formData.phone) : '';
                     setFormattedPhone(phone);
-                    const result = await db.auth.register(formData.companyName, formData.email, pwd, phone);
+                    // Extract admin name from email (part before @) or use company name
+                    const adminName = formData.email.split('@')[0] || formData.companyName;
+                    const result = await db.auth.register(formData.companyName, adminName, formData.email, pwd);
                     if (result && result.success) {
                         setStep(2);
                         // Both email and OTP are sent automatically by backend

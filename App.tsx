@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './components/Layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
@@ -42,6 +42,23 @@ import { BusinessProvider } from './services/BusinessContext';
 import { Business } from './types';
 import { getCurrentUser, logout as apiLogout } from './services/auth';
 
+// Component to track location changes
+const LocationTracker = () => {
+  const location = useLocation();
+  
+  useEffect(() => {
+    // Save current location to localStorage (except for login/landing pages)
+    const publicPaths = ['/landing', '/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/payment-registration', '/payment', '/print-receipt'];
+    const isPublicPath = publicPaths.includes(location.pathname);
+    
+    if (!isPublicPath && location.pathname !== '/') {
+      localStorage.setItem('lastLocation', location.pathname + location.search);
+    }
+  }, [location]);
+  
+  return null;
+};
+
 const Layout = ({ onLogout }: { onLogout: () => void }) => {
   const [collapsed, setCollapsed] = React.useState<boolean>(() => (typeof window !== 'undefined' && window.innerWidth < 768));
 
@@ -65,6 +82,7 @@ const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isActiveBusiness, setIsActiveBusiness] = useState(false);
+  const [lastLocation, setLastLocation] = useState<string | null>(null);
 
   const checkAuth = () => {
     (async () => {
@@ -85,6 +103,11 @@ const App = () => {
 
   useEffect(() => {
     checkAuth();
+    // Load last location from localStorage
+    const saved = localStorage.getItem('lastLocation');
+    if (saved) {
+      setLastLocation(saved);
+    }
   }, []);
 
   const handleLogin = (user: any) => {
@@ -102,6 +125,7 @@ const App = () => {
     <CurrencyProvider>
       <BusinessProvider>
         <Router>
+          <LocationTracker />
           <Routes>
             <Route path="/landing" element={<Landing />} />
             <Route path="/register" element={<Register />} />
@@ -119,6 +143,7 @@ const App = () => {
             <Route path="/" element={
                 !isAuthenticated ? <Navigate to="/landing" /> : 
                 !isSuperAdmin && !isActiveBusiness ? <Navigate to="/payment" /> :
+                lastLocation ? <Navigate to={lastLocation} /> :
                 <Layout onLogout={handleLogout} />
             }>
                  {/* Index Route - Redirect super admin to dashboard */}
