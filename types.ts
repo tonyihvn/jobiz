@@ -242,3 +242,182 @@ export interface Feedback {
   date: string;
   status: 'new' | 'reviewed' | 'resolved';
 }
+
+// ============================================================================
+// MULTI-TENANT & MARKETPLACE TYPES
+// ============================================================================
+
+export type UserType = 'super_admin' | 'admin' | 'employee' | 'driver' | 'customer';
+
+export interface User {
+  id: string;
+  email: string;
+  phone?: string;
+  firstName?: string;
+  lastName?: string;
+  avatarUrl?: string;
+  userType: UserType;
+  businessId?: string;
+  isActive: boolean;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  lastLogin?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Driver {
+  id: string;
+  userId: string;
+  businessId: string;
+  licenseNumber?: string;
+  licenseExpiry?: string;
+  vehicleType?: string;
+  vehicleNumber?: string;
+  vehicleInsuranceExpires?: string;
+  currentLatitude?: number;
+  currentLongitude?: number;
+  lastLocationUpdate?: string;
+  status: 'available' | 'on_delivery' | 'offline';
+  rating: number;
+  totalDeliveries: number;
+  totalRevenue: number;
+  joinedDate: string;
+  user?: User;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  businessId: string;
+  customerId: string;
+  deliveryAddress: string;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
+  pickupAddress?: string;
+  pickupLatitude?: number;
+  pickupLongitude?: number;
+  items: OrderItem[];
+  subtotal: number;
+  deliveryFee: number;
+  tax: number;
+  total: number;
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'assigned_driver' | 'picked_up' | 'in_transit' | 'delivered' | 'cancelled';
+  paymentMethod?: string;
+  paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded';
+  notes?: string;
+  estimatedDeliveryTime?: string;
+  createdAt: string;
+  updatedAt: string;
+  customer?: User;
+  business?: Business;
+  assignment?: OrderAssignment;
+}
+
+export interface OrderItem {
+  id: string;
+  orderId: string;
+  productId?: string;
+  serviceId?: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  notes?: string;
+  product?: Product;
+  service?: Service;
+}
+
+export interface OrderAssignment {
+  id: string;
+  orderId: string;
+  driverId: string;
+  businessId: string;
+  assignedAt: string;
+  acceptedAt?: string;
+  pickedUpAt?: string;
+  deliveredAt?: string;
+  acceptanceStatus: 'pending' | 'accepted' | 'rejected';
+  rejectionReason?: string;
+  driver?: Driver;
+}
+
+export interface DriverLocation {
+  id: string;
+  driverId: string;
+  orderId?: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  speed?: number;
+  heading?: number;
+  altitude?: number;
+  source?: string;
+  timestamp: string;
+}
+
+export interface Review {
+  id: string;
+  orderId: string;
+  customerId: string;
+  driverId?: string;
+  businessId: string;
+  ratingOrder?: number;
+  ratingDriver?: number;
+  commentOrder?: string;
+  commentDriver?: string;
+  createdAt: string;
+  helpfulCount: number;
+}
+
+export interface DriverAvailability {
+  id: string;
+  driverId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  status: 'available' | 'unavailable' | 'blocked';
+  reason?: string;
+}
+
+export interface Cart {
+  id: string;
+  customerId: string;
+  businessId: string;
+  items: CartItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CartItemModel {
+  id: string;
+  cartId: string;
+  productId?: string;
+  serviceId?: string;
+  quantity: number;
+  addedAt: string;
+  product?: Product;
+  service?: Service;
+}
+
+export interface Service {
+  id: string;
+  businessId: string;
+  name: string;
+  categoryName?: string;
+  categoryGroup?: string;
+  description?: string;
+  price: number;
+  unit?: string;
+  imageUrl?: string;
+}
+
+export interface PublicBusiness extends Business {
+  slug: string;
+  description?: string;
+  website?: string;
+  timezone?: string;
+  products?: Product[];
+  services?: Service[];
+  rating?: number;
+  totalOrders?: number;
+}

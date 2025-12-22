@@ -76,13 +76,40 @@ const Stock: React.FC = () => {
             // also include stock_history records so Supply History shows low-level receipts/moves
             let hist: any[] = [];
             try { hist = await db.stock.historyAll(); } catch (e) { hist = []; }
-            const formattedHist = (hist || []).map((h: any) => ({
-                id: h.id,
-                date: h.timestamp || h.created_at || null,
-                receivedBy: h.supplier_id || h.supplierId || null,
-                particulars: `${h.type || ''}${h.batch_number ? ' / ' + h.batch_number : ''}`.trim(),
-                amount: 0
-            }));
+            
+            // Format stock_history records with product info and proper details
+            const formattedHist = (hist || []).map((h: any) => {
+                const prod = (allProducts || []).find((p: any) => p.id === h.product_id);
+                const sup = (sups || []).find((s: any) => s.id === h.supplier_id);
+                const loc = (locs || []).find((l: any) => l.id === h.location_id);
+                
+                // Calculate amount: for IN/MOVE_IN types, multiply product price by absolute quantity
+                let amount = 0;
+                if (prod && h.change_amount) {
+                    const type = (h.type || '').toUpperCase();
+                    if (type === 'IN' || type === 'MOVE_IN') {
+                        amount = Math.abs(h.change_amount) * (prod.price || 0);
+                    }
+                }
+                
+                // Build descriptive particulars
+                const parts: string[] = [];
+                if (prod) parts.push(prod.name);
+                if (h.batch_number) parts.push(`Batch: ${h.batch_number}`);
+                if (loc) parts.push(`Loc: ${loc.name}`);
+                if (h.notes) parts.push(h.notes);
+                
+                // Ensure we have a valid date
+                const dateVal = h.timestamp || h.created_at || new Date().toISOString();
+                
+                return {
+                    id: h.id,
+                    date: dateVal,
+                    receivedBy: sup?.name || h.supplier_id || null,
+                    particulars: `${h.type || 'STOCK'} - ${parts.join(' | ') || 'Stock movement'}`,
+                    amount: amount
+                };
+            });
             const txFiltered = (txs || []).filter((t: any) => t.accountHead === 'Inventory Purchase');
             setSupplyHistory([...txFiltered, ...formattedHist]);
         } catch (e) {

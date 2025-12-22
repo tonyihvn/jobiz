@@ -213,15 +213,26 @@ const Inventory = () => {
   const productColumns: Column<Product>[] = [
     { 
         header: 'Image', 
-        accessor: (item: Product) => (
-            <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden">
-                {item.imageUrl ? (
-                    <img src={getImageUrl(item.imageUrl) || item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+        accessor: (item: Product) => {
+          const imageUrl = getImageUrl(item.imageUrl);
+          return (
+            <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
+                {item.imageUrl && imageUrl ? (
+                    <img 
+                      src={imageUrl} 
+                      alt={item.name} 
+                      className="w-full h-full object-cover" 
+                      onError={(e) => {
+                        console.error('Image failed to load:', imageUrl);
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px]">No Img</div>
+                    <div className="text-slate-400 text-[10px]">No Img</div>
                 )}
             </div>
-        ), 
+          );
+        }, 
         key: 'imageUrl' 
     },
     { header: 'Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
@@ -426,7 +437,17 @@ const Inventory = () => {
                         <label className="block text-sm font-medium text-slate-700 mb-1">Product Image</label>
                         <div className="flex gap-4 items-center">
                             {newProduct.imageUrl && (
-                                <img src={getImageUrl(newProduct.imageUrl) || newProduct.imageUrl} alt="Preview" className="w-16 h-16 rounded object-cover border" />
+                                <div className="relative">
+                                  <img 
+                                    src={getImageUrl(newProduct.imageUrl) || newProduct.imageUrl} 
+                                    alt="Preview" 
+                                    className="w-16 h-16 rounded object-cover border" 
+                                    onError={(e) => {
+                                      console.error('Preview image failed to load:', getImageUrl(newProduct.imageUrl));
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
+                                  />
+                                </div>
                             )}
                             <label className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-3 flex flex-col items-center justify-center text-slate-500 cursor-pointer hover:bg-slate-50">
                                 <Upload size={20} className="mb-1" />

@@ -357,7 +357,15 @@ const POS = () => {
                 >
                     <div className="h-24 w-full bg-slate-100 relative">
                          {product.imageUrl ? (
-                             <img src={getImageUrl(product.imageUrl) || product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                             <img 
+                               src={getImageUrl(product.imageUrl) || product.imageUrl} 
+                               alt={product.name} 
+                               className="w-full h-full object-cover" 
+                               onError={(e) => {
+                                 console.error('POS product image failed to load:', getImageUrl(product.imageUrl));
+                                 (e.target as HTMLImageElement).style.display = 'none';
+                               }}
+                             />
                          ) : (
                              <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">No Image</div>
                          )}

@@ -27,7 +27,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:', 'http://localhost:*', 'http://127.0.0.1:*'],
       connectSrc: ["'self'", process.env.APP_URL || 'http://localhost:5173', 'https:', 'ws:'],
       fontSrc: ["'self'", 'https:'],
       objectSrc: ["'none'"],
@@ -43,10 +43,30 @@ app.use(helmet({
 app.use(cors({ origin: true, allowedHeaders: ['Content-Type', 'Authorization'], exposedHeaders: ['Authorization'] }));
 app.use(express.json({ limit: '50mb' }));
 
-// Serve uploaded files
+// Serve uploaded files with proper CORS headers
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
+
+// Add specific middleware for uploads to ensure CORS headers
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Cache-Control', 'public, max-age=31536000');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
+app.use('/uploads', express.static(uploadsDir, { 
+  setHeaders: (res, path) => {
+    // Set proper cache headers for images
+    res.set('Cache-Control', 'public, max-age=31536000');
+    res.set('Access-Control-Allow-Origin', '*');
+  }
+}));
 
 // Rate limiting for feedback form (protect from spam/bot attacks)
 const feedbackRateLimit = new Map();
@@ -210,6 +230,23 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.json({ id: u.id, name: u.name, roleId: u.role_id, email: u.email, is_super_admin: !!u.is_super_admin, default_location_id: u.default_location_id, businessId: u.business_id });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Test endpoint to verify uploads directory
+app.get('/api/test-uploads', authMiddleware, (req, res) => {
+  try {
+    const files = fs.readdirSync(uploadsDir);
+    console.log('📁 Files in uploads folder:', files);
+    res.json({ 
+      uploadsDir, 
+      files,
+      count: files.length,
+      message: 'Uploads directory accessible'
+    });
+  } catch (err) {
+    console.error('❌ Error listing uploads:', err.message);
+    res.status(500).json({ error: 'Cannot list uploads', details: err.message });
   }
 });
 
@@ -1401,6 +1438,13 @@ app.post('/api/send-sms', async (req, res) => {
 app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const fileUrl = `/uploads/${req.file.filename}`;
+  console.log('✅ File uploaded:', {
+    originalName: req.file.originalname,
+    filename: req.file.filename,
+    size: req.file.size,
+    path: req.file.path,
+    url: fileUrl
+  });
   res.json({ success: true, url: fileUrl, filename: req.file.filename });
 });
 

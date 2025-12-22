@@ -89,9 +89,17 @@ const Services = () => {
 
     const params = useParams();
     const queryGroup = (() => { try { const qp = new URLSearchParams(location.search); return params.group || qp.get('group') || qp.get('category') || ''; } catch(e) { return params.group || ''; } })();
-    const displayedItems = (items || []).filter(i => { if (!queryGroup) return true; return (i.categoryGroup || '').toString() === queryGroup; });
-    if (queryGroup) {
-        console.log('[Services] Filtering by queryGroup:', queryGroup, '-> displayed items:', displayedItems);
+    
+    // Normalize for comparison (trim and handle spaces/encoding)
+    const normalizeGroup = (str: string) => (str || '').trim();
+    const normalizedQueryGroup = normalizeGroup(queryGroup);
+    
+    const displayedItems = (items || []).filter(i => { 
+        if (!normalizedQueryGroup) return true; 
+        return normalizeGroup(i.categoryGroup || '') === normalizedQueryGroup; 
+    });
+    if (normalizedQueryGroup) {
+        console.log('[Services] Filtering by queryGroup:', normalizedQueryGroup, '-> displayed items:', displayedItems);
     }
 
   const hasPermission = (action: string) => {
@@ -121,9 +129,13 @@ const Services = () => {
 
   const handleCreate = () => {
       setIsNew(true);
-      // pick a default service group from persisted categories (non-product groups)
-      const svcGroups = Array.from(new Set((categories || []).filter(c => !c.isProduct).map(c => c.group))).filter(Boolean);
-      const defaultGroup = svcGroups.length > 0 ? svcGroups[0] : 'Renting';
+      // Use current page's group if viewing a specific group, otherwise pick default
+      let defaultGroup = normalizedQueryGroup;
+      if (!defaultGroup) {
+          // pick a default service group from persisted categories (non-product groups)
+          const svcGroups = Array.from(new Set((categories || []).filter(c => !c.isProduct).map(c => c.group))).filter(Boolean) as string[];
+          defaultGroup = svcGroups.length > 0 ? svcGroups[0] : 'Renting';
+      }
       setEditingItem({
           id: Date.now().toString(),
           businessId: '',
