@@ -11,6 +11,8 @@ interface BusinessApproval {
   registeredAt: string;
   status: 'pending' | 'approved' | 'rejected';
   paymentStatus: 'unpaid' | 'paid';
+  account_approved: number;
+  account_approved_at: string | null;
 }
 
 const SuperAdminApprovals = () => {
@@ -97,6 +99,30 @@ const SuperAdminApprovals = () => {
       }
     } catch (error) {
       console.error('Failed to reject business:', error);
+    }
+  };
+
+  const disapproveBusiness = async (businessId: string) => {
+    if (!window.confirm('Are you sure you want to disapprove this business? This will revert all approvals.')) return;
+    try {
+      const response = await fetch(`/api/super-admin/disapprove-business/${businessId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      if (response.ok) {
+        // Update the business status locally first for immediate feedback
+        const updatedBusinesses = businesses.map(b => 
+          b.id === businessId ? { ...b, status: 'pending' as const, account_approved: 0, account_approved_at: null } : b
+        );
+        setBusinesses(updatedBusinesses);
+        filterBusinesses(updatedBusinesses, filter);
+        // Then fetch fresh data
+        setTimeout(fetchBusinesses, 500);
+      }
+    } catch (error) {
+      console.error('Failed to disapprove business:', error);
     }
   };
 
@@ -208,15 +234,28 @@ return (
                       </>
                     )}
                     {business.status === 'approved' && (
-                      <button
-                        onClick={() => deactivateBusiness(business.id)}
-                        className="text-orange-600 hover:text-orange-700 font-medium"
-                      >
-                        Deactivate
-                      </button>
+                      <>
+                        <button
+                          onClick={() => disapproveBusiness(business.id)}
+                          className="text-orange-600 hover:text-orange-700 font-medium"
+                        >
+                          Disapprove
+                        </button>
+                        <button
+                          onClick={() => deactivateBusiness(business.id)}
+                          className="text-slate-600 hover:text-slate-700 font-medium"
+                        >
+                          Deactivate
+                        </button>
+                      </>
                     )}
                     {business.status === 'rejected' && (
-                      <span className="text-slate-400 text-sm">No actions</span>
+                      <button
+                        onClick={() => approveBusiness(business.id)}
+                        className="text-green-600 hover:text-green-700 font-medium"
+                      >
+                        Approve
+                      </button>
                     )}
                   </td>
                 </tr>

@@ -2684,9 +2684,9 @@ app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, asyn
     const businessId = req.params.id;
     console.log(`[APPROVE-BUSINESS] Processing business: ${businessId}`);
     
-    // Update business status to approved
+    // Update business status to approved and set account_approved fields
     const updateResult = await pool.execute(
-      'UPDATE businesses SET status = ? WHERE id = ?',
+      'UPDATE businesses SET status = ?, account_approved = 1, account_approved_at = NOW() WHERE id = ?',
       ['approved', businessId]
     );
     console.log(`[APPROVE-BUSINESS] Business status updated: ${updateResult[0].affectedRows} rows`);
@@ -2755,7 +2755,7 @@ app.post('/api/super-admin/reject-business/:id', superAdminAuthMiddleware, async
   try {
     const businessId = req.params.id;
     await pool.execute(
-      'UPDATE businesses SET status = ? WHERE id = ?',
+      'UPDATE businesses SET status = ?, account_approved = 0, account_approved_at = NULL WHERE id = ?',
       ['rejected', businessId]
     );
     res.json({ success: true });
@@ -2782,6 +2782,34 @@ app.post('/api/super-admin/deactivate-business/:id', superAdminAuthMiddleware, a
     res.json({ success: true });
   } catch (err) {
     console.error('Deactivate business error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST disapprove business (undo approval for approved business)
+app.post('/api/super-admin/disapprove-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    console.log(`[DISAPPROVE-BUSINESS] Processing business: ${businessId}`);
+    
+    // Update business to revert approval
+    const updateResult = await pool.execute(
+      'UPDATE businesses SET status = ?, account_approved = 0, account_approved_at = NULL WHERE id = ?',
+      ['pending', businessId]
+    );
+    console.log(`[DISAPPROVE-BUSINESS] Business reverted: ${updateResult[0].affectedRows} rows`);
+    
+    // Revoke account approval for all employees in this business
+    const empUpdateResult = await pool.execute(
+      'UPDATE employees SET account_approved = 0, account_approved_at = NULL, role_id = NULL WHERE business_id = ?',
+      [businessId]
+    );
+    console.log(`[DISAPPROVE-BUSINESS] Employees updated: ${empUpdateResult[0].affectedRows} rows`);
+    
+    console.log(`[DISAPPROVE-BUSINESS] SUCCESS: Disapproved business ${businessId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DISAPPROVE-BUSINESS] ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });

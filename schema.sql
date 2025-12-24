@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS businesses (
   planId VARCHAR(64),
   subscriptionExpiry DATETIME,
   registeredAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-  dueDate DATETIME NULL
+  dueDate DATETIME NULL,
+  account_approved TINYINT(1) DEFAULT 0,
+  account_approved_at TIMESTAMP NULL
 );
 
 CREATE TABLE IF NOT EXISTS roles (
