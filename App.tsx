@@ -56,7 +56,6 @@ const LocationTracker = () => {
     
     // Only save if: 1) not a public path, 2) not root, 3) has actual content
     if (!isPublicPath && path !== '/' && path.length > 1) {
-      console.log('💾 Saving location to localStorage:', path);
       localStorage.setItem('lastLocation', path);
     }
   }, [location]);
@@ -66,34 +65,12 @@ const LocationTracker = () => {
 
 const Layout = ({ onLogout, lastLocation }: { onLogout: () => void; lastLocation: string | null }) => {
   const [collapsed, setCollapsed] = React.useState<boolean>(() => (typeof window !== 'undefined' && window.innerWidth < 768));
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [hasRedirected, setHasRedirected] = React.useState(false);
 
   React.useEffect(() => {
     const onResize = () => setCollapsed(window.innerWidth < 768);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-
-  // Check if we're at root and need to redirect to last location
-  React.useEffect(() => {
-    if (hasRedirected) return; // Only redirect once
-    
-    const currentHash = window.location.hash;
-    const currentPath = currentHash.replace('#', '') || '/';
-    const isAtRoot = currentPath === '/' || currentPath === '';
-    
-    if (lastLocation && isAtRoot && 
-        !lastLocation.startsWith('/login') && 
-        !lastLocation.startsWith('/landing') && 
-        !lastLocation.startsWith('/register') &&
-        lastLocation !== '/') {
-      console.log('🔀 Redirecting to saved location:', lastLocation);
-      setHasRedirected(true);
-      navigate(lastLocation, { replace: true });
-    }
-  }, [lastLocation, navigate, hasRedirected]);
 
   return (
     <>
@@ -112,18 +89,10 @@ const App = () => {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isActiveBusiness, setIsActiveBusiness] = useState(false);
   const [lastLocation, setLastLocation] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = () => {
     (async () => {
       try {
-        // Load last location first
-        const saved = localStorage.getItem('lastLocation');
-        if (saved) {
-          console.log('📍 Loaded last location from localStorage:', saved);
-          setLastLocation(saved);
-        }
-        
         const user = await getCurrentUser();
         if (user) {
           setIsAuthenticated(true);
@@ -135,14 +104,17 @@ const App = () => {
       } catch (e) {
         console.error('Auth check failed:', e);
         setIsAuthenticated(false);
-      } finally {
-        setIsLoading(false);
       }
     })();
   };
 
   useEffect(() => {
     checkAuth();
+    // Load last location from localStorage
+    const saved = localStorage.getItem('lastLocation');
+    if (saved) {
+      setLastLocation(saved);
+    }
   }, []);
 
   const handleLogin = (user: any) => {
@@ -161,30 +133,25 @@ const App = () => {
       <BusinessProvider>
         <Router>
           <LocationTracker />
-          {isLoading ? (
-            <div className="flex items-center justify-center min-h-screen">
-              <p className="text-slate-500">Loading...</p>
-            </div>
-          ) : (
-            <Routes>
-              <Route path="/landing" element={<Landing />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/login" element={isAuthenticated ? <Navigate to={lastLocation || "/"} /> : <Login onLogin={checkAuth} />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/verify-email" element={<VerifyEmail />} />
-              <Route path="/payment-registration" element={<PaymentRegistration />} />
-              <Route path="/print-receipt" element={<PrintReceipt />} />
-              
-              {/* Payment Route - Accessible if authenticated but not active */}
-              <Route path="/payment" element={isAuthenticated ? <Payment /> : <Navigate to="/login" />} />
+          <Routes>
+            <Route path="/landing" element={<Landing />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={isAuthenticated ? <Navigate to={lastLocation || "/"} /> : <Login onLogin={checkAuth} />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
+            <Route path="/payment-registration" element={<PaymentRegistration />} />
+            <Route path="/print-receipt" element={<PrintReceipt />} />
+            
+            {/* Payment Route - Accessible if authenticated but not active */}
+            <Route path="/payment" element={isAuthenticated ? <Payment /> : <Navigate to="/login" />} />
 
-              {/* Root Redirect Logic */}
-              <Route path="/" element={
-                  !isAuthenticated ? <Navigate to="/landing" /> : 
-                  !isSuperAdmin && !isActiveBusiness ? <Navigate to="/payment" /> :
-                  <Layout onLogout={handleLogout} lastLocation={lastLocation} />
-              }>
+            {/* Root Redirect Logic */}
+            <Route path="/" element={
+                !isAuthenticated ? <Navigate to="/landing" /> : 
+                !isSuperAdmin && !isActiveBusiness ? <Navigate to="/payment" /> :
+                <Layout onLogout={handleLogout} lastLocation={lastLocation} />
+            }>
                    {/* Index Route - Redirect super admin to dashboard */}
                    <Route index element={isSuperAdmin ? <SuperAdminDashboard onLogout={handleLogout} /> : <Dashboard />} />
                    <Route path="pos" element={<POS />} />
@@ -214,9 +181,8 @@ const App = () => {
                  <Route path="super-admin/feedbacks" element={<SuperAdminFeedbacks />} />
                  <Route path="super-admin/data" element={<SuperAdminData />} />
                  <Route path="super-admin/landing-config" element={<SuperAdminLandingConfig />} />
-              </Route>
-            </Routes>
-          )}
+            </Route>
+          </Routes>
         </Router>
       </BusinessProvider>
     </CurrencyProvider>
