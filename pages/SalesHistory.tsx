@@ -5,7 +5,8 @@ import { authFetch } from '../services/auth';
 import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
-import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List } from 'lucide-react';
+import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 
 const SalesHistory = () => {
     const { symbol } = useCurrency();
@@ -41,12 +42,17 @@ const SalesHistory = () => {
                 // Load stock history from endpoint
                 let sh: any[] = [];
                 try {
+                    console.log('[SalesHistory] Fetching stock history from /api/stock/history...');
                     const res = await authFetch('/api/stock/history');
+                    console.log('[SalesHistory] Stock history response status:', res.status);
                     if (res.ok) {
                         sh = await res.json();
+                        console.log('[SalesHistory] Successfully loaded stock history:', sh?.length || 0, 'records');
+                    } else {
+                        console.warn('[SalesHistory] Stock history API returned status:', res.status);
                     }
                 } catch (e) {
-                    console.warn('[SalesHistory] Failed to load stock history:', e);
+                    console.error('[SalesHistory] Failed to load stock history:', e);
                 }
                 if (!mounted) return;
                 // DEBUG: Log loaded data
@@ -54,8 +60,21 @@ const SalesHistory = () => {
                 console.log('[SalesHistory] Loaded products:', p);
                 console.log('[SalesHistory] Loaded services:', sv);
                 console.log('[SalesHistory] Loaded stock history:', sh);
+                
+                // Ensure stock history has all required fields for display
+                const processedStockHistory = (sh || []).map((record: any) => ({
+                    id: record.id,
+                    timestamp: record.timestamp || new Date().toISOString(),
+                    product_id: record.product_id,
+                    type: record.type || 'IN',
+                    change_amount: record.change_amount || 0,
+                    reference_id: record.reference_id || '',
+                    notes: record.notes || '',
+                    ...record
+                }));
+                
                 setSales(Array.isArray(s) ? s : []);
-                setStockHistory(Array.isArray(sh) ? sh : []);
+                setStockHistory(Array.isArray(processedStockHistory) ? processedStockHistory : []);
                 // combine products and services for lookup when resolving sale item metadata
                 const prods = Array.isArray(p) ? p : [];
                 const svcs = Array.isArray(sv) ? sv.map((x: any) => ({ ...x, isService: true })) : [];
@@ -82,6 +101,22 @@ const SalesHistory = () => {
       setShowReturnModal(true);
   };
 
+  const handleDownloadPDF = () => {
+    if (!viewingSale) return;
+    const element = document.getElementById('a4-invoice-content');
+    if (!element) return;
+    
+    const opt = {
+      margin: 0,
+      filename: `Invoice-${viewingSale.id.slice(-8)}.pdf`,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { scale: 2 },
+      jsPDF: { format: 'a4', orientation: 'portrait' as const }
+    };
+    
+    html2pdf().set(opt).from(element).save();
+  };
+
   const enrichItems = (sale: SaleRecord) => {
       return (sale.items || []).map((it: any) => {
           const prod = products.find(p => p.id === (it.id || it.product_id));
@@ -89,7 +124,7 @@ const SalesHistory = () => {
               ...it,
               id: it.id || it.product_id,
               name: it.name || (prod ? prod.name : '') || '',
-              description: it.description || prod?.details || prod?.description || prod?.image_url || '',
+              description: it.description || prod?.details || prod?.description || '',
               unit: it.unit || prod?.unit || ''
           };
       });
@@ -276,7 +311,14 @@ const SalesHistory = () => {
       ) : activeTab === 'items' ? (
         <DataTable data={itemHistory} columns={itemColumns} title="Itemized Sales Record" />
       ) : (
-        <DataTable data={stockHistory} columns={stockHistoryColumns} title="Stock Movement History" />
+        <>
+          <DataTable data={stockHistory} columns={stockHistoryColumns} title="Stock Movement History" />
+          {stockHistory.length === 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+              <p className="text-slate-600">No supply history yet. Supply history will appear as stock is received through inventory management.</p>
+            </div>
+          )}
+        </>
       )}
 
        {/* Return Modal */}
@@ -316,12 +358,13 @@ const SalesHistory = () => {
       {/* Document View Modal */}
       {showDocModal && viewingSale && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg shadow-2xl max-h-[90vh] overflow-y-auto w-full max-w-4xl flex flex-col">
+            <div className="bg-white rounded-lg max-h-[90vh] overflow-auto w-full max-w-4xl flex flex-col doc-modal-scroll" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                 <div className="p-4 border-b flex justify-between items-center no-print">
                     <h3 className="font-bold text-lg">Document Viewer</h3>
                     <div className="flex gap-2">
                         <button onClick={() => setDocType('thermal')} className={`px-3 py-1 rounded border ${docType === 'thermal' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>Thermal</button>
                         <button onClick={() => setDocType('a4')} className={`px-3 py-1 rounded border ${docType === 'a4' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>A4 Invoice</button>
+                        {docType === 'a4' && <button onClick={handleDownloadPDF} title="Download as PDF" className="px-3 py-1 bg-red-600 text-white rounded flex items-center gap-1"><Download size={16}/> PDF</button>}
                         <button onClick={() => window.print()} className="px-3 py-1 bg-slate-800 text-white rounded flex items-center gap-1"><Printer size={16}/> Print</button>
                         <button onClick={() => sendEmailReceipt(viewingSale)} title="Email receipt" className="px-3 py-1 bg-emerald-600 text-white rounded flex items-center gap-1">Email</button>
                         <button onClick={() => sendWhatsAppReceipt(viewingSale)} title="Send via WhatsApp" className="px-3 py-1 bg-green-600 text-white rounded flex items-center gap-1">WhatsApp</button>
@@ -372,7 +415,7 @@ const SalesHistory = () => {
                    )}
 
                    {docType === 'a4' && (
-                       <div className="bg-white shadow-sm w-[210mm] min-h-[297mm] flex flex-col p-12">
+                       <div id="a4-invoice-content" className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible px-12 py-8">
                            {/* Simplified Header for brevity in preview, functionally similar to POS */}
                             <div className="flex justify-between items-start mb-12">
                                 <div>
@@ -399,7 +442,6 @@ const SalesHistory = () => {
                                         <tr key={i} className="border-b border-slate-100">
                                             <td className="py-4">
                                                 <div className="font-medium">{item.name}</div>
-                                                {item.description ? <div className="text-sm text-slate-500">{item.description}</div> : null}
                                             </td>
                                             <td className="py-4 text-right">{item.quantity}</td>
                                             <td className="py-4 text-right">{symbol}{fmt(item.price,2)}</td>
@@ -417,6 +459,13 @@ const SalesHistory = () => {
             </div>
         </div>
       )}
+
+      <style>{`
+        /* Hide scrollbar on document viewer modal */
+        .doc-modal-scroll::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
     </div>
   );
 };

@@ -81,7 +81,7 @@ const PrintReceipt = () => {
   return (
     <div className="bg-white min-h-screen">
       {/* Header Controls - Print Only */}
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center no-print sticky top-0 z-10">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center no-print sticky top-0 z-10 overflow-hidden">
         <div className="flex gap-2">
           <button
             onClick={() => setReceiptType('thermal')}
@@ -122,7 +122,7 @@ const PrintReceipt = () => {
       </div>
 
       {/* Receipt Content */}
-      <div className="bg-gray-100 p-8 flex justify-center min-h-[calc(100vh-80px)]">
+      <div className="bg-gray-100 p-8 flex justify-center min-h-[calc(100vh-80px)] overflow-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {/* Thermal Receipt */}
         {receiptType === 'thermal' && (
           <div className="bg-white p-4 shadow-sm w-[300px] printable-receipt">
@@ -190,12 +190,12 @@ const PrintReceipt = () => {
 
         {/* A4 Invoice */}
         {receiptType === 'a4' && (
-          <div className="bg-white shadow-sm w-[210mm] min-h-[297mm] flex flex-col">
+          <div className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible">
             {/* Header Image */}
             {settings.headerImageUrl && (
               <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto max-h-[150px] object-cover" />
             )}
-            <div className="p-12 flex-1">
+            <div className="flex-1 overflow-visible px-12 py-8">
               <div className="flex justify-between items-start mb-12">
                 <div>
                   <h1 className="text-4xl font-bold text-slate-800 tracking-tight">
@@ -301,6 +301,16 @@ const PrintReceipt = () => {
       </div>
 
       <style>{`
+        /* Hide scrollbar for all browsers */
+        ::-webkit-scrollbar {
+          display: none;
+        }
+        
+        * {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        
         @media print {
           * {
             -webkit-print-color-adjust: exact;
@@ -312,10 +322,14 @@ const PrintReceipt = () => {
             padding: 0;
             overflow: visible;
             background: white;
+            height: 100%;
+            width: 100%;
           }
           
           body {
             overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           
           .no-print {
@@ -339,7 +353,16 @@ const PrintReceipt = () => {
           .bg-gray-100 {
             background: white !important;
             padding: 0 !important;
+            display: flex !important;
+            justify-content: center !important;
+            margin: 0 !important;
           }
+        }
+        
+        @page {
+          size: A4;
+          margin: 0;
+          padding: 0;
         }
       `}</style>
     </div>

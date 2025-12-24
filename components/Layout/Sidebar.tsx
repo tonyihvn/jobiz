@@ -168,7 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
     },
     {
       key: 'services',
-      label: 'Services & Education',
+      label: 'Services',
       items: [
         // dynamic service groups (each group is a distinct page)
         ...dynamicServicesItems,

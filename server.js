@@ -1517,9 +1517,24 @@ app.get('/api/stock/history/:productId', authMiddleware, async (req, res) => {
 // Stock history for the business (all products)
 app.get('/api/stock/history', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC', [req.user.id]);
+    const userId = req.user.id;
+    console.log('📦 /api/stock/history - user:', userId);
+    
+    // Get business ID for this user
+    const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [userId]);
+    if (!empRows || !empRows[0]) {
+      console.warn('❌ /api/stock/history - User not found in employees');
+      return res.json([]);
+    }
+    
+    const businessId = empRows[0].business_id;
+    console.log('📦 /api/stock/history - business_id:', businessId);
+    
+    const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = ? ORDER BY timestamp DESC', [businessId]);
+    console.log('📦 /api/stock/history - Returning', rows?.length || 0, 'records for business', businessId);
     res.json(rows);
   } catch (err) {
+    console.error('❌ /api/stock/history error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1660,7 +1675,8 @@ app.post('/api/stock/increase', authMiddleware, async (req, res) => {
       const supplierId = req.body.supplierId || req.body.supplier_id || null;
       const batchNumber = req.body.batchNumber || req.body.batch_number || null;
       const referenceId = req.body.referenceId || req.body.reference_id || null;
-      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, qty, 'IN', supplierId, batchNumber, referenceId, req.user.id, 'Stock increase via API']);
+      const notes = req.body.notes || null;
+      await pool.execute('INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [sid, businessId, productId, locationId, qty, 'IN', supplierId, batchNumber, referenceId, req.user.id, notes || 'Stock increase via API']);
     } catch (e) { console.warn('Failed to write stock history', e.message || e); }
 
     res.json({ success: true, total });

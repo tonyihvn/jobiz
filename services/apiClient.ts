@@ -69,7 +69,7 @@ export const api = {
   stock: {
     getForProduct: (productId: string) => authFetch(`/api/stock/${productId}`).then(safeJson),
     history: (productId: string) => authFetch(`/api/stock/history/${productId}`).then(safeJson),
-    increase: (productId: string, locationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string) => authFetch('/api/stock/increase', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, locationId, qty, supplierId, batchNumber, referenceId }) }).then(safeJson),
+    increase: (productId: string, locationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string, notes?: string) => authFetch('/api/stock/increase', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, locationId, qty, supplierId, batchNumber, referenceId, notes }) }).then(safeJson),
     decrease: (productId: string, locationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string) => authFetch('/api/stock/decrease', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, locationId, qty, supplierId, batchNumber, referenceId }) }).then(safeJson),
     move: (productId: string, fromLocationId: string, toLocationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string) => authFetch('/api/stock/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, fromLocationId, toLocationId, qty, supplierId, batchNumber, referenceId }) }).then(safeJson),
     historyAll: () => authFetch('/api/stock/history').then(safeJson)

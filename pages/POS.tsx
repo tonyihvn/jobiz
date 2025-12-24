@@ -73,6 +73,8 @@ const POS = () => {
 
   // UI State
   const [lastSale, setLastSale] = useState<SaleRecord | null>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
 
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -88,8 +90,14 @@ const POS = () => {
                 // Results ordering depends on whether settings was included
                 // results: products, services, customers, user, categories
                 const [prods, svcs, custs, user, cats] = results;
-                const svcItems = Array.isArray(svcs) ? svcs.map((s: any) => ({ ...s, isService: true })) : [];
-                const combined = [...(prods || []), ...svcItems];
+                // Only use services from the services table (not from products table)
+                const svcItems = Array.isArray(svcs) ? svcs.map((s: any) => ({ ...s, isService: true, isFromServicesTable: true })) : [];
+                // Filter products to exclude any marked as services (only show actual products)
+                const productsOnly = Array.isArray(prods) ? prods.filter((p: any) => {
+                    const isServiceFlag = typeof p.isService !== 'undefined' ? !!p.isService : (typeof p.is_service !== 'undefined' ? !!p.is_service : false);
+                    return !isServiceFlag;
+                }) : [];
+                const combined = [...productsOnly, ...svcItems];
                 // normalize isService flag across different shapes (isService or is_service)
                 const isServiceFlag = (p: any) => {
                     if (typeof p.isService !== 'undefined') return !!p.isService;
@@ -265,13 +273,9 @@ const POS = () => {
             setCart([]);
             setParticulars('');
             setDelivery({ enabled: false, fee: 0, address: '' });
-            // Open receipt in new window instead of modal
-            setTimeout(() => {
-              const saleJson = encodeURIComponent(JSON.stringify(sale));
-              const receiptType = isProforma ? 'a4' : 'thermal';
-              const receiptUrl = `/print-receipt?sale=${saleJson}&type=${receiptType}&autoprint=false`;
-              window.open(receiptUrl, 'receipt', 'width=1000,height=800,scrollbars=no');
-            }, 300);
+            // Show receipt modal instead of opening new window
+            setReceiptType(isProforma ? 'a4' : 'thermal');
+            setShowReceiptModal(true);
         } catch (err) {
             alert(err.message || 'Failed to complete sale');
         }
@@ -534,7 +538,217 @@ const POS = () => {
       </div>
 
       
-      {/* Receipt is now opened in a new window instead of modal - see PrintReceipt.tsx */}
+      {/* Receipt Modal */}
+      {showReceiptModal && lastSale && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-auto flex flex-col">
+            {/* Header Controls */}
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center sticky top-0 z-10">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setReceiptType('thermal')}
+                  className={`px-4 py-2 rounded border font-medium text-sm ${
+                    receiptType === 'thermal'
+                      ? 'bg-brand-50 border-brand-500 text-brand-700'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Thermal Receipt
+                </button>
+                <button
+                  onClick={() => setReceiptType('a4')}
+                  className={`px-4 py-2 rounded border font-medium text-sm ${
+                    receiptType === 'a4'
+                      ? 'bg-brand-50 border-brand-500 text-brand-700'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  A4 Invoice
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-slate-800 text-white rounded flex items-center gap-2 hover:bg-slate-900 font-medium text-sm"
+                >
+                  <Printer size={18} /> Print
+                </button>
+                <button
+                  onClick={() => setShowReceiptModal(false)}
+                  className="px-4 py-2 bg-slate-100 text-slate-700 rounded hover:bg-slate-200 font-medium"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Receipt Content */}
+            <div className="flex-1 overflow-auto p-8 bg-gray-100 flex justify-center">
+              {/* Thermal Receipt */}
+              {receiptType === 'thermal' && (
+                <div className="bg-white p-4 shadow-sm w-[300px]">
+                  <div className="text-center mb-6">
+                    <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
+                    <p className="text-xs text-gray-500">{settings.address}</p>
+                    <p className="text-xs text-gray-500">{settings.phone}</p>
+                    <p className="text-[10px] italic mt-1 text-gray-400">{settings.motto}</p>
+                  </div>
+
+                  <div className="border-b border-dashed border-gray-300 my-4"></div>
+
+                  <div className="flex justify-between text-xs mb-4">
+                    <span>Date: {new Date(lastSale.date).toLocaleDateString()}</span>
+                    <span>Time: {new Date(lastSale.date).toLocaleTimeString()}</span>
+                  </div>
+                  <div className="flex justify-between text-xs mb-4">
+                    <span>Receipt #: {lastSale.id.slice(-8)}</span>
+                    <span>Cashier: {lastSale.cashier}</span>
+                  </div>
+
+                  <table className="w-full text-xs text-left mb-4">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="py-1">Item</th>
+                        <th className="py-1 text-right">Qty</th>
+                        <th className="py-1 text-right">Amt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lastSale.items.map((item: any, i: number) => (
+                        <tr key={i}>
+                          <td className="py-1">
+                            {item.name}
+                            <div className="text-[9px] text-gray-400">{item.unit}</div>
+                          </td>
+                          <td className="py-1 text-right">{item.quantity}</td>
+                          <td className="py-1 text-right">{fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="border-t border-dashed border-gray-300 my-2 pt-2 space-y-1">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span>Subtotal</span>
+                      <span>{fmtCurrency(lastSale.subtotal, 2)}</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-medium">
+                      <span>VAT (7.5%)</span>
+                      <span>{fmtCurrency(lastSale.vat, 2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-bold mt-2">
+                      <span>TOTAL</span>
+                      <span>{fmtCurrency(Number(lastSale.total), 2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 text-center text-xs text-gray-400">
+                    <p>Thank you for your business!</p>
+                  </div>
+                </div>
+              )}
+
+              {/* A4 Invoice */}
+              {receiptType === 'a4' && (
+                <div className="bg-white shadow-sm w-[210mm] min-h-[297mm] flex flex-col">
+                  <div className="p-12 flex-1">
+                    <div className="flex justify-between items-start mb-12">
+                      <div>
+                        <h1 className="text-4xl font-bold text-slate-800 tracking-tight">
+                          {lastSale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}
+                        </h1>
+                        <p className="text-slate-500 mt-2">#{lastSale.id}</p>
+                      </div>
+                      <div className="text-right">
+                        <h2 className="font-bold text-lg text-slate-800">{settings.name}</h2>
+                        <p className="text-sm text-slate-500 w-64 ml-auto">{settings.address}</p>
+                        <p className="text-sm text-slate-500">{settings.email}</p>
+                        <p className="text-sm text-slate-500">{settings.phone}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-12 mb-12">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Bill To</h3>
+                        {lastSale.customerId ? (
+                          <div className="text-slate-800">
+                            <p className="font-bold">{customers.find(c => c.id === lastSale.customerId)?.name}</p>
+                            <p className="text-sm">{customers.find(c => c.id === lastSale.customerId)?.address}</p>
+                            <p className="text-sm">{customers.find(c => c.id === lastSale.customerId)?.phone}</p>
+                          </div>
+                        ) : (
+                          <p className="text-slate-500 italic">Walk-in Customer</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="mb-2">
+                          <span className="text-sm text-slate-400 font-bold uppercase tracking-wider mr-4">Date:</span>
+                          <span className="text-slate-800 font-medium">{new Date(lastSale.date).toLocaleDateString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-sm text-slate-400 font-bold uppercase tracking-wider mr-4">Payment:</span>
+                          <span className="text-slate-800 font-medium">{lastSale.paymentMethod}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <table className="w-full text-left mb-8">
+                      <thead>
+                        <tr className="border-b-2 border-slate-800">
+                          <th className="py-3 font-bold text-slate-800">Description</th>
+                          <th className="py-3 font-bold text-slate-800 text-right">Quantity</th>
+                          <th className="py-3 font-bold text-slate-800 text-right">UOM</th>
+                          <th className="py-3 font-bold text-slate-800 text-right">Unit Price</th>
+                          <th className="py-3 font-bold text-slate-800 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {lastSale.items.map((item: any, i: number) => (
+                          <tr key={i}>
+                            <td className="py-4 text-slate-600">{item.name}</td>
+                            <td className="py-4 text-slate-600 text-right">{item.quantity}</td>
+                            <td className="py-4 text-slate-600 text-right text-xs uppercase">{item.unit}</td>
+                            <td className="py-4 text-slate-600 text-right">{fmtCurrency(item.price, 2)}</td>
+                            <td className="py-4 text-slate-800 font-bold text-right">
+                              {fmtCurrency(item.price * item.quantity, 2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <div className="flex justify-end">
+                      <div className="w-64 space-y-3">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Subtotal</span>
+                          <span>{fmtCurrency(lastSale.subtotal, 2)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>VAT (7.5%)</span>
+                          <span>{fmtCurrency(lastSale.vat, 2)}</span>
+                        </div>
+                        {lastSale.deliveryFee ? (
+                          <div className="flex justify-between text-slate-600">
+                            <span>Delivery</span>
+                            <span>{fmtCurrency(lastSale.deliveryFee, 2)}</span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between text-xl font-bold text-slate-900 border-t-2 border-slate-800 pt-3">
+                          <span>Total</span>
+                          <span>{fmtCurrency(lastSale.total, 2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Receipt is now shown in modal instead of new window */}
       {/* This prevents scrollbar from appearing in printed documents */}
     </div>
   );

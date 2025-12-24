@@ -23,6 +23,7 @@ const Stock: React.FC = () => {
     // Restock Form
     const [restockDate, setRestockDate] = useState(new Date().toISOString().split('T')[0]);
     const [invoiceNo, setInvoiceNo] = useState('');
+    const [restockNotes, setRestockNotes] = useState('');
     const [selectedSupplier, setSelectedSupplier] = useState<string>('');
     const [selectedLocation, setSelectedLocation] = useState<string>('');
     const [items, setItems] = useState<{productId: string, qty: number, cost: number}[]>([{productId: '', qty: 0, cost: 0}]);
@@ -72,12 +73,38 @@ const Stock: React.FC = () => {
             setLocations(locs || []);
             if (!selectedLocation && (locs || []).length > 0) setSelectedLocation(locs[0].id);
 
-            const txs = await db.transactions.getAll();
-            // also include stock_history records so Supply History shows low-level receipts/moves
+            // Get transactions for Inventory Purchase account
+            let txs: any[] = [];
             let hist: any[] = [];
-            try { hist = await db.stock.historyAll(); } catch (e) { hist = []; }
+            try { 
+                txs = await db.transactions.getAll(); 
+                console.log('📋 Fetched transactions:', txs?.length || 0);
+            } catch (e) { 
+                console.warn('Failed to fetch transactions', e);
+                txs = []; 
+            }
             
-            // Format stock_history records with product info and proper details
+            try { 
+                hist = await db.stock.historyAll(); 
+                console.log('📦 Fetched stock history:', hist?.length || 0, 'records');
+                if (hist && hist.length > 0) {
+                    console.log('📦 Sample stock history record:', hist[0]);
+                }
+            } catch (e) { 
+                console.error('❌ Failed to fetch stock history:', e);
+                hist = []; 
+            }
+            
+            // Filter transactions for Inventory Purchase
+            const txFiltered = (txs || [])
+                .filter((t: any) => t.accountHead === 'Inventory Purchase')
+                .map((t: any) => ({
+                    ...t,
+                    amount: typeof t.amount === 'number' ? t.amount : Number(t.amount) || 0
+                }));
+            console.log('✅ Filtered transactions for Inventory Purchase:', txFiltered.length);
+            
+            // Format stock_history records with product info
             const formattedHist = (hist || []).map((h: any) => {
                 const prod = (allProducts || []).find((p: any) => p.id === h.product_id);
                 const sup = (sups || []).find((s: any) => s.id === h.supplier_id);
@@ -105,13 +132,19 @@ const Stock: React.FC = () => {
                 return {
                     id: h.id,
                     date: dateVal,
-                    receivedBy: sup?.name || h.supplier_id || null,
+                    receivedBy: sup?.name || h.supplier_id || (h.type || 'STOCK'),
                     particulars: `${h.type || 'STOCK'} - ${parts.join(' | ') || 'Stock movement'}`,
-                    amount: amount
+                    amount: Number(amount) || 0
                 };
             });
-            const txFiltered = (txs || []).filter((t: any) => t.accountHead === 'Inventory Purchase');
-            setSupplyHistory([...txFiltered, ...formattedHist]);
+            
+            console.log('📊 Formatted stock history records:', formattedHist.length);
+            
+            // Combine both sources
+            const combined = [...txFiltered, ...formattedHist];
+            console.log('📈 Total Supply History records:', combined.length);
+            
+            setSupplyHistory(combined);
         } catch (e) {
             console.error('Failed to refresh stock data', e);
         }
@@ -156,7 +189,7 @@ const Stock: React.FC = () => {
         const particulars: string[] = [];
 
         for (const item of items) {
-            try { await db.stock.increase(item.productId, selectedLocation, item.qty, selectedSupplier || undefined, invoiceNo || undefined, invoiceNo || undefined); } catch (e) { console.error('Failed to increase stock', e); }
+            try { await db.stock.increase(item.productId, selectedLocation, item.qty, selectedSupplier || undefined, invoiceNo || undefined, invoiceNo || undefined, restockNotes || undefined); } catch (e) { console.error('Failed to increase stock', e); }
             const pName = products.find(p => p.id === item.productId)?.name;
             particulars.push(`${pName} (x${item.qty})`);
             totalCost += Number(item.cost);
@@ -180,6 +213,7 @@ const Stock: React.FC = () => {
         setShowRestockModal(false);
         setItems([{productId: '', qty: 0, cost: 0}]);
         setInvoiceNo('');
+        setRestockNotes('');
         refreshData();
     };
 
@@ -217,7 +251,7 @@ const Stock: React.FC = () => {
         { header: 'Date', accessor: (t) => new Date(t.date).toLocaleDateString(), key: 'date', sortable: true, filterable: true },
         { header: 'Supplier', accessor: 'receivedBy', key: 'receivedBy', filterable: true },
         { header: 'Details (Ref Invoice & Items)', accessor: 'particulars', key: 'particulars', filterable: true },
-        { header: 'Total Cost', accessor: (t) => `${symbol}${t.amount.toFixed(2)}`, key: 'amount', filterable: true },
+        { header: 'Total Cost', accessor: (t) => `${symbol}${(typeof t.amount === 'number' ? t.amount : 0).toFixed(2)}`, key: 'amount', filterable: true },
     ];
 
     return (
@@ -245,7 +279,14 @@ const Stock: React.FC = () => {
             {activeTab === 'levels' ? (
                 <DataTable data={filteredProducts} columns={columns} title="Inventory Levels" />
             ) : (
-                <DataTable data={supplyHistory} columns={historyColumns} title="Restock Log" />
+                <>
+                    <DataTable data={supplyHistory} columns={historyColumns} title="Restock Log" />
+                    {supplyHistory.length === 0 && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+                            <p className="text-slate-600">No supply history yet. Start by receiving stock through the "Receive Stock" button.</p>
+                        </div>
+                    )}
+                </>
             )}
 
             {showRestockModal && (
@@ -280,6 +321,11 @@ const Stock: React.FC = () => {
                                         {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                                     </select>
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Notes (Optional)</label>
+                                <textarea className="w-full border rounded p-2" rows={2} placeholder="Enter any notes about this stock receipt..." value={restockNotes} onChange={e => setRestockNotes(e.target.value)} />
                             </div>
 
                             <div className="border rounded-lg overflow-hidden">

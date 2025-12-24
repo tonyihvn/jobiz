@@ -79,6 +79,7 @@ const Inventory = () => {
         (async () => {
             await refreshData();
             try { if (db.locations && db.locations.getAll) { const locs = await db.locations.getAll(); setLocationsList(locs || []); } } catch (e) {}
+            try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(); setSuppliers(sups || []); } } catch (e) {}
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
@@ -301,6 +302,7 @@ const Inventory = () => {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [historyRecords, setHistoryRecords] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
 
   const openHistory = async (product: Product) => {
       setHistoryProduct(product);
@@ -596,7 +598,7 @@ const Inventory = () => {
                                     <td className="p-2 align-top">{r.change_amount}</td>
                                     <td className="p-2 align-top">{r.type}</td>
                                     <td className="p-2 align-top">{(locationsList.find(l => l.id === r.location_id) || { name: r.location_id }).name}</td>
-                                    <td className="p-2 align-top">{r.supplier_id || '-'}</td>
+                                    <td className="p-2 align-top">{r.supplier_id ? (suppliers.find(s => s.id === r.supplier_id) || { name: r.supplier_id }).name : '-'}</td>
                                     <td className="p-2 align-top">{r.user_id || '-'}</td>
                                     <td className="p-2 align-top">{r.notes || ''}</td>
                                 </tr>
