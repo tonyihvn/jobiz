@@ -165,7 +165,7 @@ export default function PaymentRegistration() {
                     <p className="text-3xl font-bold mb-2">
                       {typeof plan.price === 'string' && plan.price.toLowerCase() === 'custom' 
                         ? 'Custom' 
-                        : `$${Number(plan.price).toFixed(2)}`}
+                        : `₦${Number(plan.price).toFixed(2)}`}
                     </p>
                     {plan.period && <p className="text-sm text-gray-500 mb-2">{plan.period}</p>}
                     <p className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600 text-sm'}>{plan.description}</p>
