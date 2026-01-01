@@ -295,9 +295,9 @@ const Landing = () => {
             <button onClick={() => navigate('/register')} className="px-8 py-4 bg-brand-600 text-white rounded-full font-bold text-lg hover:bg-brand-700 transition-all shadow-xl shadow-brand-500/20 flex items-center justify-center gap-2">
               Start Free Trial <ArrowRight size={20}/>
             </button>
-            <button onClick={() => navigate('/login')} className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-full font-bold text-lg hover:bg-slate-50 transition-all">
+            {/* <button onClick={() => navigate('/login')} className="px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-full font-bold text-lg hover:bg-slate-50 transition-all">
               Live Demo
-            </button>
+            </button> */}
           </div>
           
           <div className="mt-16 rounded-2xl border border-slate-200 shadow-2xl overflow-hidden mx-auto max-w-5xl bg-white">
