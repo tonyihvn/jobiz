@@ -230,7 +230,7 @@ export default function PaymentRegistration() {
               {/* Selected Plan */}
               <div className="mb-6 p-4 bg-indigo-50 rounded-lg">
                 <p className="text-sm text-gray-600">Selected Plan</p>
-                <p className="text-xl font-bold text-indigo-600">${amount.toFixed(2)}</p>
+                <p className="text-xl font-bold text-indigo-600">₦{amount.toFixed(2)}</p>
               </div>
 
               {/* Card Details */}
@@ -307,7 +307,7 @@ export default function PaymentRegistration() {
                   disabled={loading}
                   className="flex-1 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400"
                 >
-                  {loading ? 'Processing...' : `Pay $${amount.toFixed(2)}`}
+                  {loading ? 'Processing...' : `Pay ₦${amount.toFixed(2)}`}
                 </button>
               </div>
             </form>

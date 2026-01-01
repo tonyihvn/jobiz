@@ -158,6 +158,109 @@ const transporter = nodemailer.createTransport({
 // SMS Configuration
 const smsClient = process.env.SMS_SID ? twilio(process.env.SMS_SID, process.env.SMS_TOKEN) : null;
 
+// Helper function to format Nigerian phone numbers
+function formatNigerianPhone(phone) {
+  if (!phone) return null;
+  
+  // Remove all non-digit characters
+  let cleaned = phone.replace(/\D/g, '');
+  
+  // If starts with 0, replace with 234
+  if (cleaned.startsWith('0')) {
+    cleaned = '234' + cleaned.substring(1);
+  }
+  // If doesn't start with 234, assume it's missing country code
+  else if (!cleaned.startsWith('234')) {
+    cleaned = '234' + cleaned;
+  }
+  
+  // Ensure it's valid Nigerian number (234 + 10 digits)
+  if (!cleaned.startsWith('234') || cleaned.length !== 13) {
+    return null;
+  }
+  
+  return cleaned;
+}
+
+// Helper function to send SMS via SMSLive247
+async function sendSMS(phoneNumber, message) {
+  if (!phoneNumber || !message) {
+    throw new Error('Phone number and message are required');
+  }
+
+  // Format phone number
+  const formattedPhone = formatNigerianPhone(phoneNumber);
+  if (!formattedPhone) {
+    throw new Error(`Invalid phone number format: ${phoneNumber}. Please use Nigerian numbers (e.g., 08012345678 or +2348012345678)`);
+  }
+
+  // Check if SMS provider is configured
+  if ((process.env.SMS_PROVIDER || '').toLowerCase() !== 'smslive247' || !process.env.SMSLIVE_API_KEY) {
+    throw new Error('SMS provider not configured. Please set SMS_PROVIDER=smslive247 and SMSLIVE_API_KEY');
+  }
+
+  try {
+    const https = await import('https');
+    const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
+    
+    const payload = {
+      phoneNumbers: [formattedPhone],
+      messageText: message,
+      senderID: process.env.SMSLIVE_SENDER || 'INFO'
+    };
+
+    const smsTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('SMS sending timeout (>10s)')), 10000)
+    );
+
+    const sendSmsPromise = new Promise((resolve, reject) => {
+      const reqOpts = {
+        method: 'POST',
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + (url.search || ''),
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
+          'Accept': 'application/json',
+          'Authorization': process.env.SMSLIVE_API_KEY
+        }
+      };
+
+      const request = https.request(reqOpts, (resp) => {
+        let data = '';
+        resp.on('data', (chunk) => { data += chunk; });
+        resp.on('end', () => {
+          try {
+            const parsed = JSON.parse(data || '{}');
+            if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
+              resolve(parsed);
+            } else {
+              reject(new Error(`SMS provider error (${resp.statusCode}): ${parsed.message || 'Unknown error'}`));
+            }
+          } catch (e) {
+            reject(new Error('SMS provider returned invalid JSON'));
+          }
+        });
+      });
+
+      request.on('error', (e) => {
+        reject(new Error('Failed to contact SMS provider: ' + (e?.message || String(e))));
+      });
+      
+      request.write(JSON.stringify(payload));
+      request.end();
+    });
+
+    const result = await Promise.race([sendSmsPromise, smsTimeout]);
+    console.log(`✅ SMS sent successfully to ${formattedPhone}`);
+    return result;
+  } catch (err) {
+    console.error(`❌ Failed to send SMS to ${formattedPhone}:`, err.message);
+    throw err;
+  }
+}
+
 // --- API ROUTES ---
 
 // Auth helper middleware
@@ -668,70 +771,13 @@ app.post('/api/register', async (req, res) => {
 
         // Send OTP via SMS
         const smsMessage = `Your JOBIZ verification code is: ${otp}. This code expires in 10 minutes. Do not share this code.`;
-        
-        // Use SMSLive247 if configured
-        if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
-          try {
-            const https = await import('https');
-            const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
-            // Remove + sign from phone for SMS gateway
-            const phoneForSMS = phone.replace(/^\+/, '');
-            const payload = {
-              phoneNumbers: [phoneForSMS],
-              messageText: smsMessage,
-              senderID: process.env.SMSLIVE_SENDER || 'INFO'
-            };
-
-            const smsTimeout = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('SMS sending timeout')), 10000)
-            );
-
-            const sendSmsPromise = new Promise((resolve, reject) => {
-              const reqOpts = {
-                method: 'POST',
-                hostname: url.hostname,
-                port: url.port || 443,
-                path: url.pathname + (url.search || ''),
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-                  'Accept': 'application/json',
-                  'Authorization': process.env.SMSLIVE_API_KEY
-                }
-              };
-
-              const request = https.request(reqOpts, (resp) => {
-                let data = '';
-                resp.on('data', (chunk) => { data += chunk; });
-                resp.on('end', () => {
-                  try {
-                    const parsed = JSON.parse(data || '{}');
-                    if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
-                      resolve(parsed);
-                    } else {
-                      reject(new Error('SMS provider error: ' + parsed.message));
-                    }
-                  } catch (e) {
-                    reject(new Error('SMS provider returned invalid JSON'));
-                  }
-                });
-              });
-
-              request.on('error', (e) => {
-                reject(new Error('Failed to contact SMS provider: ' + (e && e.message ? e.message : String(e))));
-              });
-              request.write(JSON.stringify(payload));
-              request.end();
-            });
-
-            await Promise.race([sendSmsPromise, smsTimeout]);
-            console.log('✅ OTP sent successfully to', phone);
-          } catch (err) {
-            console.warn('❌ Failed to send OTP to', phone, ':', err.message);
-          }
-        } else {
-          // Fallback: if SMS not configured, just log the OTP for testing
-          console.log('📱 OTP for phone verification:', otp, 'Phone:', phone);
+        try {
+          await sendSMS(phone, smsMessage);
+        } catch (smsErr) {
+          console.warn('❌ Failed to send OTP SMS:', smsErr.message);
+          // Still log the OTP for testing/debugging
+          console.log('📱 OTP for phone verification (SMS failed):', otp, 'Phone:', phone);
+          // Don't fail registration if SMS fails
         }
       } catch (otpErr) {
         console.warn('Failed to generate/send OTP:', otpErr.message);
@@ -781,6 +827,28 @@ app.post('/api/verify-email', async (req, res) => {
 
     // Delete used token
     await pool.execute('DELETE FROM email_verification_tokens WHERE token = ?', [token]);
+
+    // Send SMS confirmation to phone if it exists
+    try {
+      const [empRows] = await pool.execute(
+        'SELECT phone FROM employees WHERE id = ?',
+        [employee_id]
+      );
+      
+      if (empRows && empRows[0] && empRows[0].phone) {
+        const phone = empRows[0].phone;
+        const confirmationMessage = `Your JOBIZ email has been verified successfully! Your registration is now complete. Awaiting super admin approval.`;
+        try {
+          await sendSMS(phone, confirmationMessage);
+        } catch (smsErr) {
+          console.warn('Failed to send email verification SMS to', phone, ':', smsErr.message);
+          // Don't fail the verification if SMS fails
+        }
+      }
+    } catch (smsErr) {
+      console.warn('Failed to send confirmation SMS:', smsErr.message);
+      // Don't fail the verification if SMS sending fails
+    }
 
     res.json({ success: true, message: 'Email verified successfully!' });
   } catch (err) {
@@ -3419,94 +3487,24 @@ app.post('/api/test-sms', async (req, res) => {
   if (!message) return res.status(400).json({ error: 'Message required' });
   
   try {
-    console.log('Testing SMS to:', phone);
+    console.log('🧪 Testing SMS to:', phone);
     console.log('SMS Config:', {
       provider: process.env.SMS_PROVIDER || 'not-configured',
       apiKey: process.env.SMSLIVE_API_KEY ? '***set***' : 'not-set',
       sender: process.env.SMSLIVE_SENDER || 'not-configured'
     });
     
-    // Use SMSLive247 if configured
-    if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
-      try {
-        const https = await import('https');
-        const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
-        // Remove + sign from phone for SMS gateway
-        const phoneForSMS = phone.replace(/^\+/, '');
-        const payload = {
-          phoneNumbers: [phoneForSMS],
-          messageText: message,
-          senderID: process.env.SMSLIVE_SENDER || 'INFO'
-        };
-
-        console.log('SMS Payload:', {
-          phoneNumbers: payload.phoneNumbers,
-          senderID: payload.senderID,
-          messageText: payload.messageText,
-          url: url.href
-        });
-
-        const smsTimeout = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('SMS sending timeout')), 15000)
-        );
-
-        const sendSmsPromise = new Promise((resolve, reject) => {
-          const reqOpts = {
-            method: 'POST',
-            hostname: url.hostname,
-            port: url.port || 443,
-            path: url.pathname + (url.search || ''),
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-              'Accept': 'application/json',
-              'Authorization': process.env.SMSLIVE_API_KEY
-            }
-          };
-
-          const request = https.request(reqOpts, (resp) => {
-            let data = '';
-            resp.on('data', (chunk) => { data += chunk; });
-            resp.on('end', () => {
-              try {
-                const parsed = JSON.parse(data || '{}');
-                console.log('SMS Response:', { statusCode: resp.statusCode, data: parsed });
-                if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) {
-                  resolve(parsed);
-                } else {
-                  reject(new Error('SMS provider error: ' + (parsed.message || 'Unknown error')));
-                }
-              } catch (e) {
-                reject(new Error('SMS provider returned invalid JSON: ' + data));
-              }
-            });
-          });
-
-          request.on('error', (e) => {
-            reject(new Error('Failed to contact SMS provider: ' + (e && e.message ? e.message : String(e))));
-          });
-          request.write(JSON.stringify(payload));
-          request.end();
-        });
-
-        const result = await Promise.race([sendSmsPromise, smsTimeout]);
-        console.log('✅ SMS sent successfully to', phone);
-        res.json({ success: true, message: 'SMS sent successfully!', response: result });
-      } catch (err) {
-        console.error('❌ Failed to send SMS to', phone, ':', err.message);
-        res.status(500).json({ error: 'Failed to send SMS: ' + err.message });
-      }
-    } else {
-      res.status(400).json({ 
-        error: 'SMS not configured', 
-        config: {
-          provider: process.env.SMS_PROVIDER || 'not-set',
-          apiKey: process.env.SMSLIVE_API_KEY ? 'set' : 'not-set'
-        }
-      });
-    }
+    // Use the helper function
+    const result = await sendSMS(phone, message);
+    
+    res.json({ 
+      success: true, 
+      message: 'SMS sent successfully!',
+      phone: formatNigerianPhone(phone),
+      response: result 
+    });
   } catch (err) {
-    console.error('Test SMS error:', err.message);
+    console.error('❌ Test SMS error:', err.message);
     res.status(500).json({ error: err.message || 'Failed to send test SMS' });
   }
 });
