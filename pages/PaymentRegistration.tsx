@@ -191,7 +191,7 @@ export default function PaymentRegistration() {
         {/* Payment Form Step */}
         {step === 'payment' && (
           <div className="bg-white rounded-lg shadow-xl p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Payment Details</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Complete Your Payment</h2>
 
             {error && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
@@ -199,126 +199,42 @@ export default function PaymentRegistration() {
               </div>
             )}
 
-            <form onSubmit={handlePaymentSubmit}>
-              {/* Payment Type */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Type</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="subscription"
-                      checked={paymentType === 'subscription'}
-                      onChange={(e) => setPaymentType(e.target.value as 'subscription')}
-                      className="mr-2"
-                    />
-                    <span>Subscription (Monthly)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="one-time"
-                      checked={paymentType === 'one-time'}
-                      onChange={(e) => setPaymentType(e.target.value as 'one-time')}
-                      className="mr-2"
-                    />
-                    <span>One-Time Payment</span>
-                  </label>
-                </div>
-              </div>
+            {/* Selected Plan */}
+            <div className="mb-8 p-4 bg-indigo-50 rounded-lg">
+              <p className="text-sm text-gray-600">Selected Plan</p>
+              <p className="text-xl font-bold text-indigo-600">₦{amount.toFixed(2)}</p>
+            </div>
 
-              {/* Selected Plan */}
-              <div className="mb-6 p-4 bg-indigo-50 rounded-lg">
-                <p className="text-sm text-gray-600">Selected Plan</p>
-                <p className="text-xl font-bold text-indigo-600">₦{amount.toFixed(2)}</p>
-              </div>
+            {/* Payment Link Option */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-gray-900 mb-3">💳 Online Payment Link</h3>
+              <p className="text-gray-600 mb-4">Use the payment link below to complete your card payment securely:</p>
+              <a
+                href="https://sandbox.flutterwave.com/pay/shs2heoecs27"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-center font-bold"
+              >
+                🔗 Complete Payment Here
+              </a>
+              <p className="text-xs text-gray-500 mt-2">You will be redirected to our secure payment portal</p>
+            </div>
 
-              {/* Card Details */}
-              <div className="mb-6">
-                <label htmlFor="cardNumber" className="block text-sm font-medium text-gray-700 mb-2">
-                  Card Number
-                </label>
-                <input
-                  type="text"
-                  id="cardNumber"
-                  name="cardNumber"
-                  placeholder="4532 1234 5678 9010"
-                  maxLength="19"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
+            <hr className="my-8" />
 
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
-                <div>
-                  <label htmlFor="expiry" className="block text-sm font-medium text-gray-700 mb-2">
-                    Expiry Date
-                  </label>
-                  <input
-                    type="text"
-                    id="expiry"
-                    name="expiry"
-                    placeholder="MM/YY"
-                    maxLength="5"
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="cvc" className="block text-sm font-medium text-gray-700 mb-2">
-                    CVC
-                  </label>
-                  <input
-                    type="text"
-                    id="cvc"
-                    name="cvc"
-                    placeholder="123"
-                    maxLength="4"
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div className="mb-8">
-                <label htmlFor="cardholderName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Cardholder Name
-                </label>
-                <input
-                  type="text"
-                  id="cardholderName"
-                  name="cardholderName"
-                  placeholder="John Doe"
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="flex gap-4">
-                <button
-                  type="button"
-                  onClick={() => setStep('plan')}
-                  className="flex-1 px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400"
-                >
-                  {loading ? 'Processing...' : `Pay ₦${amount.toFixed(2)}`}
-                </button>
-              </div>
-            </form>
-            <br /><br />
-            <hr></hr>
             <p className="text-2xl font-bold text-gray-900 mb-2">Bank Transfer</p>
-                      <p className="text-gray-600">You can also send to our bank account and forward the evidence to: payments@jobiz.ng</p>
+            <p className="text-gray-600 mb-4">You can also send to our bank account and forward the evidence to: <strong>payments@jobiz.ng</strong></p>
+            <p className="text-lg font-bold text-gray-900 mb-4">Gintec Global Services. FCMB. <b>466 511 6017</b></p>
 
-                        <p className="text-3xl mb-2">Gintec Global Services. FCMB. <b>466 511 6017</b></p>
-
-
+            <div className="mt-8">
+              <button
+                type="button"
+                onClick={() => setStep('plan')}
+                className="w-full px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Back to Plans
+              </button>
+            </div>
           </div>
         )}
 

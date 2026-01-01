@@ -21,13 +21,18 @@ const Register = () => {
   const [formattedPhone, setFormattedPhone] = useState('');
   const navigate = useNavigate();
 
-  // Format phone number: remove leading 0 and add +234 prefix
+  // Format phone number: remove leading 0 and add 234 prefix (no + sign for API)
   const formatPhoneNumber = (phone: string) => {
     let cleaned = phone.replace(/\D/g, '');
     if (cleaned.startsWith('0')) {
       cleaned = cleaned.substring(1);
     }
-    return `+234${cleaned}`;
+    return `234${cleaned}`;
+  };
+
+  // Format phone for display (add + for better UX)
+  const formatPhoneForDisplay = (phone: string) => {
+    return `+${phone}`;
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -67,7 +72,7 @@ const Register = () => {
                     setFormattedPhone(phone);
                     // Extract admin name from email (part before @) or use company name
                     const adminName = formData.email.split('@')[0] || formData.companyName;
-                    const result = await db.auth.register(formData.companyName, adminName, formData.email, pwd);
+                    const result = await db.auth.register(formData.companyName, adminName, formData.email, pwd, phone);
                     if (result && result.success) {
                         setStep(2);
                         // Both email and OTP are sent automatically by backend
@@ -355,7 +360,7 @@ const Register = () => {
                          {formattedPhone && (
                              <div className="text-left">
                                  <p className="text-blue-800 text-xs font-bold mb-2">📱 PHONE VERIFICATION (FASTER):</p>
-                                 <p className="text-blue-700 text-xs mb-3">OTP sent to <strong>{formattedPhone}</strong></p>
+                                 <p className="text-blue-700 text-xs mb-3">OTP sent to <strong>{formatPhoneForDisplay(formattedPhone)}</strong></p>
                                  <div className="space-y-2">
                                      {otpError && (
                                          <div className="p-2 bg-rose-50 text-rose-700 text-xs rounded border border-rose-200 font-medium">
