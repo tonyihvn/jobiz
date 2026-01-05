@@ -358,8 +358,8 @@ const SalesHistory = () => {
       {/* Document View Modal */}
       {showDocModal && viewingSale && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg max-h-[90vh] overflow-auto w-full max-w-4xl flex flex-col doc-modal-scroll" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                <div className="p-4 border-b flex justify-between items-center no-print">
+            <div className="bg-white rounded-lg max-h-[90vh] w-full max-w-4xl flex flex-col doc-modal-scroll" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', overflowY: 'auto' }}>
+                <div className="p-4 border-b flex justify-between items-center no-print sticky top-0 bg-white z-10">
                     <h3 className="font-bold text-lg">Document Viewer</h3>
                     <div className="flex gap-2">
                         <button onClick={() => setDocType('thermal')} className={`px-3 py-1 rounded border ${docType === 'thermal' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>Thermal</button>
@@ -372,10 +372,10 @@ const SalesHistory = () => {
                     </div>
                 </div>
                 
-                <div className="p-8 bg-gray-100 overflow-auto flex justify-center">
+                <div className="p-8 bg-gray-100 overflow-auto flex justify-center flex-1">
                    {/* Reuse Layout Logic from POS */}
                    {docType === 'thermal' && (
-                       <div className="bg-white p-4 shadow-sm w-[300px]">
+                       <div className="bg-white p-4 w-[300px] shadow-none">
                             <div className="text-center mb-6">
                                 {settings.logoUrl && <img src={settings.logoUrl} alt="Logo" className="w-16 mx-auto mb-2" />}
                                 <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
@@ -415,7 +415,7 @@ const SalesHistory = () => {
                    )}
 
                    {docType === 'a4' && (
-                       <div id="a4-invoice-content" className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible px-12 py-8">
+                       <div id="a4-invoice-content" className="bg-white w-[210mm] h-[297mm] flex flex-col px-12 py-8 shadow-none overflow-hidden print:overflow-visible">
                            {/* Simplified Header for brevity in preview, functionally similar to POS */}
                             <div className="flex justify-between items-start mb-12">
                                 <div>
@@ -428,7 +428,7 @@ const SalesHistory = () => {
                                     <p className="text-sm text-slate-500">{settings.phone}</p>
                                 </div>
                             </div>
-                            <table className="w-full text-left mb-8">
+                            <table className="w-full text-left mb-8 flex-1">
                                 <thead>
                                     <tr className="border-b-2 border-slate-800">
                                         <th className="py-3 font-bold">Description</th>
@@ -450,7 +450,7 @@ const SalesHistory = () => {
                                     ))}
                                 </tbody>
                             </table>
-                            <div className="flex justify-end mt-4">
+                            <div className="flex justify-end mt-4 border-t-2 border-slate-800 pt-4">
                                 <div className="text-2xl font-bold text-slate-900">Total: {symbol}{fmt(viewingSale.total,2)}</div>
                             </div>
                        </div>
@@ -464,6 +464,33 @@ const SalesHistory = () => {
         /* Hide scrollbar on document viewer modal */
         .doc-modal-scroll::-webkit-scrollbar {
           display: none;
+        }
+        
+        /* Ensure no shadows on PDF content */
+        #a4-invoice-content * {
+          box-shadow: none !important;
+          -webkit-box-shadow: none !important;
+        }
+        
+        /* Print styles to ensure clean PDF output */
+        @media print {
+          #a4-invoice-content {
+            box-shadow: none !important;
+            -webkit-box-shadow: none !important;
+            width: 210mm;
+            height: 297mm;
+            margin: 0;
+            padding: 0;
+          }
+          
+          #a4-invoice-content * {
+            box-shadow: none !important;
+            -webkit-box-shadow: none !important;
+          }
+          
+          .no-print {
+            display: none !important;
+          }
         }
       `}</style>
     </div>

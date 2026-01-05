@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import db from '../services/apiClient';
 import { fmt, getImageUrl } from '../services/format';
 import { CompanySettings } from '../types';
-import { X, Printer } from 'lucide-react';
+import { X, Printer, Download } from 'lucide-react';
+import { generatePDFFromElement } from '../services/pdfGenerator';
 
 const PrintReceipt = () => {
   const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
@@ -10,6 +11,7 @@ const PrintReceipt = () => {
   const [saleData, setSaleData] = useState<any>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
     // Get sale data from URL query params or sessionStorage
@@ -78,6 +80,24 @@ const PrintReceipt = () => {
     return val.toLocaleString('en-NG', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   };
 
+  const handleDownloadPDF = async () => {
+    try {
+      setIsGeneratingPDF(true);
+      const elementId = receiptType === 'thermal' ? 'thermal-receipt' : 'a4-invoice';
+      const filename = `${saleData.isProforma ? 'Proforma-Invoice' : 'Invoice'}-${saleData.id.slice(-8)}`;
+      
+      await generatePDFFromElement(elementId, filename, {
+        orientation: 'portrait',
+        format: 'a4'
+      });
+    } catch (error) {
+      console.error('PDF download failed:', error);
+      alert('Failed to download PDF. Please try again.');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
   return (
     <div className="bg-white min-h-screen">
       {/* Header Controls - Print Only */}
@@ -107,6 +127,13 @@ const PrintReceipt = () => {
 
         <div className="flex gap-2">
           <button
+            onClick={handleDownloadPDF}
+            disabled={isGeneratingPDF}
+            className="px-4 py-2 bg-green-600 text-white rounded flex items-center gap-2 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          >
+            <Download size={18} /> {isGeneratingPDF ? 'Generating...' : 'Download PDF'}
+          </button>
+          <button
             onClick={() => window.print()}
             className="px-4 py-2 bg-slate-800 text-white rounded flex items-center gap-2 hover:bg-slate-900 font-medium"
           >
@@ -125,7 +152,7 @@ const PrintReceipt = () => {
       <div className="bg-gray-100 p-8 flex justify-center min-h-[calc(100vh-80px)] overflow-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {/* Thermal Receipt */}
         {receiptType === 'thermal' && (
-          <div className="bg-white p-4 shadow-sm w-[300px] printable-receipt">
+          <div id="thermal-receipt" className="bg-white p-4 w-[300px] printable-receipt">
             <div className="text-center mb-6">
               {settings.logoUrl && <img src={settings.logoUrl} alt="Logo" className="w-16 mx-auto mb-2" />}
               <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
@@ -190,7 +217,7 @@ const PrintReceipt = () => {
 
         {/* A4 Invoice */}
         {receiptType === 'a4' && (
-          <div className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible">
+          <div id="a4-invoice" className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible">
             {/* Header Image */}
             {settings.headerImageUrl && (
               <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto max-h-[150px] object-cover" />
@@ -310,11 +337,78 @@ const PrintReceipt = () => {
           scrollbar-width: none;
           -ms-overflow-style: none;
         }
+
+        /* Remove shadows and ensure clean appearance */
+        .printable-receipt,
+        #a4-invoice {
+          box-shadow: none !important;
+          -webkit-box-shadow: none !important;
+        }
+
+        /* A4 Invoice specific styling */
+        #a4-invoice {
+          width: 210mm !important;
+          height: 297mm !important;
+          box-sizing: border-box;
+          display: flex !important;
+          flex-direction: column !important;
+          margin: 0 auto;
+          padding: 0;
+          page-break-after: always;
+        }
+
+        #a4-invoice .flex-1 {
+          flex: 1 !important;
+          overflow: visible !important;
+          display: flex !important;
+          flex-direction: column !important;
+        }
+
+        /* Table styling for invoices */
+        #a4-invoice table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+
+        #a4-invoice thead {
+          background-color: #f8fafc;
+        }
+
+        #a4-invoice th,
+        #a4-invoice td {
+          padding: 10px;
+          text-align: left;
+        }
+
+        #a4-invoice tbody tr {
+          border-bottom: 1px solid #e2e8f0;
+        }
+
+        #a4-invoice tbody tr:last-child {
+          border-bottom: none;
+        }
+
+        /* Invoice footer and totals area */
+        #a4-invoice .space-y-3 {
+          background-color: #ffffff;
+          padding: 15px;
+          border: 1px solid #e2e8f0;
+          border-radius: 4px;
+        }
+
+        /* Ensure no overflow on images */
+        #a4-invoice img {
+          max-width: 100%;
+          height: auto !important;
+        }
         
         @media print {
+          /* Global print styles */
           * {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
           
           html, body {
@@ -322,7 +416,7 @@ const PrintReceipt = () => {
             padding: 0;
             overflow: visible;
             background: white;
-            height: 100%;
+            height: auto;
             width: 100%;
           }
           
@@ -330,32 +424,73 @@ const PrintReceipt = () => {
             overflow: visible !important;
             margin: 0 !important;
             padding: 0 !important;
+            background: white !important;
           }
           
           .no-print {
             display: none !important;
           }
+
+          /* Hide non-printable elements */
+          button,
+          a:not(.invoice-link),
+          [role="button"] {
+            display: none !important;
+          }
           
           .printable-receipt {
             box-shadow: none !important;
+            -webkit-box-shadow: none !important;
             overflow: visible !important;
             height: auto !important;
             max-height: none !important;
             page-break-inside: avoid;
             page-break-after: avoid;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           
           .printable-receipt * {
             page-break-inside: avoid;
           }
+
+          /* A4 Invoice print styles */
+          #a4-invoice {
+            width: 210mm !important;
+            height: 297mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            -webkit-box-shadow: none !important;
+            page-break-inside: avoid;
+            page-break-after: always;
+            display: block !important;
+            overflow: visible !important;
+          }
+
+          #a4-invoice > * {
+            page-break-inside: avoid;
+          }
           
-          /* For A4 */
+          /* For container */
           .bg-gray-100 {
             background: white !important;
             padding: 0 !important;
-            display: flex !important;
-            justify-content: center !important;
+            display: block !important;
             margin: 0 !important;
+            width: 100% !important;
+          }
+
+          /* Remove container background */
+          .bg-gray-100 > * {
+            display: block !important;
+          }
+
+          /* Thermal receipt print */
+          .printable-receipt {
+            width: 80mm !important;
+            margin: 0 auto !important;
+            overflow: visible !important;
           }
         }
         
@@ -363,6 +498,10 @@ const PrintReceipt = () => {
           size: A4;
           margin: 0;
           padding: 0;
+        }
+
+        @page :first {
+          margin: 0;
         }
       `}</style>
     </div>

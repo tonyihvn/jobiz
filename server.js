@@ -3195,6 +3195,60 @@ app.get('/api/super-admin/export-business/:id', superAdminAuthMiddleware, async 
   }
 });
 
+// PUT update employee by Super Admin
+app.put('/api/super-admin/employees/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, password, role_id } = req.body;
+
+    console.log(`[PUT /api/super-admin/employees/:id] Updating employee ${id} with:`, { name, email, role_id });
+
+    // Validate required fields
+    if (!name || !email || !role_id) {
+      return res.status(400).json({ error: 'Name, email, and role are required' });
+    }
+
+    // If password provided, validate it
+    let hashedPassword = null;
+    if (password && password.trim()) {
+      // Validate password strength
+      const hasLowercase = /[a-z]/.test(password);
+      const hasUppercase = /[A-Z]/.test(password);
+      const hasNumber = /\d/.test(password);
+      const hasSpecialChar = /[^\w]/.test(password);
+      const hasMinLength = password.length >= 8;
+
+      if (!hasMinLength || !hasLowercase || !hasUppercase || !hasNumber || !hasSpecialChar) {
+        return res.status(400).json({ 
+          error: 'Password must be at least 8 characters and include lowercase, uppercase, number and special character' 
+        });
+      }
+
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    // Update employee
+    if (hashedPassword) {
+      const [result] = await pool.execute(
+        'UPDATE employees SET name = ?, email = ?, role_id = ?, password = ? WHERE id = ?',
+        [name, email, role_id, hashedPassword, id]
+      );
+      console.log(`[PUT /api/super-admin/employees/:id] Updated with password. Affected rows:`, result.affectedRows);
+    } else {
+      const [result] = await pool.execute(
+        'UPDATE employees SET name = ?, email = ?, role_id = ? WHERE id = ?',
+        [name, email, role_id, id]
+      );
+      console.log(`[PUT /api/super-admin/employees/:id] Updated without password. Affected rows:`, result.affectedRows);
+    }
+
+    res.json({ success: true, message: 'Employee updated successfully' });
+  } catch (err) {
+    console.error('PUT /api/super-admin/employees/:id error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err.message || 'Failed to update employee' });
+  }
+});
+
 // Apply schema.sql and ensure super admin on startup
 async function runMigrations() {
   try {

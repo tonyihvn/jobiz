@@ -5,7 +5,7 @@ import { authFetch } from '../services/auth';
 import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
-import { Printer, X, FileText } from 'lucide-react';
+import { Printer, X, FileText, Download } from 'lucide-react';
 
 const ServiceHistory = () => {
     const { symbol } = useCurrency();
@@ -210,89 +210,123 @@ const ServiceHistory = () => {
       {/* Document Modal */}
       {showDocModal && viewingSale && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-          <div className="bg-white p-8 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-slate-800">Service Invoice #{viewingSale.id.slice(-8)}</h3>
-              <button onClick={() => setShowDocModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+          <div className="bg-white rounded-lg max-h-[90vh] w-full max-w-4xl flex flex-col service-doc-modal" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', overflowY: 'auto' }}>
+            <div className="p-4 border-b flex justify-between items-center no-print sticky top-0 bg-white z-10">
+              <h3 className="text-lg font-bold text-slate-800">Service Invoice #{viewingSale.id.slice(-8)}</h3>
+              <div className="flex gap-2">
+                <button onClick={() => downloadReceipt(viewingSale)} title="Download as PDF" className="px-3 py-1 bg-green-600 text-white rounded flex items-center gap-1"><Download size={16}/> Download</button>
+                <button onClick={() => window.print()} className="px-3 py-1 bg-blue-600 text-white rounded flex items-center gap-1"><Printer size={16}/> Print</button>
+                <button onClick={() => sendEmailReceipt(viewingSale)} className="px-3 py-1 bg-purple-600 text-white rounded flex items-center gap-1">Email</button>
+                <button onClick={() => setShowDocModal(false)} className="px-3 py-1 hover:bg-slate-100 rounded"><X size={20}/></button>
+              </div>
             </div>
 
-            {/* Document Content */}
-            <div className="border border-slate-200 p-8 bg-white">
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold">{settings.name}</h1>
-                <p className="text-sm text-slate-600">{settings.address}</p>
-                <p className="text-sm text-slate-600">{settings.phone} | {settings.email}</p>
-              </div>
-
-              <div className="flex justify-between mb-8 pb-8 border-b border-slate-200">
-                <div>
-                  <p className="text-sm font-medium text-slate-700">Invoice #</p>
-                  <p className="font-mono text-lg font-bold">{viewingSale.id.slice(-8)}</p>
+            <div className="p-8 bg-gray-100 overflow-auto flex justify-center flex-1">
+              {/* Document Content */}
+              <div id="a4-service-invoice" className="w-[210mm] h-[297mm] bg-white shadow-none px-12 py-8 flex flex-col overflow-hidden print:overflow-visible">
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl font-bold text-slate-900">INVOICE</h1>
+                  <h2 className="text-xl font-semibold text-slate-800 mt-2">{settings.name}</h2>
+                  <p className="text-sm text-slate-600">{settings.address}</p>
+                  <p className="text-sm text-slate-600">{settings.phone} | {settings.email}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-medium text-slate-700">Date</p>
-                  <p className="font-mono">{new Date(viewingSale.date).toLocaleDateString()}</p>
+
+                <div className="flex justify-between mb-8 pb-6 border-b-2 border-slate-800">
+                  <div>
+                    <p className="text-xs font-medium text-slate-700">INVOICE NUMBER</p>
+                    <p className="font-mono text-lg font-bold text-slate-900">{viewingSale.id.slice(-8)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-slate-700">DATE</p>
+                    <p className="font-mono text-lg font-bold text-slate-900">{new Date(viewingSale.date).toLocaleDateString()}</p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="mb-8">
-                <p className="text-sm font-medium text-slate-700 mb-2">Bill To:</p>
-                <p className="font-medium">{customers.find(c => c.id === viewingSale.customerId)?.name || viewingSale.customerId || 'N/A'}</p>
-              </div>
+                <div className="mb-8">
+                  <p className="text-xs font-medium text-slate-700 mb-1">BILL TO:</p>
+                  <p className="text-lg font-semibold text-slate-900">{customers.find(c => c.id === viewingSale.customerId)?.name || viewingSale.customerId || 'N/A'}</p>
+                </div>
 
-              <table className="w-full mb-8">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="text-left p-2 font-medium text-sm">Service</th>
-                    <th className="text-right p-2 font-medium text-sm">Rate</th>
-                    <th className="text-right p-2 font-medium text-sm">Qty</th>
-                    <th className="text-right p-2 font-medium text-sm">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {enrichItems(viewingSale).map((item, idx) => (
-                    <tr key={idx} className="border-b border-slate-200">
-                      <td className="p-2 text-sm">{item.name}</td>
-                      <td className="text-right p-2 text-sm">{symbol}{fmt(item.price,2)}</td>
-                      <td className="text-right p-2 text-sm">{item.quantity}</td>
-                      <td className="text-right p-2 text-sm font-medium">{symbol}{fmt(Number(item.price) * Number(item.quantity),2)}</td>
+                <table className="w-full mb-auto text-sm flex-1">
+                  <thead className="bg-slate-100 border-b-2 border-slate-800">
+                    <tr>
+                      <th className="text-left p-3 font-bold text-slate-900">SERVICE DESCRIPTION</th>
+                      <th className="text-right p-3 font-bold text-slate-900">RATE</th>
+                      <th className="text-right p-3 font-bold text-slate-900">QTY</th>
+                      <th className="text-right p-3 font-bold text-slate-900">AMOUNT</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {enrichItems(viewingSale).map((item, idx) => (
+                      <tr key={idx} className="border-b border-slate-200">
+                        <td className="p-3 text-slate-900">{item.name}</td>
+                        <td className="text-right p-3 text-slate-900 font-mono">{symbol}{fmt(item.price,2)}</td>
+                        <td className="text-right p-3 text-slate-900">{item.quantity}</td>
+                        <td className="text-right p-3 text-slate-900 font-bold font-mono">{symbol}{fmt(Number(item.price) * Number(item.quantity),2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
 
-              <div className="flex justify-end mb-8 space-y-2">
-                <div className="w-48">
-                  <div className="flex justify-between border-t border-slate-300 pt-2 mb-2">
-                    <span className="text-sm">Subtotal:</span>
-                    <span className="text-sm font-mono">{symbol}{fmt(viewingSale.subtotal || 0,2)}</span>
-                  </div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm">VAT ({settings.vatRate}%):</span>
-                    <span className="text-sm font-mono">{symbol}{fmt(viewingSale.vat || 0,2)}</span>
-                  </div>
-                  <div className="flex justify-between border-t-2 border-slate-800 pt-2">
-                    <span className="font-bold">Total:</span>
-                    <span className="font-bold text-lg font-mono">{symbol}{fmt(viewingSale.total || 0,2)}</span>
+                <div className="flex justify-end mt-6 pt-6 border-t-2 border-slate-800">
+                  <div className="w-56">
+                    <div className="flex justify-between mb-3 pb-3 border-b border-slate-200">
+                      <span className="text-sm text-slate-700">Subtotal:</span>
+                      <span className="text-sm font-mono font-bold text-slate-900">{symbol}{fmt(viewingSale.subtotal || 0,2)}</span>
+                    </div>
+                    <div className="flex justify-between mb-3">
+                      <span className="text-sm text-slate-700">VAT ({settings.vatRate || 0}%):</span>
+                      <span className="text-sm font-mono font-bold text-slate-900">{symbol}{fmt(viewingSale.vat || 0,2)}</span>
+                    </div>
+                    <div className="flex justify-between text-lg font-bold text-slate-900 pt-3 border-t-2 border-slate-800">
+                      <span>TOTAL:</span>
+                      <span className="font-mono">{symbol}{fmt(viewingSale.total || 0,2)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="text-center text-sm text-slate-500 border-t border-slate-200 pt-4">
-                <p>Thank you for your business!</p>
+                <div className="text-center text-xs text-slate-600 mt-auto pt-6 border-t border-slate-200">
+                  <p>Thank you for your business!</p>
+                </div>
               </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-2 mt-6 justify-end">
-              <button onClick={() => downloadReceipt(viewingSale)} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">Download</button>
-              <button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">Print</button>
-              <button onClick={() => sendEmailReceipt(viewingSale)} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">Email</button>
-              <button onClick={() => setShowDocModal(false)} className="px-4 py-2 bg-slate-300 text-slate-800 rounded-lg hover:bg-slate-400 text-sm font-medium">Close</button>
             </div>
           </div>
         </div>
       )}
+
+      <style>{`
+        /* Hide scrollbar on document viewer modal */
+        .service-doc-modal::-webkit-scrollbar {
+          display: none;
+        }
+        
+        /* Ensure no shadows on PDF content */
+        #a4-service-invoice * {
+          box-shadow: none !important;
+          -webkit-box-shadow: none !important;
+        }
+        
+        /* Print styles to ensure clean PDF output */
+        @media print {
+          #a4-service-invoice {
+            box-shadow: none !important;
+            -webkit-box-shadow: none !important;
+            width: 210mm;
+            height: 297mm;
+            margin: 0;
+            padding: 0;
+          }
+          
+          #a4-service-invoice * {
+            box-shadow: none !important;
+            -webkit-box-shadow: none !important;
+          }
+          
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };
