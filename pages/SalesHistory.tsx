@@ -6,7 +6,7 @@ import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { useBusinessContext } from '../services/BusinessContext';
-import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download, Trash2 } from 'lucide-react';
+import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download, Trash2, Mail, MessageCircle } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 
 function appendBusinessIdToUrl(url: string, businessId?: string): string {
@@ -16,7 +16,7 @@ function appendBusinessIdToUrl(url: string, businessId?: string): string {
 }
 
 const SalesHistory = () => {
-    const { symbol } = useCurrency();
+    const { symbol, setSymbol } = useCurrency();
     const { selectedBusinessId } = useBusinessContext();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [stockHistory, setStockHistory] = useState<any[]>([]);
@@ -26,6 +26,10 @@ const SalesHistory = () => {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [selectedSaleForReturn, setSelectedSaleForReturn] = useState<SaleRecord | null>(null);
   const [returnReason, setReturnReason] = useState('');
+  
+  // Document menu state
+  const [showDocMenu, setShowDocMenu] = useState(false);
+  const [selectedSaleForDoc, setSelectedSaleForDoc] = useState<SaleRecord | null>(null);
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
@@ -42,7 +46,7 @@ const SalesHistory = () => {
                 let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
                 let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
                 const sv = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
-                const sett = db.settings && db.settings.get ? await db.settings.get() : emptySettings;
+                const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId) : emptySettings;
                 let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
                 const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 
@@ -117,6 +121,10 @@ const SalesHistory = () => {
                 console.log('[SalesHistory] Combined products+services:', combined);
                 setProducts(combined);
                 setSettings(sett as CompanySettings);
+                // Update currency context if settings have a currency symbol
+                if (sett && sett.currency) {
+                    setSymbol(sett.currency);
+                }
                 setCustomers(Array.isArray(c) ? c : []);
                 setCurrentUser(u);
             } catch (e) {
@@ -145,72 +153,140 @@ const SalesHistory = () => {
       let htmlContent = '';
       
       if (docType === 'thermal') {
+        // Thermal A4 Invoice - A4 format with centered business info at top
+        const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+        const invoiceTitle = 'RECEIPT';
+        
         htmlContent = `
           <!DOCTYPE html>
           <html>
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Thermal Receipt</title>
+            <title>${invoiceTitle}</title>
             <style>
               * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: monospace; background: white; padding: 20px; }
-              .receipt { width: 300px; margin: 0 auto; padding: 16px; border: 1px solid #ccc; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
+              @page { size: A4; margin: 0; padding: 0; }
+              .wrapper { display: flex; flex-direction: column; width: 210mm; height: 297mm; }
+              .container { width: 100%; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
+              .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+              .header-img { width: 100%; height: auto; display: block; }
+              .footer-img { width: 100%; height: auto; display: block; }
               .header { text-align: center; margin-bottom: 24px; }
-              .header h1 { font-size: 14px; font-weight: bold; letter-spacing: 2px; margin-bottom: 4px; }
-              .header p { font-size: 10px; color: #666; }
-              .divider { border-bottom: 1px dashed #999; margin: 16px 0; }
-              .info { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
-              table { width: 100%; font-size: 10px; margin-bottom: 16px; }
-              th { border-bottom: 1px solid #ccc; padding: 4px; text-align: left; font-weight: bold; }
-              td { padding: 4px; }
-              .text-right { text-align: right; }
-              .footer { text-align: center; font-size: 10px; color: #999; margin-top: 32px; }
-              @media print { body { padding: 0; } .receipt { border: none; } }
+              .company-header { margin-bottom: 4px; }
+              .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
+              .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+              .title { margin-top: 16px; }
+              .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
+              .title p { color: #64748b; font-size: 13px; }
+              .bill-to { margin-bottom: 24px; }
+              .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-align: left; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to strong { font-weight: 600; }
+              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+              .detail-label { font-weight: bold; color: #64748b; }
+              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              thead { border-bottom: 2px solid #1e293b; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+              th.right, td.right { text-align: right; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+              .totals-table { width: 280px; }
+              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .signature-section { margin-top: auto; }
+              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
             </style>
           </head>
           <body>
-            <div class="receipt">
-              <div class="header">
-                <h1>${settings.name}</h1>
-                <p>${settings.address || ''}</p>
-                <p>${settings.phone || ''}</p>
+            <div class="wrapper">
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              <div class="container">
+                <div class="content">
+                  <div class="header">
+                    <div class="company-header">
+                      <h2>${settings.name}</h2>
+                      ${settings.address ? `<p>${settings.address}</p>` : ''}
+                      ${settings.phone ? `<p>${settings.phone}</p>` : ''}
+                      ${settings.email ? `<p>${settings.email}</p>` : ''}
+                    </div>
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                  </div>
+
+                  <div class="bill-to">
+                    <h3>BILL TO</h3>
+                    ${customer ? `
+                      <p><strong>${customer.name || 'N/A'}</strong></p>
+                      ${customer.company ? `<p>${customer.company}</p>` : ''}
+                      ${customer.address ? `<p>${customer.address}</p>` : ''}
+                      ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                      ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  </div>
+
+                  <div class="invoice-details">
+                    <div class="detail-item">
+                      <span class="detail-label">Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-label">Receipt ID:</span> ${sale.id.slice(-8)}
+                    </div>
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th class="right">Qty</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(sale.items || []).map((item: any) => `
+                        <tr>
+                          <td>${item.name || ''}</td>
+                          <td class="right">${item.quantity || 0}</td>
+                          <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                          <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+
+                  <div class="totals">
+                    <div class="totals-table">
+                      <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                      </div>
+                      ${Number(sale.vat) > 0 ? `
+                      <div class="totals-row">
+                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
+                      <div class="totals-row final">
+                        <span>TOTAL</span>
+                        <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  
+                  <div class="signature-section">
+                    <div class="signature-line">Authorized Manager</div>
+                  </div>
+                </div>
               </div>
-              <div class="divider"></div>
-              <div class="info">
-                <span>Date: ${new Date(sale.date).toLocaleDateString()}</span>
-                <span>Time: ${new Date(sale.date).toLocaleTimeString()}</span>
-              </div>
-              <div class="info">
-                <span>Receipt #: ${sale.id.slice(-8)}</span>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th class="text-right">Qty</th>
-                    <th class="text-right">Amt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${(sale.items || []).map((item: any) => `
-                    <tr>
-                      <td>${item.name}<br><span style="font-size: 9px; color: #999;">${item.unit || 'pcs'}</span></td>
-                      <td class="text-right">${item.quantity}</td>
-                      <td class="text-right">${fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-              <div class="divider"></div>
-              <div class="info"><span>Subtotal</span><span class="text-right">${fmtCurrency(sale.subtotal, 2)}</span></div>
-              <div class="info"><span>VAT</span><span class="text-right">${fmtCurrency(sale.vat, 2)}</span></div>
-              <div class="info" style="font-weight: bold; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccc;">
-                <span>TOTAL</span><span class="text-right">${fmtCurrency(Number(sale.total), 2)}</span>
-              </div>
-              <div class="footer">
-                <p>Thank you!</p>
-              </div>
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
             </div>
             <script>
               window.onload = () => { window.print(); };
@@ -254,14 +330,16 @@ const SalesHistory = () => {
               .detail-label { font-weight: bold; color: #64748b; }
               table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
               thead { border-bottom: 2px solid #1e293b; }
-              th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
-              td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
               th.right, td.right { text-align: right; }
               .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
               .totals-table { width: 280px; }
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
               .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .signature-section { margin-top: 40px; }
+              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
               @media print { body { padding: 0; margin: 0; } .wrapper { min-height: auto; } .container { padding: 0; } .content { padding: 40px; } @page { size: A4; margin: 0; } }
             </style>
           </head>
@@ -346,6 +424,10 @@ const SalesHistory = () => {
 
                   ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
                   ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  
+                  <div class="signature-section">
+                    <div class="signature-line">Authorized Manager</div>
+                  </div>
                 </div>
               </div>
               ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
@@ -373,15 +455,17 @@ const SalesHistory = () => {
       }
       try {
           const response = await db.sales.delete(saleId);
-          if (response && !response.error) {
+          if (response && response.id) {
               alert('Sale deleted successfully');
               setSales(sales.filter(s => s.id !== saleId));
+          } else if (response && response.error) {
+              alert('Failed to delete: ' + response.error);
           } else {
-              alert('Failed to delete: ' + (response?.error || 'Unknown error'));
+              alert('Failed to delete: Unknown error (server returned no response)');
           }
       } catch (e) {
           console.error('Delete failed:', e);
-          alert('Failed to delete sale');
+          alert('Failed to delete sale: ' + (e instanceof Error ? e.message : String(e)));
       }
   };
 
@@ -420,26 +504,366 @@ const SalesHistory = () => {
 
   const sendEmailReceipt = async (sale: SaleRecord) => {
       try {
-          const defaultTo = (customers.find(c => c.id === sale.customerId)?.email) || '';
-          const to = window.prompt('Recipient email', defaultTo || '');
-          if (!to) return;
+          const custId = (sale as any).customerId || (sale as any).customer_id;
+          const customer = custId ? customers.find(c => c.id === custId) : null;
+          const defaultTo = customer?.email || '';
+          
+          // If customer has no email, prompt user to enter one
+          let to = defaultTo;
+          if (!to) {
+              to = window.prompt('Customer has no email on file. Enter email address to send invoice:');
+              if (!to) return; // User cancelled
+          }
+          
           const subject = `Receipt ${sale.id.slice(-8)} from ${settings.name}`;
-          const text = buildReceiptText(sale);
-          const res = await authFetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, subject, text }) });
-          const j = await res.json();
-          if (res.ok) alert('Email sent'); else alert('Email failed: ' + (j && j.error ? j.error : res.statusText));
+          
+          // Generate HTML content for PDF (A4 invoice format)
+          const useA4 = sale.isProforma || (sale as any).is_proforma === 1;
+          const invoiceTitle = useA4 && sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE';
+          const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+          
+          let htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>${invoiceTitle}</title>
+              <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
+                @page { size: A4; margin: 0; padding: 0; }
+                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '0'}; box-sizing: border-box; display: flex; flex-direction: column; }
+                .header-img { width: 100%; height: auto; display: block; }
+                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+                .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+                .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+                .title p { color: #64748b; font-size: 13px; }
+                .company { text-align: right; }
+                .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+                .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+                .bill-to { margin-bottom: 24px; }
+                .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+                .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+                .bill-to strong { font-weight: 600; }
+                .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+                .detail-label { font-weight: bold; color: #64748b; }
+                table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+                thead { border-bottom: 2px solid #1e293b; background: #f1f5f9; }
+                th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+                td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+                th.right, td.right { text-align: right; }
+                .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+                .totals-table { width: 280px; }
+                .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+                .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+                .signature-section { margin-top: 40px; }
+                .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+                <div class="content">
+                  <div class="header">
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                    ${!hasHeaderFooter ? `<div class="company">
+                      <h2>${settings.name}</h2>
+                      <p>${settings.address || ''}</p>
+                      <p>${settings.phone || ''}</p>
+                      <p>${settings.email || ''}</p>
+                    </div>` : ''}
+                  </div>
+
+                  <div class="bill-to">
+                    <h3>BILL TO</h3>
+                    ${customer ? `
+                      <p><strong>${customer.name || 'N/A'}</strong></p>
+                      ${customer.company ? `<p>${customer.company}</p>` : ''}
+                      ${customer.address ? `<p>${customer.address}</p>` : ''}
+                      ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                      ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  </div>
+
+                  <div class="invoice-details">
+                    <div class="detail-item">
+                      <span class="detail-label">Invoice Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-label">Invoice ID:</span> ${sale.id.slice(-8)}
+                    </div>
+                    ${sale.particulars ? `<div class="detail-item"><span class="detail-label">Particulars:</span> ${sale.particulars}</div>` : ''}
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th class="right">Qty</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(sale.items || []).map((item: any) => `
+                        <tr>
+                          <td>${item.name || ''}</td>
+                          <td class="right">${item.quantity || 0}</td>
+                          <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                          <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+
+                  <div class="totals">
+                    <div class="totals-table">
+                      <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                      </div>
+                      ${Number(sale.vat) > 0 ? `
+                      <div class="totals-row">
+                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
+                      <div class="totals-row final">
+                        <span>TOTAL</span>
+                        <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  
+                  <div class="signature-section">
+                    <div class="signature-line">Authorized Manager</div>
+                  </div>
+                </div>
+              </div>
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+            </div>
+            </body>
+            </html>
+          `;
+          
+          // Convert HTML to PDF and send
+          try {
+              const element = document.createElement('div');
+              element.innerHTML = htmlContent;
+              const pdfOptions = {
+                  margin: 0,
+                  filename: `Receipt_${sale.id.slice(-8)}.pdf`,
+                  image: { type: 'jpeg' as const, quality: 0.98 },
+                  html2canvas: { scale: 2 },
+                  jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+              };
+              
+              const pdfBlob = await new Promise<Blob>((resolve, reject) => {
+                  html2pdf().set(pdfOptions).from(element).output('blob').then(resolve).catch(reject);
+              });
+              
+              const formData = new FormData();
+              formData.append('to', to);
+              formData.append('subject', subject);
+              formData.append('file', pdfBlob, `Receipt_${sale.id.slice(-8)}.pdf`);
+              
+              const res = await authFetch('/api/send-email-pdf', { method: 'POST', body: formData });
+              const j = await res.json();
+              if (res.ok) alert('Invoice sent to ' + to); else alert('Email failed: ' + (j && j.error ? j.error : res.statusText));
+          } catch (e) {
+              console.warn('PDF generation failed', e);
+              alert('Failed to generate PDF for email');
+          }
       } catch (e) { console.warn('Email send failed', e); alert('Failed to send email'); }
   };
 
-  const sendWhatsAppReceipt = (sale: SaleRecord) => {
+  const sendWhatsAppReceipt = async (sale: SaleRecord) => {
       try {
-          const phone = (customers.find(c => c.id === sale.customerId)?.phone) || '';
-          const text = buildReceiptText(sale);
-          const encoded = encodeURIComponent(text);
-          // If phone is present, open wa.me with phone, otherwise open generic share
-          const url = phone ? `https://wa.me/${phone.replace(/[^0-9]/g,'')}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
-          window.open(url, '_blank');
-      } catch (e) { console.warn('WhatsApp send failed', e); alert('Failed to open WhatsApp'); }
+          const custId = (sale as any).customerId || (sale as any).customer_id;
+          const customer = custId ? customers.find(c => c.id === custId) : null;
+          let phone = customer?.phone || '';
+          
+          // If customer has no phone, prompt user to enter one
+          if (!phone) {
+              phone = window.prompt('Customer has no phone on file. Enter phone number (with country code) to share invoice via WhatsApp:');
+              if (!phone) return; // User cancelled
+          }
+          
+          // Generate A4 invoice HTML for PDF
+          const invoiceTitle = 'INVOICE';
+          const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+          
+          let htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>${invoiceTitle}</title>
+              <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
+                @page { size: A4; margin: 0; padding: 0; }
+                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '0'}; box-sizing: border-box; display: flex; flex-direction: column; }
+                .header-img { width: 100%; height: auto; display: block; }
+                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+                .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+                .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+                .title p { color: #64748b; font-size: 13px; }
+                .company { text-align: right; }
+                .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+                .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+                .bill-to { margin-bottom: 24px; }
+                .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+                .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+                .bill-to strong { font-weight: 600; }
+                .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+                .detail-label { font-weight: bold; color: #64748b; }
+                table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+                thead { border-bottom: 2px solid #1e293b; background: #f1f5f9; }
+                th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+                td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+                th.right, td.right { text-align: right; }
+                .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+                .totals-table { width: 280px; }
+                .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+                .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+                .signature-section { margin-top: 40px; }
+                .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
+              </style>
+            </head>
+            <body>
+              <div class="wrapper">
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+                <div class="container">
+                  <div class="content">
+                    <div class="header">
+                      <div class="title">
+                        <h1>${invoiceTitle}</h1>
+                        <p>#${sale.id.slice(-8)}</p>
+                      </div>
+                      ${!hasHeaderFooter ? `<div class="company">
+                        <h2>${settings.name}</h2>
+                        <p>${settings.address || ''}</p>
+                        <p>${settings.phone || ''}</p>
+                        <p>${settings.email || ''}</p>
+                      </div>` : ''}
+                    </div>
+
+                    <div class="bill-to">
+                      <h3>BILL TO</h3>
+                      ${customer ? `
+                        <p><strong>${customer.name || 'N/A'}</strong></p>
+                        ${customer.company ? `<p>${customer.company}</p>` : ''}
+                        ${customer.address ? `<p>${customer.address}</p>` : ''}
+                        ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                        ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                      ` : '<p><em>Walk-in Customer</em></p>'}
+                    </div>
+
+                    <div class="invoice-details">
+                      <div class="detail-item">
+                        <span class="detail-label">Invoice Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                      </div>
+                      <div class="detail-item">
+                        <span class="detail-label">Invoice ID:</span> ${sale.id.slice(-8)}
+                      </div>
+                      ${sale.particulars ? `<div class="detail-item"><span class="detail-label">Particulars:</span> ${sale.particulars}</div>` : ''}
+                    </div>
+
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Description</th>
+                          <th class="right">Qty</th>
+                          <th class="right">Rate</th>
+                          <th class="right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${(sale.items || []).map((item: any) => `
+                          <tr>
+                            <td>${item.name || ''}</td>
+                            <td class="right">${item.quantity || 0}</td>
+                            <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                            <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+
+                    <div class="totals">
+                      <div class="totals-table">
+                        <div class="totals-row">
+                          <span>Subtotal</span>
+                          <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                        </div>
+                        ${Number(sale.vat) > 0 ? `
+                        <div class="totals-row">
+                          <span>VAT (${settings.vatRate || 7.5}%)</span>
+                          <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                        </div>
+                        ` : ''}
+                        <div class="totals-row final">
+                          <span>TOTAL</span>
+                          <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                    ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                    
+                    <div class="signature-section">
+                      <div class="signature-line">Authorized Manager</div>
+                    </div>
+                  </div>
+                </div>
+                ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+              </div>
+            </body>
+            </html>
+          `;
+          
+          // Convert HTML to PDF and send via WhatsApp
+          try {
+              const element = document.createElement('div');
+              element.innerHTML = htmlContent;
+              const pdfOptions = {
+                  margin: 0,
+                  filename: `Receipt_${sale.id.slice(-8)}.pdf`,
+                  image: { type: 'jpeg' as const, quality: 0.98 },
+                  html2canvas: { scale: 2 },
+                  jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
+              };
+              
+              const pdfBlob = await new Promise<Blob>((resolve, reject) => {
+                  html2pdf().set(pdfOptions).from(element).output('blob').then(resolve).catch(reject);
+              });
+              
+              const formData = new FormData();
+              formData.append('phone', phone.replace(/[^0-9]/g,''));
+              formData.append('file', pdfBlob, `Receipt_${sale.id.slice(-8)}.pdf`);
+              
+              const res = await authFetch('/api/send-whatsapp-pdf', { method: 'POST', body: formData });
+              const j = await res.json();
+              if (res.ok) alert('Invoice sent via WhatsApp to ' + phone); else alert('WhatsApp send failed: ' + (j && j.error ? j.error : res.statusText));
+          } catch (e) {
+              console.warn('PDF generation failed', e);
+              alert('Failed to generate PDF for WhatsApp');
+          }
+      } catch (e) { console.warn('WhatsApp send failed', e); alert('Failed to send via WhatsApp'); }
   };
 
     const processReturn = async () => {
@@ -462,16 +886,32 @@ const SalesHistory = () => {
     { header: 'Receipt #', accessor: (s) => s.id.slice(-8), key: 'id' },
     { header: 'Date', accessor: (s) => new Date(s.date).toLocaleString(), key: 'date', sortable: true },
     { header: 'Type', accessor: (s) => s.isReturn ? 'Return' : s.isProforma ? 'Proforma' : 'Sale', key: 'isReturn' },
-    { header: 'Customer', accessor: (s) => s.customerId ? customers.find(c => c.id === s.customerId)?.name : 'Walk-in', key: 'customerId' },
+    { 
+      header: 'Customer', 
+      accessor: (s) => {
+        // Support both customerId (camelCase) and customer_id (snake_case from DB)
+        const custId = (s as any).customerId || (s as any).customer_id;
+        const customer = custId ? customers.find(c => c.id === custId) : null;
+        if (!customer) return <span className="text-slate-500">Walk-in</span>;
+        return (
+          <div className="flex flex-col gap-1">
+            <span className="font-medium text-slate-800">{customer.name || 'N/A'}</span>
+            {customer.company && <span className="text-xs text-slate-600">{customer.company}</span>}
+          </div>
+        );
+      }, 
+      key: 'customerId' 
+    },
     { header: 'Total', accessor: (s) => <span className={s.isReturn ? 'text-rose-600' : ''}>{symbol}{fmt(s.total,2)}</span>, key: 'total', sortable: true },
     { 
         header: 'Documents', 
         accessor: (s) => (
-            <div className="flex gap-1">
-                 <button onClick={() => handleViewDocument(s, 'thermal')} title="Thermal Receipt" className="p-1 hover:bg-slate-100 rounded border border-slate-200 text-slate-600">
-                    <ShoppingBag size={14} />
-                 </button>
-                 <button onClick={() => handleViewDocument(s, 'a4')} title="A4 Invoice" className="p-1 hover:bg-slate-100 rounded border border-slate-200 text-slate-600">
+            <div className="relative">
+                 <button 
+                   onClick={() => { setSelectedSaleForDoc(s); setShowDocMenu(true); }} 
+                   title="View Invoice Options" 
+                   className="p-1 hover:bg-slate-100 rounded border border-slate-200 text-slate-600"
+                 >
                     <FileText size={14} />
                  </button>
             </div>
@@ -564,6 +1004,295 @@ const SalesHistory = () => {
     { header: 'Notes', accessor: 'notes', key: 'notes', filterable: true },
   ];
 
+  const downloadReceipt = (sale: SaleRecord) => {
+    try {
+      const useA4 = sale.isProforma || (sale as any).is_proforma === 1;
+      const invoiceTitle = useA4 && sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE';
+      
+      // Generate the same HTML content as handleViewDocument
+      const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+      const custId = (sale as any).customerId || (sale as any).customer_id;
+      const customer = custId ? customers.find((c: any) => c.id === custId) : null;
+      
+      let htmlContent = '';
+      
+      if (useA4) {
+        htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>${invoiceTitle}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 40px; }
+              .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+              .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; }
+              .content { padding: 40px; }
+              .header-img { width: 100%; height: auto; display: block; }
+              .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+              .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+              .title p { color: #64748b; font-size: 13px; }
+              .company { text-align: right; }
+              .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+              .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+              .bill-to { margin-bottom: 24px; }
+              .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to strong { font-weight: 600; }
+              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+              .detail-label { font-weight: bold; color: #64748b; }
+              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              thead { border-bottom: 2px solid #1e293b; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+              th.right, td.right { text-align: right; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+              .totals-table { width: 280px; }
+              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .signature-section { margin-top: 40px; }
+              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
+            </style>
+          </head>
+          <body>
+            <div class="wrapper">
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              <div class="container">
+                <div class="content">
+                  <div class="header">
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                    ${!hasHeaderFooter ? `<div class="company">
+                      <h2>${settings.name}</h2>
+                      <p>${settings.address || ''}</p>
+                      <p>${settings.phone || ''}</p>
+                      <p>${settings.email || ''}</p>
+                    </div>` : ''}
+                  </div>
+
+                  <div class="bill-to">
+                    <h3>BILL TO</h3>
+                    ${customer ? `
+                      <p><strong>${customer.name || 'N/A'}</strong></p>
+                      ${customer.company ? `<p>${customer.company}</p>` : ''}
+                      ${customer.address ? `<p>${customer.address}</p>` : ''}
+                      ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                      ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th class="right">Qty</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(sale.items || []).map((item: any) => `
+                        <tr>
+                          <td>${item.name || ''}</td>
+                          <td class="right">${item.quantity || 0}</td>
+                          <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                          <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+
+                  <div class="totals">
+                    <div class="totals-table">
+                      <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                      </div>
+                      ${Number(sale.vat) > 0 ? `
+                      <div class="totals-row">
+                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
+                      <div class="totals-row final">
+                        <span>TOTAL</span>
+                        <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  
+                  <div class="signature-section">
+                    <div class="signature-line">Authorized Manager</div>
+                  </div>
+                </div>
+              </div>
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+            </div>
+          </body>
+          </html>
+        `;
+      } else {
+        // Thermal A4 Receipt - Same as handleViewDocument thermal template
+        const invoiceTitle = 'RECEIPT';
+        htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${invoiceTitle}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
+              @page { size: A4; margin: 0; padding: 0; }
+              .wrapper { display: flex; flex-direction: column; width: 210mm; height: 297mm; }
+              .container { width: 100%; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
+              .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+              .header-img { width: 100%; height: auto; display: block; }
+              .footer-img { width: 100%; height: auto; display: block; }
+              .header { text-align: center; margin-bottom: 24px; }
+              .company-header { margin-bottom: 4px; }
+              .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
+              .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+              .title { margin-top: 16px; }
+              .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
+              .title p { color: #64748b; font-size: 13px; }
+              .bill-to { margin-bottom: 24px; }
+              .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-align: left; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to strong { font-weight: 600; }
+              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+              .detail-label { font-weight: bold; color: #64748b; }
+              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              thead { border-bottom: 2px solid #1e293b; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+              th.right, td.right { text-align: right; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+              .totals-table { width: 280px; }
+              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .signature-section { margin-top: auto; }
+              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
+            </style>
+          </head>
+          <body>
+            <div class="wrapper">
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              <div class="container">
+                <div class="content">
+                  <div class="header">
+                    <div class="company-header">
+                      <h2>${settings.name}</h2>
+                      ${settings.address ? `<p>${settings.address}</p>` : ''}
+                      ${settings.phone ? `<p>${settings.phone}</p>` : ''}
+                      ${settings.email ? `<p>${settings.email}</p>` : ''}
+                    </div>
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                  </div>
+
+                  <div class="bill-to">
+                    <h3>BILL TO</h3>
+                    ${customer ? `
+                      <p><strong>${customer.name || 'N/A'}</strong></p>
+                      ${customer.company ? `<p>${customer.company}</p>` : ''}
+                      ${customer.address ? `<p>${customer.address}</p>` : ''}
+                      ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                      ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  </div>
+
+                  <div class="invoice-details">
+                    <div class="detail-item">
+                      <span class="detail-label">Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-label">Receipt ID:</span> ${sale.id.slice(-8)}
+                    </div>
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th class="right">Qty</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(sale.items || []).map((item: any) => `
+                        <tr>
+                          <td>${item.name || ''}</td>
+                          <td class="right">${item.quantity || 0}</td>
+                          <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                          <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+
+                  <div class="totals">
+                    <div class="totals-table">
+                      <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                      </div>
+                      ${Number(sale.vat) > 0 ? `
+                      <div class="totals-row">
+                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
+                      <div class="totals-row final">
+                        <span>TOTAL</span>
+                        <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  
+                  <div class="signature-section">
+                    <div class="signature-line">Authorized Manager</div>
+                  </div>
+                </div>
+              </div>
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+            </div>
+          </body>
+          </html>
+        `;
+      }
+
+      // Use html2pdf to generate and download PDF
+      const opt = {
+        margin: 10,
+        filename: `${invoiceTitle}-${sale.id.slice(-8)}.pdf`,
+        image: { type: 'png' as const, quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { orientation: 'portrait' as const, unit: 'mm', format: 'a4' }
+      };
+
+      html2pdf().set(opt).from(htmlContent).save();
+    } catch (e) {
+      console.error('PDF download failed:', e);
+      alert('Failed to download PDF: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  };
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -640,6 +1369,100 @@ const SalesHistory = () => {
                     </button>
                 </div>
             </div>
+        </div>
+      )}
+
+      {/* Document Action Menu */}
+      {showDocMenu && selectedSaleForDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Invoice Options</h3>
+              <button 
+                onClick={() => { setShowDocMenu(false); setSelectedSaleForDoc(null); }}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  handleViewDocument(selectedSaleForDoc, 'thermal');
+                  setShowDocMenu(false);
+                  setSelectedSaleForDoc(null);
+                }}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-100 rounded-lg border border-slate-200 transition"
+              >
+                <ShoppingBag size={18} className="text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-800">Thermal Receipt</div>
+                  <div className="text-xs text-slate-500">Print thermal receipt</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleViewDocument(selectedSaleForDoc, 'a4');
+                  setShowDocMenu(false);
+                  setSelectedSaleForDoc(null);
+                }}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-100 rounded-lg border border-slate-200 transition"
+              >
+                <FileText size={18} className="text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-800">A4 Invoice</div>
+                  <div className="text-xs text-slate-500">Print professional invoice</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  downloadReceipt(selectedSaleForDoc);
+                  setShowDocMenu(false);
+                  setSelectedSaleForDoc(null);
+                }}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-100 rounded-lg border border-slate-200 transition"
+              >
+                <Download size={18} className="text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-800">Download PDF</div>
+                  <div className="text-xs text-slate-500">Save as PDF file</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  sendEmailReceipt(selectedSaleForDoc);
+                  setShowDocMenu(false);
+                  setSelectedSaleForDoc(null);
+                }}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-100 rounded-lg border border-slate-200 transition"
+              >
+                <Mail size={18} className="text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-800">Send Email</div>
+                  <div className="text-xs text-slate-500">Email to customer</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  sendWhatsAppReceipt(selectedSaleForDoc);
+                  setShowDocMenu(false);
+                  setSelectedSaleForDoc(null);
+                }}
+                className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-100 rounded-lg border border-slate-200 transition"
+              >
+                <MessageCircle size={18} className="text-slate-600" />
+                <div>
+                  <div className="font-medium text-slate-800">Send WhatsApp</div>
+                  <div className="text-xs text-slate-500">Share via WhatsApp</div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

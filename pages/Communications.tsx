@@ -42,7 +42,9 @@ const Communications = () => {
                 if (selectAll) targets = contacts.map(c => c.phone).filter(Boolean);
                 if (targets.length === 0) throw new Error('No recipients selected');
                 const resp = await authFetch('/api/send-sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: targets, body: message }) });
-                if (!resp.ok) throw new Error('Failed to send SMS');
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Failed to send SMS');
+                alert(`SMS sent successfully to ${data.sent || targets.length} recipient(s)`);
             } else {
                 let targets: string[] = [];
                 if (recipientType === 'all') targets = contacts.map(c => c.email).filter(Boolean);
@@ -52,6 +54,7 @@ const Communications = () => {
                 for (const t of targets) {
                     await authFetch('/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: t, subject, text: message }) });
                 }
+                alert(`Email sent to ${targets.length} recipient(s)`);
             }
             setMessage(''); setSubject('');
         } catch (e) {

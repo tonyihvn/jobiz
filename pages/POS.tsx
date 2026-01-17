@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import db from '../services/apiClient';
 import { fmt, getImageUrl } from '../services/format';
 import useFmtCurrency from '../services/useFmtCurrency';
+import { useCurrency } from '../services/CurrencyContext';
 import { Product, CartItem, SaleRecord, CategoryGroup, Customer, CompanySettings } from '../types';
 import { Plus, Minus, Trash2, Printer, Save, Search, X, User } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 // Simple Icon component for empty state
 const EmptyCartIcon = ({ size, className }: { size: number, className?: string }) => (
@@ -29,6 +31,8 @@ const EmptyCartIcon = ({ size, className }: { size: number, className?: string }
 
 const POS = () => {
     const { businessId } = useContextBusinessId();
+    const { selectedBusinessId } = useBusinessContext();
+    const { setSymbol } = useCurrency();
     const [products, setProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 7.5, currency: 'USD' };
@@ -84,7 +88,7 @@ const POS = () => {
     useEffect(() => {
         const init = async () => {
             try {
-            const proms: any[] = [db.products.getAll(), db.services && db.services.getAll ? db.services.getAll() : Promise.resolve([]), db.customers.getAll(), db.auth.getCurrentUser(), db.categories && db.categories.getAll ? db.categories.getAll() : Promise.resolve([])];
+            const proms: any[] = [db.products.getAll(selectedBusinessId), db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([]), db.customers.getAll(selectedBusinessId), db.auth.getCurrentUser(), db.categories && db.categories.getAll ? db.categories.getAll(selectedBusinessId) : Promise.resolve([])];
                 // settings may or may not exist on the client proxy
                 if (db.settings && db.settings.get) {
                     proms.splice(3, 0, db.settings.get());
@@ -131,8 +135,13 @@ const POS = () => {
                 (window as any).__categoryMap = catMap;
                 // apply settings if available
                 if (db.settings && db.settings.get) {
-                    const sett = await db.settings.get();
-                    setSettings({ ...defaultSettings, ...(sett || {}) });
+                    const sett = await db.settings.get(selectedBusinessId);
+                    const mergedSettings = { ...defaultSettings, ...(sett || {}) };
+                    setSettings(mergedSettings);
+                    // Update currency context if settings have a currency symbol
+                    if (sett && sett.currency) {
+                        setSymbol(sett.currency);
+                    }
                 }
             } catch (err) {
                 console.error('Failed to initialize POS data', err);
@@ -140,14 +149,16 @@ const POS = () => {
             if (searchInputRef.current) searchInputRef.current.focus();
         };
         init();
-    }, [businessId]);
+    }, [businessId, selectedBusinessId]);
 
     // Load edit data if passed from history pages
     useEffect(() => {
         const locationState = (window.history.state?.usr || null) as SaleRecord | null;
         if (locationState && locationState.id) {
             setEditingSale(locationState);
-            setCart(locationState.items || []);
+            // Deep clone items to avoid mutation issues when editing
+            const clonedItems = JSON.parse(JSON.stringify(locationState.items || []));
+            setCart(clonedItems);
             setSelectedCustomer(locationState.customerId || '');
             setOrderDate(new Date(locationState.date).toISOString().split('T')[0]);
             setIsProforma(locationState.isProforma || false);
@@ -295,6 +306,11 @@ const POS = () => {
             setCart([]);
             setParticulars('');
             setDelivery({ enabled: false, fee: 0, address: '' });
+            setSelectedCustomer(''); // Reset customer after save
+            setOrderDate(new Date().toISOString().split('T')[0]); // Reset to today
+            setIsProforma(false); // Reset proforma flag
+            setPaymentMethod('Cash'); // Reset payment method
+            setEditingSale(null); // Clear edit state
             // Show receipt in new window with print theme
             setLastSale(sale);
             setTimeout(() => {

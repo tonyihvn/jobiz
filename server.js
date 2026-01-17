@@ -1461,29 +1461,40 @@ app.get('/api/sales', authMiddleware, async (req, res) => {
 app.put('/api/sales/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { items, customerId, deliveryFee, isProforma, ...saleData } = req.body;
+    const { items, customerId, deliveryFee, isProforma, subtotal, vat, total, ...saleData } = req.body;
     
     // Update sale header
     await pool.execute(
-      'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, updated_at = NOW() WHERE id = ?',
-      [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, id]
+      'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, subtotal = ?, vat = ?, total = ? WHERE id = ?',
+      [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, subtotal || 0, vat || 0, total || 0, id]
     );
     
     // Delete old items
     await pool.execute('DELETE FROM sale_items WHERE sale_id = ?', [id]);
     
-    // Re-insert items
+    // Re-insert items (support both item.id and item.product_id)
     if (Array.isArray(items)) {
       for (const item of items) {
-        await pool.execute(
-          'INSERT INTO sale_items (sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?)',
-          [id, item.id, item.quantity, item.price, item.isService ? 1 : 0]
-        );
+        const productId = (item.product_id || item.id || '').toString().trim();
+        const quantity = parseFloat(String(item.quantity)) || 0;
+        const price = parseFloat(String(item.price)) || 0;
+        const isService = item.is_service || item.isService ? 1 : 0;
+        
+        // Only insert if productId is valid (not empty string), quantity > 0, and price >= 0
+        if (productId.length > 0 && !isNaN(quantity) && quantity > 0 && !isNaN(price) && price >= 0) {
+          await pool.execute(
+            'INSERT INTO sale_items (sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?)',
+            [id, productId, quantity, price, isService]
+          );
+        } else {
+          console.warn('[PUT-SALES] Skipping invalid item:', { productId, quantity, price });
+        }
       }
     }
     
     res.json({ id, message: 'Sale updated successfully' });
   } catch (err) {
+    console.error('[PUT-SALES] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1493,18 +1504,21 @@ app.delete('/api/sales/:id', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Allow super admin or admin to delete sales
-    // Super admin is already flagged by authMiddleware
-    if (!req.isSuperAdmin) {
-      // For non-super-admin, verify they are an admin
-      const [userCheck] = await pool.execute(
-        'SELECT * FROM employees WHERE id = ? AND role_id = (SELECT id FROM roles WHERE name = "Admin")',
-        [req.user.id]
-      );
-      
-      if (!userCheck || userCheck.length === 0) {
-        return res.status(403).json({ error: 'Only admins can delete sales' });
-      }
+    // Resolve business ID for authorization check
+    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    const userBusinessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
+    
+    // Get the sale to verify ownership
+    const [saleRows] = await pool.execute('SELECT id, business_id FROM sales WHERE id = ?', [id]);
+    const sale = saleRows && saleRows[0];
+    
+    if (!sale) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    
+    // Authorization: Super admin can delete any sale, regular user must own the sale
+    if (!req.isSuperAdmin && sale.business_id !== userBusinessId) {
+      return res.status(403).json({ error: 'Forbidden: cannot delete sale from different business' });
     }
     
     // Delete sale items first
@@ -1513,12 +1527,13 @@ app.delete('/api/sales/:id', authMiddleware, async (req, res) => {
     // Delete the sale
     const result = await pool.execute('DELETE FROM sales WHERE id = ?', [id]);
     
-    if (result.affectedRows > 0) {
+    if (result[0] && result[0].affectedRows > 0) {
       res.json({ id, message: 'Sale deleted successfully' });
     } else {
       res.status(404).json({ error: 'Sale not found' });
     }
   } catch (err) {
+    console.error('[DELETE-SALES] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1539,69 +1554,106 @@ app.post('/api/send-email', async (req, res) => {
   }
 });
 
-app.post('/api/send-sms', async (req, res) => {
-  const { to, body } = req.body;
-  if (!to) return res.status(400).json({ error: 'Missing recipients' });
-  const recipients = Array.isArray(to) ? to.filter(Boolean) : [to];
-  if (recipients.length === 0) return res.status(400).json({ error: 'No valid recipients' });
-
-  // If SMS provider configured as smslive247 use their batch endpoint
-  if ((process.env.SMS_PROVIDER || '').toLowerCase() === 'smslive247' && process.env.SMSLIVE_API_KEY) {
-    try {
-      const https = await import('https');
-      const url = new URL(process.env.SMSLIVE_BATCH_URL || 'https://api.smslive247.com/v1/sms/batch');
-      const payload = {
-        api_key: process.env.SMSLIVE_API_KEY,
-        sender: process.env.SMSLIVE_SENDER || process.env.SMS_FROM || '',
-        messages: recipients.map(r => ({ to: r, message: body }))
-      };
-
-      const reqOpts = {
-        method: 'POST',
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname + (url.search || ''),
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(JSON.stringify(payload)),
-          'Accept': 'application/json'
-        }
-      };
-
-      const request = https.request(reqOpts, (resp) => {
-        let data = '';
-        resp.on('data', (chunk) => { data += chunk; });
-        resp.on('end', () => {
-          try {
-            const parsed = JSON.parse(data || '{}');
-            if (resp.statusCode && resp.statusCode >= 200 && resp.statusCode < 300) return res.json({ success: true, provider: 'smslive247', result: parsed });
-            return res.status(502).json({ error: 'SMS provider error', details: parsed });
-          } catch (e) {
-            return res.status(502).json({ error: 'SMS provider returned invalid JSON', raw: data });
-          }
-        });
-      });
-
-      request.on('error', (e) => {
-        return res.status(500).json({ error: 'Failed to contact SMS provider', details: e && e.message ? e.message : String(e) });
-      });
-      request.write(JSON.stringify(payload));
-      request.end();
-    } catch (err) {
-      return res.status(500).json({ error: 'Failed to send via SMS provider', details: err && err.message ? err.message : String(err) });
-    }
-    return;
-  }
-
-  // Fallback to Twilio if configured - send messages sequentially
-  if (!smsClient) return res.status(503).json({ error: 'SMS Gateway not configured' });
+// Send email with PDF attachment
+app.post('/api/send-email-pdf', upload.single('file'), async (req, res) => {
+  const { to, subject } = req.body;
+  const file = req.file;
+  
   try {
-    for (const r of recipients) {
-      await smsClient.messages.create({ body, from: process.env.SMS_FROM, to: r });
-    }
+    if (!to) return res.status(400).json({ error: 'Missing recipient email' });
+    if (!file) return res.status(400).json({ error: 'Missing PDF file' });
+    
+    const attachments = [{
+      filename: file.originalname || 'receipt.pdf',
+      path: file.path,
+      contentType: 'application/pdf'
+    }];
+    
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to,
+      subject: subject || 'Your Invoice',
+      text: 'Please find the attached invoice.',
+      attachments
+    });
+    
+    // Clean up uploaded file after sending
+    fs.unlink(file.path, (err) => {
+      if (err) console.warn('Failed to delete temp file:', err);
+    });
+    
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Send PDF via WhatsApp
+app.post('/api/send-whatsapp-pdf', upload.single('file'), async (req, res) => {
+  const { phone } = req.body;
+  const file = req.file;
+  
+  try {
+    if (!phone) return res.status(400).json({ error: 'Missing phone number' });
+    if (!file) return res.status(400).json({ error: 'Missing PDF file' });
+    
+    // WhatsApp Business API integration
+    // Note: This requires WhatsApp Business API setup and account
+    // For now, we'll send a notification message with download link
+    if (twilio && process.env.TWILIO_ACCOUNT_SID) {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const client = twilio(accountSid, authToken);
+      
+      await client.messages.create({
+        from: `whatsapp:${process.env.TWILIO_PHONE}`,
+        to: `whatsapp:${phone}`,
+        body: 'Your invoice is attached. Please download and review it.'
+      });
+    }
+    
+    // Clean up uploaded file after sending
+    fs.unlink(file.path, (err) => {
+      if (err) console.warn('Failed to delete temp file:', err);
+    });
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/send-sms', authMiddleware, async (req, res) => {
+  try {
+    const { to, body } = req.body;
+    if (!to) return res.status(400).json({ error: 'Missing recipients' });
+    if (!body) return res.status(400).json({ error: 'Missing message body' });
+    
+    const recipients = Array.isArray(to) ? to.filter(Boolean) : [to];
+    if (recipients.length === 0) return res.status(400).json({ error: 'No valid recipients' });
+    
+    // Send SMS to each recipient using the working sendSMS function
+    const results = [];
+    for (const phoneNumber of recipients) {
+      try {
+        const result = await sendSMS(phoneNumber, body);
+        results.push({ phone: phoneNumber, success: true, result });
+      } catch (err) {
+        results.push({ phone: phoneNumber, success: false, error: err.message });
+      }
+    }
+    
+    // Check if any succeeded
+    const successCount = results.filter(r => r.success).length;
+    if (successCount === 0) {
+      return res.status(500).json({ error: 'Failed to send SMS to any recipient', details: results });
+    }
+    
+    // Return success with details about each recipient
+    res.json({ success: true, sent: successCount, total: results.length, results });
+  } catch (err) {
+    console.error('SMS endpoint error:', err);
+    res.status(500).json({ error: err.message || 'Failed to send SMS' });
   }
 });
 
@@ -2536,13 +2588,17 @@ app.get('/api/transactions', authMiddleware, async (req, res) => {
 // Settings endpoints (per-business)
 app.get('/api/settings', authMiddleware, async (req, res) => {
   try {
+    const businessId = req.query.businessId;
     let settingsRows;
-    if (req.isSuperAdmin) {
-      // Super admin gets settings for the first available business (or all if needed for admin dashboard)
-      // For super admin, return only the super_admin_org settings if available
+    
+    if (req.isSuperAdmin && businessId) {
+      // Super admin with businessId query param: get settings for that specific business
+      [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = ? LIMIT 1', [businessId]);
+    } else if (req.isSuperAdmin) {
+      // Super admin without businessId: get settings for their own business
       [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
     } else {
-      // Regular user gets their own company's settings
+      // Regular user: always get their own company's settings (ignore businessId param for security)
       [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
     }
     if (!settingsRows || settingsRows.length === 0) return res.json({});

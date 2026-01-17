@@ -375,9 +375,10 @@ const db = {
   },
   // Settings compatibility: try to fetch /api/settings if exists, otherwise return empty
   settings: {
-    get: async () => {
+    get: async (businessId?: string) => {
       try {
-        const s = await authFetch('/api/settings').then(safeJson).catch(() => ({}));
+        const url = businessId ? `/api/settings?businessId=${encodeURIComponent(businessId)}` : '/api/settings';
+        const s = await authFetch(url).then(safeJson).catch(() => ({}));
         try {
           if (s && s.currency) {
             if (typeof window !== 'undefined') localStorage.setItem('omnisales_currency', s.currency);
