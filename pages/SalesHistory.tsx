@@ -5,11 +5,19 @@ import { authFetch } from '../services/auth';
 import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
-import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download } from 'lucide-react';
+import { useBusinessContext } from '../services/BusinessContext';
+import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download, Trash2 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
+
+function appendBusinessIdToUrl(url: string, businessId?: string): string {
+  if (!businessId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}businessId=${encodeURIComponent(businessId)}`;
+}
 
 const SalesHistory = () => {
     const { symbol } = useCurrency();
+    const { selectedBusinessId } = useBusinessContext();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [stockHistory, setStockHistory] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'sales' | 'items' | 'stock'>('sales');
@@ -19,31 +27,58 @@ const SalesHistory = () => {
   const [selectedSaleForReturn, setSelectedSaleForReturn] = useState<SaleRecord | null>(null);
   const [returnReason, setReturnReason] = useState('');
   
-  // Document Viewing State
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [docType, setDocType] = useState<'thermal' | 'a4'>('a4');
-  const [viewingSale, setViewingSale] = useState<SaleRecord | null>(null);
-  
   // Data
   const [products, setProducts] = useState<Product[]>([]);
     const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
+    const [currentUser, setCurrentUser] = useState<any>(null);
 
     useEffect(() => {
         let mounted = true;
         (async () => {
             try {
-                const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
-                const p = db.products && db.products.getAll ? await db.products.getAll() : [];
-                const sv = db.services && db.services.getAll ? await db.services.getAll() : [];
+                console.log('[SalesHistory] Loading data, selectedBusinessId:', selectedBusinessId);
+                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
+                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+                const sv = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
                 const sett = db.settings && db.settings.get ? await db.settings.get() : emptySettings;
-                const c = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
+                const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+                
+                console.log('[SalesHistory] Raw API response:', {
+                  salesCount: (Array.isArray(s) ? s : []).length,
+                  productsCount: (Array.isArray(p) ? p : []).length,
+                  servicesCount: (Array.isArray(sv) ? sv : []).length,
+                  customersCount: (Array.isArray(c) ? c : []).length,
+                  firstSaleHasBizId: s && s[0] ? !!s[0].business_id : 'no sales',
+                  userIsSuperAdmin: u && (u.is_super_admin || u.isSuperAdmin),
+                });
+                
+                // For super admin: show filtered data when businessId is passed
+                // For regular user: always filtered to their business
+                const isSuperAdmin = u && (u.is_super_admin || u.isSuperAdmin);
+                if (isSuperAdmin && selectedBusinessId) {
+                    console.log('[SalesHistory] Super admin with business selection:', selectedBusinessId);
+                    // Backend should already filter with businessId query param
+                } else if (isSuperAdmin) {
+                    console.log('[SalesHistory] Super admin: showing ALL data from all companies');
+                } else if (selectedBusinessId) {
+                    console.log('[SalesHistory] Filtering by business (non-super-admin):', selectedBusinessId);
+                    // Backend already filters for regular users
+                }
+                
+                console.log('[SalesHistory] After API call:', {
+                  salesCount: (Array.isArray(s) ? s : []).length,
+                  productsCount: (Array.isArray(p) ? p : []).length,
+                  customersCount: (Array.isArray(c) ? c : []).length,
+                });
+                
                 // Load stock history from endpoint
                 let sh: any[] = [];
                 try {
                     console.log('[SalesHistory] Fetching stock history from /api/stock/history...');
-                    const res = await authFetch('/api/stock/history');
+                    const res = await authFetch(appendBusinessIdToUrl('/api/stock/history', selectedBusinessId));
                     console.log('[SalesHistory] Stock history response status:', res.status);
                     if (res.ok) {
                         sh = await res.json();
@@ -83,17 +118,248 @@ const SalesHistory = () => {
                 setProducts(combined);
                 setSettings(sett as CompanySettings);
                 setCustomers(Array.isArray(c) ? c : []);
+                setCurrentUser(u);
             } catch (e) {
                 console.error('[SalesHistory] Failed to load sales history data:', e);
             }
         })();
         return () => { mounted = false; };
-    }, []);
+    }, [selectedBusinessId]);
 
-  const handleViewDocument = (sale: SaleRecord, type: 'thermal' | 'a4') => {
-      setViewingSale(sale);
-      setDocType(type);
-      setShowDocModal(true);
+  const handleViewDocument = (sale: SaleRecord, type?: 'thermal' | 'a4') => {
+      // If is_proforma is 1, force A4 template (not thermal)
+      const useA4 = sale.isProforma || (sale as any).is_proforma === 1;
+      const docType = useA4 ? 'a4' : type || 'thermal';
+      
+      const receiptWindow = window.open('', 'Receipt', `width=${docType === 'a4' ? 1000 : 800},height=${docType === 'a4' ? 900 : 700},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no`);
+      if (!receiptWindow) {
+        alert('Please allow pop-ups to view receipts');
+        return;
+      }
+      
+      const fmtCurrency = (val: number, decimals = 2) => `${symbol}${val.toFixed(decimals)}`;
+      
+      // Get customer info - ensure we're looking it up correctly
+      const customer = sale.customerId ? customers.find((c: any) => c.id === sale.customerId) : null;
+      
+      let htmlContent = '';
+      
+      if (docType === 'thermal') {
+        htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Thermal Receipt</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: monospace; background: white; padding: 20px; }
+              .receipt { width: 300px; margin: 0 auto; padding: 16px; border: 1px solid #ccc; }
+              .header { text-align: center; margin-bottom: 24px; }
+              .header h1 { font-size: 14px; font-weight: bold; letter-spacing: 2px; margin-bottom: 4px; }
+              .header p { font-size: 10px; color: #666; }
+              .divider { border-bottom: 1px dashed #999; margin: 16px 0; }
+              .info { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
+              table { width: 100%; font-size: 10px; margin-bottom: 16px; }
+              th { border-bottom: 1px solid #ccc; padding: 4px; text-align: left; font-weight: bold; }
+              td { padding: 4px; }
+              .text-right { text-align: right; }
+              .footer { text-align: center; font-size: 10px; color: #999; margin-top: 32px; }
+              @media print { body { padding: 0; } .receipt { border: none; } }
+            </style>
+          </head>
+          <body>
+            <div class="receipt">
+              <div class="header">
+                <h1>${settings.name}</h1>
+                <p>${settings.address || ''}</p>
+                <p>${settings.phone || ''}</p>
+              </div>
+              <div class="divider"></div>
+              <div class="info">
+                <span>Date: ${new Date(sale.date).toLocaleDateString()}</span>
+                <span>Time: ${new Date(sale.date).toLocaleTimeString()}</span>
+              </div>
+              <div class="info">
+                <span>Receipt #: ${sale.id.slice(-8)}</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Amt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(sale.items || []).map((item: any) => `
+                    <tr>
+                      <td>${item.name}<br><span style="font-size: 9px; color: #999;">${item.unit || 'pcs'}</span></td>
+                      <td class="text-right">${item.quantity}</td>
+                      <td class="text-right">${fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              <div class="divider"></div>
+              <div class="info"><span>Subtotal</span><span class="text-right">${fmtCurrency(sale.subtotal, 2)}</span></div>
+              <div class="info"><span>VAT</span><span class="text-right">${fmtCurrency(sale.vat, 2)}</span></div>
+              <div class="info" style="font-weight: bold; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccc;">
+                <span>TOTAL</span><span class="text-right">${fmtCurrency(Number(sale.total), 2)}</span>
+              </div>
+              <div class="footer">
+                <p>Thank you!</p>
+              </div>
+            </div>
+            <script>
+              window.onload = () => { window.print(); };
+              window.onafterprint = () => { window.close(); };
+            </script>
+          </body>
+          </html>
+        `;
+      } else {
+        // A4 Invoice (including Proforma)
+        const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+        const invoiceTitle = useA4 && sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE';
+        
+        htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${invoiceTitle}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 40px; }
+              .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+              .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; }
+              .content { padding: 40px; }
+              .header-img { width: 100%; height: auto; display: block; }
+              .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+              .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+              .title p { color: #64748b; font-size: 13px; }
+              .company { text-align: right; }
+              .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+              .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+              .bill-to { margin-bottom: 24px; }
+              .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to strong { font-weight: 600; }
+              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+              .detail-item { }
+              .detail-label { font-weight: bold; color: #64748b; }
+              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              thead { border-bottom: 2px solid #1e293b; }
+              th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
+              td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
+              th.right, td.right { text-align: right; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+              .totals-table { width: 280px; }
+              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              @media print { body { padding: 0; margin: 0; } .wrapper { min-height: auto; } .container { padding: 0; } .content { padding: 40px; } @page { size: A4; margin: 0; } }
+            </style>
+          </head>
+          <body>
+            <div class="wrapper">
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              <div class="container">
+                <div class="content">
+                  <div class="header">
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                    ${!hasHeaderFooter ? `<div class="company">
+                      <h2>${settings.name}</h2>
+                      <p>${settings.address || ''}</p>
+                      <p>${settings.phone || ''}</p>
+                      <p>${settings.email || ''}</p>
+                    </div>` : ''}
+                  </div>
+
+                  <div class="bill-to">
+                    <h3>BILL TO</h3>
+                    ${customer ? `
+                      <p><strong>${customer.name || 'N/A'}</strong></p>
+                      ${customer.company ? `<p>${customer.company}</p>` : ''}
+                      ${customer.address ? `<p>${customer.address}</p>` : ''}
+                      ${customer.phone ? `<p>Phone: ${customer.phone}</p>` : ''}
+                      ${customer.email ? `<p>Email: ${customer.email}</p>` : ''}
+                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  </div>
+
+                  <div class="invoice-details">
+                    <div class="detail-item">
+                      <span class="detail-label">Invoice Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                    </div>
+                    <div class="detail-item">
+                      <span class="detail-label">Invoice ID:</span> ${sale.id.slice(-8)}
+                    </div>
+                    ${sale.particulars ? `<div class="detail-item"><span class="detail-label">Particulars:</span> ${sale.particulars}</div>` : ''}
+                  </div>
+
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th class="right">Qty</th>
+                        <th class="right">Rate</th>
+                        <th class="right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${(sale.items || []).map((item: any) => `
+                        <tr>
+                          <td>${item.name || ''}</td>
+                          <td class="right">${item.quantity || 0}</td>
+                          <td class="right">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                          <td class="right"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+
+                  <div class="totals">
+                    <div class="totals-table">
+                      <div class="totals-row">
+                        <span>Subtotal</span>
+                        <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                      </div>
+                      ${Number(sale.vat) > 0 ? `
+                      <div class="totals-row">
+                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
+                      <div class="totals-row final">
+                        <span>TOTAL</span>
+                        <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                </div>
+              </div>
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+            </div>
+            <script>
+              window.onload = () => { window.print(); };
+            </script>
+          </body>
+          </html>
+        `;
+      }
+      
+      receiptWindow.document.write(htmlContent);
+      receiptWindow.document.close();
   };
 
   const handleReturn = (sale: SaleRecord) => {
@@ -101,20 +367,22 @@ const SalesHistory = () => {
       setShowReturnModal(true);
   };
 
-  const handleDownloadPDF = () => {
-    if (!viewingSale) return;
-    const element = document.getElementById('a4-invoice-content');
-    if (!element) return;
-    
-    const opt = {
-      margin: 0,
-      filename: `Invoice-${viewingSale.id.slice(-8)}.pdf`,
-      image: { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas: { scale: 2 },
-      jsPDF: { format: 'a4', orientation: 'portrait' as const }
-    };
-    
-    html2pdf().set(opt).from(element).save();
+  const handleDeleteSale = async (saleId: string) => {
+      if (!window.confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
+          return;
+      }
+      try {
+          const response = await db.sales.delete(saleId);
+          if (response && !response.error) {
+              alert('Sale deleted successfully');
+              setSales(sales.filter(s => s.id !== saleId));
+          } else {
+              alert('Failed to delete: ' + (response?.error || 'Unknown error'));
+          }
+      } catch (e) {
+          console.error('Delete failed:', e);
+          alert('Failed to delete sale');
+      }
   };
 
   const enrichItems = (sale: SaleRecord) => {
@@ -214,9 +482,29 @@ const SalesHistory = () => {
         header: 'Actions', 
         accessor: (s) => (
             <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    // Enrich sale data with item names and customer info before sending to POS
+                    const enrichedSale = {
+                      ...s,
+                      customer: s.customerId ? customers.find(c => c.id === s.customerId) : null,
+                    };
+                    window.history.pushState({ usr: enrichedSale }, '', '/#/pos');
+                    window.location.href = '/#/pos';
+                  }} 
+                  title="Edit Sale"
+                  className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs font-bold border border-blue-200 px-2 py-1 rounded bg-blue-50"
+                >
+                  Edit
+                </button>
                 {!s.isReturn && !s.isProforma && (
                     <button onClick={() => handleReturn(s)} className="text-orange-600 hover:text-orange-800 flex items-center gap-1 text-xs font-bold border border-orange-200 px-2 py-1 rounded bg-orange-50">
                         <RotateCcw size={14} /> Return
+                    </button>
+                )}
+                {currentUser && (currentUser.is_super_admin || currentUser.roleId) && (
+                    <button onClick={() => handleDeleteSale(s.id)} className="text-red-600 hover:text-red-800 flex items-center gap-1 text-xs font-bold border border-red-200 px-2 py-1 rounded bg-red-50">
+                        <Trash2 size={14} /> Delete
                     </button>
                 )}
             </div>
@@ -354,145 +642,6 @@ const SalesHistory = () => {
             </div>
         </div>
       )}
-
-      {/* Document View Modal */}
-      {showDocModal && viewingSale && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm p-4">
-            <div className="bg-white rounded-lg max-h-[90vh] w-full max-w-4xl flex flex-col doc-modal-scroll" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', overflowY: 'auto' }}>
-                <div className="p-4 border-b flex justify-between items-center no-print sticky top-0 bg-white z-10">
-                    <h3 className="font-bold text-lg">Document Viewer</h3>
-                    <div className="flex gap-2">
-                        <button onClick={() => setDocType('thermal')} className={`px-3 py-1 rounded border ${docType === 'thermal' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>Thermal</button>
-                        <button onClick={() => setDocType('a4')} className={`px-3 py-1 rounded border ${docType === 'a4' ? 'bg-brand-50 border-brand-500 text-brand-700' : ''}`}>A4 Invoice</button>
-                        {docType === 'a4' && <button onClick={handleDownloadPDF} title="Download as PDF" className="px-3 py-1 bg-red-600 text-white rounded flex items-center gap-1"><Download size={16}/> PDF</button>}
-                        <button onClick={() => window.print()} className="px-3 py-1 bg-slate-800 text-white rounded flex items-center gap-1"><Printer size={16}/> Print</button>
-                        <button onClick={() => sendEmailReceipt(viewingSale)} title="Email receipt" className="px-3 py-1 bg-emerald-600 text-white rounded flex items-center gap-1">Email</button>
-                        <button onClick={() => sendWhatsAppReceipt(viewingSale)} title="Send via WhatsApp" className="px-3 py-1 bg-green-600 text-white rounded flex items-center gap-1">WhatsApp</button>
-                        <button onClick={() => setShowDocModal(false)} className="px-3 py-1 hover:bg-slate-100 rounded"><X size={20}/></button>
-                    </div>
-                </div>
-                
-                <div className="p-8 bg-gray-100 overflow-auto flex justify-center flex-1">
-                   {/* Reuse Layout Logic from POS */}
-                   {docType === 'thermal' && (
-                       <div className="bg-white p-4 w-[300px] shadow-none">
-                            <div className="text-center mb-6">
-                                {settings.logoUrl && <img src={settings.logoUrl} alt="Logo" className="w-16 mx-auto mb-2" />}
-                                <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
-                                <p className="text-xs text-gray-500">{settings.address}</p>
-                                <p className="text-xs text-gray-500">{settings.phone}</p>
-                            </div>
-                            <div className="border-b border-dashed border-gray-300 my-4"></div>
-                            <div className="flex justify-between text-xs mb-4">
-                                <span>Date: {new Date(viewingSale.date).toLocaleDateString()}</span>
-                                <span>Rect #: {viewingSale.id.slice(-8)}</span>
-                            </div>
-                            <table className="w-full text-xs text-left mb-4">
-                                <thead>
-                                    <tr className="border-b border-gray-200">
-                                        <th className="py-1">Item</th>
-                                        <th className="py-1 text-right">Qty</th>
-                                        <th className="py-1 text-right">Amt</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {enrichItems(viewingSale).map((item, i) => (
-                                        <tr key={i}>
-                                            <td className="py-1">
-                                                <div className="font-medium">{item.name}</div>
-                                                {item.description ? <div className="text-[9px] text-gray-400">{item.description}</div> : null}
-                                            </td>
-                                            <td className="py-1 text-right">{item.quantity}</td>
-                                            <td className="py-1 text-right">{ symbol }{ fmt(Number(item.price) * Number(item.quantity),2) }</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            <div className="border-t border-dashed border-gray-300 my-2 pt-2 space-y-1 text-right">
-                                <div className="text-xs font-bold">TOTAL: {symbol}{fmt(viewingSale.total,2)}</div>
-                            </div>
-                       </div>
-                   )}
-
-                   {docType === 'a4' && (
-                       <div id="a4-invoice-content" className="bg-white w-[210mm] h-[297mm] flex flex-col px-12 py-8 shadow-none overflow-hidden print:overflow-visible">
-                           {/* Simplified Header for brevity in preview, functionally similar to POS */}
-                            <div className="flex justify-between items-start mb-12">
-                                <div>
-                                    <h1 className="text-4xl font-bold text-slate-800">INVOICE</h1>
-                                    <p className="text-slate-500 mt-2">#{viewingSale.id}</p>
-                                </div>
-                                <div className="text-right">
-                                    <h2 className="font-bold text-lg">{settings.name}</h2>
-                                    <p className="text-sm text-slate-500">{settings.address}</p>
-                                    <p className="text-sm text-slate-500">{settings.phone}</p>
-                                </div>
-                            </div>
-                            <table className="w-full text-left mb-8 flex-1">
-                                <thead>
-                                    <tr className="border-b-2 border-slate-800">
-                                        <th className="py-3 font-bold">Description</th>
-                                        <th className="py-3 font-bold text-right">Qty</th>
-                                        <th className="py-3 font-bold text-right">Price</th>
-                                        <th className="py-3 font-bold text-right">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {enrichItems(viewingSale).map((item, i) => (
-                                        <tr key={i} className="border-b border-slate-100">
-                                            <td className="py-4">
-                                                <div className="font-medium">{item.name}</div>
-                                            </td>
-                                            <td className="py-4 text-right">{item.quantity}</td>
-                                            <td className="py-4 text-right">{symbol}{fmt(item.price,2)}</td>
-                                            <td className="py-4 text-right font-bold">{symbol}{fmt(Number(item.price) * Number(item.quantity),2)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            <div className="flex justify-end mt-4 border-t-2 border-slate-800 pt-4">
-                                <div className="text-2xl font-bold text-slate-900">Total: {symbol}{fmt(viewingSale.total,2)}</div>
-                            </div>
-                       </div>
-                   )}
-                </div>
-            </div>
-        </div>
-      )}
-
-      <style>{`
-        /* Hide scrollbar on document viewer modal */
-        .doc-modal-scroll::-webkit-scrollbar {
-          display: none;
-        }
-        
-        /* Ensure no shadows on PDF content */
-        #a4-invoice-content * {
-          box-shadow: none !important;
-          -webkit-box-shadow: none !important;
-        }
-        
-        /* Print styles to ensure clean PDF output */
-        @media print {
-          #a4-invoice-content {
-            box-shadow: none !important;
-            -webkit-box-shadow: none !important;
-            width: 210mm;
-            height: 297mm;
-            margin: 0;
-            padding: 0;
-          }
-          
-          #a4-invoice-content * {
-            box-shadow: none !important;
-            -webkit-box-shadow: none !important;
-          }
-          
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

@@ -12,34 +12,31 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-        (async () => {
-            try {
-                const data = await apiLogin(email, password);
-                if (data && data.user) {
-                    onLogin(data.user);
-                    // Redirect user according to system settings (per-role), default to Dashboard
-                    try {
-                        if (db.settings && db.settings.get) {
-                            const s = await db.settings.get();
-                                const route = s?.loginRedirects?.[data.user.roleId] || '/';
-                            navigate(route);
-                        } else {
-                                navigate('/');
-                        }
-                    } catch (e) {
-                            navigate('/');
-                    }
-                } else {
-                    setError('Invalid credentials');
-                }
-            } catch (err: any) {
-                setError(err.message || 'Login failed');
-            }
-        })();
+    setError('');
+    setIsLoading(true);
+    (async () => {
+      try {
+        const data = await apiLogin(email, password);
+        if (data && data.user) {
+          onLogin(data.user);
+          // Give UI time to update auth state, then redirect to dashboard
+          setTimeout(() => {
+            navigate('/');
+          }, 100);
+        } else {
+          setError('Invalid credentials');
+          setIsLoading(false);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Login failed');
+        setIsLoading(false);
+      }
+    })();
   };
 
   return (
@@ -94,8 +91,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     </p>
                 </div>
 
-                <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg shadow-lg shadow-brand-500/30 transition-all">
-                    Sign In
+                <button 
+                  type="submit" 
+                  disabled={isLoading}
+                  className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-slate-400 text-white font-bold py-3 rounded-lg shadow-lg shadow-brand-500/30 transition-all disabled:cursor-not-allowed"
+                >
+                    {isLoading ? 'Signing in...' : 'Sign In'}
                 </button>
             </form>
 

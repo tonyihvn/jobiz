@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import db from '../services/apiClient';
+import { checkPermission } from '../services/format';
 import { Category } from '../types';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Plus, X, Save, Edit2, Trash2 } from 'lucide-react';
 import DataTable, { Column } from '../components/Shared/DataTable';
 
 const CategoriesPage = () => {
+  const { selectedBusinessId } = useBusinessContext();
   const [items, setItems] = useState<Category[]>([]);
   const [editing, setEditing] = useState<Category | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -13,12 +16,12 @@ const CategoriesPage = () => {
     const [isSuper, setIsSuper] = useState(false);
     const [authorized, setAuthorized] = useState(true);
   
-    useEffect(() => { (async () => { await loadAuth(); await refresh(); })(); }, []);
-  useEffect(() => { refresh(); }, []);
+    useEffect(() => { (async () => { await loadAuth(); await refresh(); })(); }, [selectedBusinessId]);
+  useEffect(() => { refresh(); }, [selectedBusinessId]);
 
   const refresh = async () => {
     try {
-      const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
+      const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId) : [];
       const normalized = (Array.isArray(cats) ? cats : []).map((c: any) => ({
         ...c,
         isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false),
@@ -34,16 +37,24 @@ const CategoriesPage = () => {
         setCurrentUser(user);
         setIsSuper(!!(user && (user.is_super_admin || user.isSuperAdmin)));
         if (!user) { setUserRole(null); setAuthorized(false); return; }
+        
+        // Try to load role from database
+        let role: any = null;
         if (db.roles && db.roles.getAll) {
           const roles = await db.roles.getAll();
-          const role = roles.find((r: any) => r.id === (user.roleId || user.role_id));
-          setUserRole(role || null);
-          const canRead = (user && (user.is_super_admin || user.isSuperAdmin)) || (role && role.permissions && role.permissions.includes('categories:read')) || (role && role.permissions && role.permissions.includes('categories'));
-          setAuthorized(!!canRead);
-        } else {
-          setAuthorized(!!(user && (user.is_super_admin || user.isSuperAdmin)));
+          role = roles.find((r: any) => r.id === (user.roleId || user.role_id));
         }
-      } catch (e) { setAuthorized(false); }
+        
+        setUserRole(role || null);
+        
+        const isSuperAdmin = user && (user.is_super_admin || user.isSuperAdmin);
+        const isAdminRole = role && role.name && role.name.toLowerCase().includes('admin');
+        const hasPermission = role && checkPermission(role.permissions, 'categories');
+        const directPermission = checkPermission(user.permissions || user.perms, 'categories');
+        
+        const canRead = isSuperAdmin || isAdminRole || hasPermission || directPermission;
+        setAuthorized(!!canRead);
+      } catch (e) { console.warn('Auth check error:', e); setAuthorized(false); }
     };
 
   const handleCreate = () => {
@@ -78,9 +89,13 @@ const CategoriesPage = () => {
 
   const can = (action: 'create' | 'read' | 'update' | 'delete') => {
     if (isSuper) return true;
-    if (!userRole || !userRole.permissions) return false;
-    // allow broad 'categories' permission or specific 'categories:action'
-    return userRole.permissions.includes('categories') || userRole.permissions.includes(`categories:${action}`);
+    // Admin role can do everything
+    if (userRole && userRole.name && userRole.name.toLowerCase().includes('admin')) return true;
+    // Check role permissions (object or array format)
+    if (userRole && checkPermission(userRole.permissions, `categories:${action}`)) return true;
+    // Check direct user permissions as fallback
+    if (checkPermission(currentUser?.permissions || currentUser?.perms, `categories:${action}`)) return true;
+    return false;
   };
 
   return (

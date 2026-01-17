@@ -18,14 +18,15 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle }) => {
-  const { selectedBusiness } = useBusinessContext();
+  const { selectedBusiness, selectedBusinessId } = useBusinessContext();
   const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
   const [settings, setSettings] = useState<CompanySettings>(emptySettings);
-  const [userRole, setUserRole] = useState<Role | undefined>(undefined);
+  const [userRole, setUserRole] = useState<Role | undefined>({ id: 'user', businessId: '', name: 'User', permissions: [] });
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [notifications, setNotifications] = useState(0);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [roleLoaded, setRoleLoaded] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     'sales': true,
     'inventory': true,
@@ -57,17 +58,47 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           } catch (e) { /* ignore */ }
         }
 
+        if (!user) {
+          console.warn('[SIDEBAR-LOAD] No user logged in');
+          setUserRole({ id: 'guest', businessId: '', name: 'Guest', permissions: [] });
+          setRoleLoaded(true);
+          return;
+        }
+
         if (detailedUser && (detailedUser.is_super_admin || detailedUser.isSuperAdmin)) {
           setIsSuperAdmin(true);
           setUserRole({ id: 'super', businessId: 'sys', name: 'Super Admin', permissions: [] });
+          setRoleLoaded(true);
         } else {
           setIsSuperAdmin(false);
+          const roleId = detailedUser?.role_id || user?.roleId || user?.role_id;
+          console.log('[SIDEBAR-LOAD] Loading role for user:', { userId: user?.id, roleId, detailedUser: !!detailedUser });
+          
           if (db.roles && db.roles.getAll) {
             try {
               const roles: any[] = await db.roles.getAll();
-              const role = roles.find(r => r.id === (detailedUser?.role_id || user?.roleId || user?.role_id));
-              setUserRole(role);
-            } catch (e) { /* ignore */ }
+              console.log('[SIDEBAR-LOAD] Available roles:', roles?.length, 'Looking for roleId:', roleId);
+              let role = roles?.find(r => r.id === roleId);
+              console.log('[SIDEBAR-LOAD] Found role:', role ? { id: role.id, name: role.name } : 'NOT FOUND');
+              
+              // If role not found in database, create a minimal role object using role_id
+              if (!role && roleId) {
+                role = { id: roleId, businessId: user?.businessId || detailedUser?.businessId || '', name: roleId.charAt(0).toUpperCase() + roleId.slice(1), permissions: [] };
+              }
+              setUserRole(role || { id: 'user', businessId: user?.businessId || '', name: 'User', permissions: [] });
+              console.log('[SIDEBAR-LOAD] Set userRole:', role ? { id: role.id, name: role.name } : 'DEFAULT');
+              setRoleLoaded(true);
+            } catch (e) { 
+              console.error('[SIDEBAR-LOAD] Error loading roles:', e);
+              // If role loading fails, use minimal role object based on role_id
+              setUserRole(roleId ? { id: roleId, businessId: user?.businessId || '', name: roleId.charAt(0).toUpperCase() + roleId.slice(1), permissions: [] } : { id: 'user', businessId: user?.businessId || '', name: 'User', permissions: [] });
+              setRoleLoaded(true);
+            }
+          } else {
+            console.warn('[SIDEBAR-LOAD] Roles service not available');
+            // If roles service not available, use role_id as fallback
+            setUserRole(roleId ? { id: roleId, businessId: user?.businessId || '', name: roleId.charAt(0).toUpperCase() + roleId.slice(1), permissions: [] } : { id: 'user', businessId: user?.businessId || '', name: 'User', permissions: [] });
+            setRoleLoaded(true);
           }
         }
 
@@ -99,7 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
         // Load category groups for sidebar
         try {
           if (db.categories && db.categories.getAll) {
-            const cats: any[] = await db.categories.getAll();
+            const cats: any[] = await db.categories.getAll(selectedBusinessId);
             const groups: Record<string, boolean> = {};
             (cats || []).forEach((c: any) => { if (c && c.group) groups[c.group] = groups[c.group] || !!(c.isProduct || c.is_product); });
             const arr = Object.keys(groups).map(g => ({ group: g, isProduct: groups[g] }));
@@ -116,7 +147,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
     const onCatsChanged = async () => {
       try {
         if (db.categories && db.categories.getAll) {
-          const cats: any[] = await db.categories.getAll();
+          const cats: any[] = await db.categories.getAll(selectedBusinessId);
           const groups: Record<string, boolean> = {};
           (cats || []).forEach((c: any) => { if (c && c.group) groups[c.group] = groups[c.group] || !!(c.isProduct || c.is_product); });
           const arr = Object.keys(groups).map(g => ({ group: g, isProduct: groups[g] }));
@@ -128,7 +159,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
     window.addEventListener('categories:changed', onCatsChanged);
 
     return () => { mounted = false; window.removeEventListener('categories:changed', onCatsChanged); };
-  }, [location]);
+  }, [location, selectedBusinessId]);
 
   const toggleGroup = (key: string) => {
     setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
@@ -246,17 +277,37 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
         {menuGroups.map((group) => {
           // Check if user has permission for at least one item in the group
           // Super Admin sees everything. Otherwise require a role and permission.
+          // Business Admin sees all regular items (except super admin pages).
           // Permission check allows either exact permission (e.g. "categories")
           // or a namespaced permission like "categories:read" so roles with
           // scoped permissions still see the menu item.
+          const isAdminRole = userRole && userRole.name && userRole.name.toLowerCase().includes('admin');
           const visibleItems = group.items.filter(item => 
             // Super admin sees everything
             isSuperAdmin 
+            // Admin role sees all regular items (exclude super admin group items)
+            || (isAdminRole && group.key !== 'super_admin')
             // Dynamic category-generated pages should be visible to regular users
             || item.id.startsWith('inv_group_') || item.id.startsWith('svc_group_')
-            // Otherwise require a role and permission match
-            || (userRole && userRole.permissions && userRole.permissions.some((p: string) => p === item.id || p.startsWith(item.id + ':')))
+            // If user has a role (even without specific permissions), show regular items (not super admin items)
+            || (userRole && group.key !== 'super_admin')
+            // Otherwise require a role and permission match (legacy)
+            || (userRole && Array.isArray(userRole.permissions) && userRole.permissions.some((p: string) => p === item.id || p.startsWith(item.id + ':')))
           );
+
+          // Debug logging for sales group
+          if (group.key === 'sales' && !isSuperAdmin) {
+            console.log('[SIDEBAR-DEBUG]', { 
+              userRoleName: userRole?.name, 
+              userRoleId: userRole?.id,
+              isAdminRole, 
+              groupKey: group.key, 
+              visibleItemsCount: visibleItems.length, 
+              userPermissions: userRole?.permissions,
+              groupItemsCount: group.items.length,
+              userRoleExists: !!userRole
+            });
+          }
 
           if (visibleItems.length === 0) return null;
 

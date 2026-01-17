@@ -6,9 +6,11 @@ import { Product, Supplier, TransactionType, Transaction, Location } from '../ty
 import { PackagePlus, AlertTriangle, Save, X, Plus, Trash2, Package, History, Edit2 } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Stock: React.FC = () => {
     const { businessId } = useContextBusinessId();
+    const { selectedBusinessId } = useBusinessContext();
     const [products, setProducts] = useState<Product[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
@@ -35,11 +37,18 @@ const Stock: React.FC = () => {
 
     const { symbol } = useCurrency();
 
-    useEffect(() => { (async () => { await refreshData(); })(); }, [businessId]);
+    useEffect(() => { (async () => { await refreshData(); })(); }, [businessId, selectedBusinessId]);
 
     const refreshData = async () => {
         try {
-            const allProducts = await db.products.getAll();
+            let allProducts = await db.products.getAll(selectedBusinessId);
+            
+            // Get current user to check if super admin
+            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            
+            // Backend already filters by business when appropriate
+            
             const isServiceFlag = (p: any) => {
                 if (typeof p.isService !== 'undefined') return !!p.isService;
                 if (typeof p.is_service !== 'undefined') return !!p.is_service;
@@ -54,7 +63,7 @@ const Stock: React.FC = () => {
                     if (!p || !p.id) return;
                     try {
                         if (db.stock && db.stock.getForProduct) {
-                            const data: any[] = await db.stock.getForProduct(p.id);
+                            const data: any[] = await db.stock.getForProduct(p.id, selectedBusinessId);
                             entriesMap[p.id] = (data || []).map(d => ({ locationId: d.location_id || d.locationId || d.locationId, quantity: d.quantity || 0 }));
                         }
                     } catch (e) {
@@ -66,10 +75,10 @@ const Stock: React.FC = () => {
                 console.warn('Failed to fetch stock entries per product', e);
             }
 
-            const sups = await db.suppliers.getAll();
+            const sups = await db.suppliers.getAll(selectedBusinessId);
             setSuppliers(sups || []);
 
-            const locs = await db.locations.getAll();
+            const locs = await db.locations.getAll(selectedBusinessId);
             setLocations(locs || []);
             if (!selectedLocation && (locs || []).length > 0) setSelectedLocation(locs[0].id);
 
@@ -85,7 +94,7 @@ const Stock: React.FC = () => {
             }
             
             try { 
-                hist = await db.stock.historyAll(); 
+                hist = await db.stock.historyAll(selectedBusinessId); 
                 console.log('📦 Fetched stock history:', hist?.length || 0, 'records');
                 if (hist && hist.length > 0) {
                     console.log('📦 Sample stock history record:', hist[0]);

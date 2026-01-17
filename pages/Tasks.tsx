@@ -5,9 +5,11 @@ import db from '../services/apiClient';
 import { Task, TaskStatus, Employee } from '../types';
 import { Plus, X, Save, Edit2, Trash2, Calendar, CheckCircle, Clock } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Tasks = () => {
   const { businessId } = useContextBusinessId();
+  const { selectedBusinessId } = useBusinessContext();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -22,13 +24,13 @@ const Tasks = () => {
 
   useEffect(() => {
     (async () => { await refreshData(); })();
-  }, [businessId]);
+  }, [businessId, selectedBusinessId]);
 
   const refreshData = () => {
     (async () => {
       try {
-        const t = db.tasks && db.tasks.getAll ? await db.tasks.getAll() : [];
-        const e = db.employees && db.employees.getAll ? await db.employees.getAll() : [];
+        const t = db.tasks && db.tasks.getAll ? await db.tasks.getAll(selectedBusinessId) : [];
+        const e = db.employees && db.employees.getAll ? await db.employees.getAll(selectedBusinessId) : [];
         const normTasks = (Array.isArray(t) ? t : []).map((it: any) => ({
           ...it,
           assignedTo: it.assignedTo || it.assigned_to || it.assigned_to_id || '',

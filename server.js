@@ -18,7 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 5000;
 
 // Security headers via Helmet
 app.use(helmet({
@@ -264,7 +264,7 @@ async function sendSMS(phoneNumber, message) {
 // --- API ROUTES ---
 
 // Auth helper middleware
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Missing Authorization header' });
   const parts = authHeader.split(' ');
@@ -273,6 +273,13 @@ function authMiddleware(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'change-me');
     req.user = payload;
+    // Check if user is super admin and set flag
+    try {
+      const [empRows] = await pool.execute('SELECT is_super_admin FROM employees WHERE id = ?', [req.user.id]);
+      req.isSuperAdmin = !!(empRows && empRows[0] && empRows[0].is_super_admin);
+    } catch (e) {
+      req.isSuperAdmin = false;
+    }
     next();
   } catch (err) {
     console.warn('authMiddleware: token verification failed:', err && err.message ? err.message : err);
@@ -1238,8 +1245,21 @@ app.post('/api/super-admin/reject-payment/:paymentId', superAdminAuthMiddleware,
 
 app.get('/api/products', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM products WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY name', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM products WHERE business_id = ? ORDER BY name', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all products from all companies
+      const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's products
+      const [rows] = await pool.execute('SELECT * FROM products WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY name', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1321,10 +1341,16 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     // Permission: only admin or role with pos:any_location can sale from other locations
     if (providedLocationId && providedLocationId !== emp.default_location_id) {
       // check role permissions
-      const [roleRows] = await pool.execute('SELECT permissions FROM roles WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [emp.role_id, req.user.id]);
+      const [roleRows] = await pool.execute('SELECT permissions, name FROM roles WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [emp.role_id, req.user.id]);
       const role = roleRows[0];
       const perms = role && role.permissions ? (role.permissions || '') : '';
-      const isAdmin = emp.is_super_admin || perms.includes('pos:any_location');
+      
+      // Check if user is super admin OR has pos:any_location permission OR has Admin role
+      const isSuperAdmin = emp.is_super_admin;
+      const hasAnyLocationPerm = perms.includes('pos:any_location') || perms.includes('pos');
+      const isAdminRole = role && role.name && role.name.toLowerCase().includes('admin');
+      const isAdmin = isSuperAdmin || hasAnyLocationPerm || isAdminRole;
+      
       if (!isAdmin) return res.status(403).json({ error: 'Forbidden: cannot create sale from another location' });
     }
 
@@ -1406,7 +1432,18 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
 // Get sales list (scoped to business)
 app.get('/api/sales', authMiddleware, async (req, res) => {
   try {
-    const [salesRows] = await pool.execute('SELECT * FROM sales WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
+    let salesRows;
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    // Super admin can optionally filter by businessId query param, otherwise sees all
+    if (req.isSuperAdmin && businessIdFilter) {
+      [salesRows] = await pool.execute('SELECT * FROM sales WHERE business_id = ? ORDER BY date DESC', [businessIdFilter]);
+    } else if (req.isSuperAdmin) {
+      [salesRows] = await pool.execute('SELECT * FROM sales ORDER BY date DESC');
+    } else {
+      // Regular user sees only their company's sales
+      [salesRows] = await pool.execute('SELECT * FROM sales WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
+    }
     // Fetch items for each sale
     const sales = Array.isArray(salesRows) ? salesRows : [];
     const detailed = [];
@@ -1415,6 +1452,72 @@ app.get('/api/sales', authMiddleware, async (req, res) => {
       detailed.push({ ...s, items: Array.isArray(items) ? items : [] });
     }
     res.json(detailed);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update an existing sale
+app.put('/api/sales/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { items, customerId, deliveryFee, isProforma, ...saleData } = req.body;
+    
+    // Update sale header
+    await pool.execute(
+      'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, updated_at = NOW() WHERE id = ?',
+      [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, id]
+    );
+    
+    // Delete old items
+    await pool.execute('DELETE FROM sale_items WHERE sale_id = ?', [id]);
+    
+    // Re-insert items
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        await pool.execute(
+          'INSERT INTO sale_items (sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?)',
+          [id, item.id, item.quantity, item.price, item.isService ? 1 : 0]
+        );
+      }
+    }
+    
+    res.json({ id, message: 'Sale updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a sale (Admin only)
+app.delete('/api/sales/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Allow super admin or admin to delete sales
+    // Super admin is already flagged by authMiddleware
+    if (!req.isSuperAdmin) {
+      // For non-super-admin, verify they are an admin
+      const [userCheck] = await pool.execute(
+        'SELECT * FROM employees WHERE id = ? AND role_id = (SELECT id FROM roles WHERE name = "Admin")',
+        [req.user.id]
+      );
+      
+      if (!userCheck || userCheck.length === 0) {
+        return res.status(403).json({ error: 'Only admins can delete sales' });
+      }
+    }
+    
+    // Delete sale items first
+    await pool.execute('DELETE FROM sale_items WHERE sale_id = ?', [id]);
+    
+    // Delete the sale
+    const result = await pool.execute('DELETE FROM sales WHERE id = ?', [id]);
+    
+    if (result.affectedRows > 0) {
+      res.json({ id, message: 'Sale deleted successfully' });
+    } else {
+      res.status(404).json({ error: 'Sale not found' });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1519,8 +1622,21 @@ app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
 // Locations endpoints
 app.get('/api/locations', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM locations WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM locations WHERE business_id = ?', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all locations from all companies
+      const [rows] = await pool.execute('SELECT * FROM locations');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's locations
+      const [rows] = await pool.execute('SELECT * FROM locations WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1563,9 +1679,21 @@ app.delete('/api/locations/:id', authMiddleware, async (req, res) => {
 // Stock endpoints
 app.get('/api/stock/:productId', authMiddleware, async (req, res) => {
   const { productId } = req.params;
+  const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
   try {
-    const [rows] = await pool.execute('SELECT * FROM stock_entries WHERE product_id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [productId, req.user.id]);
-    res.json(rows);
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM stock_entries WHERE product_id = ? AND business_id = ?', [productId, businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all stock entries for the product
+      const [rows] = await pool.execute('SELECT * FROM stock_entries WHERE product_id = ?', [productId]);
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's stock entries
+      const [rows] = await pool.execute('SELECT * FROM stock_entries WHERE product_id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [productId, req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1574,9 +1702,21 @@ app.get('/api/stock/:productId', authMiddleware, async (req, res) => {
 // Stock history for a product
 app.get('/api/stock/history/:productId', authMiddleware, async (req, res) => {
   const { productId } = req.params;
+  const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
   try {
-    const [rows] = await pool.execute('SELECT * FROM stock_history WHERE product_id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC', [productId, req.user.id]);
-    res.json(rows);
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM stock_history WHERE product_id = ? AND business_id = ? ORDER BY timestamp DESC', [productId, businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all stock history for the product
+      const [rows] = await pool.execute('SELECT * FROM stock_history WHERE product_id = ? ORDER BY timestamp DESC', [productId]);
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's stock history
+      const [rows] = await pool.execute('SELECT * FROM stock_history WHERE product_id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC', [productId, req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1586,21 +1726,36 @@ app.get('/api/stock/history/:productId', authMiddleware, async (req, res) => {
 app.get('/api/stock/history', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('📦 /api/stock/history - user:', userId);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    console.log('📦 /api/stock/history - user:', userId, 'businessIdFilter:', businessIdFilter);
     
-    // Get business ID for this user
-    const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [userId]);
-    if (!empRows || !empRows[0]) {
-      console.warn('❌ /api/stock/history - User not found in employees');
-      return res.json([]);
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      console.log('📦 /api/stock/history - Super admin with filter: fetching stock history for business', businessIdFilter);
+      const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = ? ORDER BY timestamp DESC', [businessIdFilter]);
+      console.log('📦 /api/stock/history - Returning', rows?.length || 0, 'records for business', businessIdFilter);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all stock history from all businesses
+      console.log('📦 /api/stock/history - Super admin: fetching all stock history');
+      const [rows] = await pool.execute('SELECT * FROM stock_history ORDER BY timestamp DESC');
+      console.log('📦 /api/stock/history - Returning', rows?.length || 0, 'records (all businesses)');
+      res.json(rows);
+    } else {
+      // Regular user gets business ID for this user
+      const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [userId]);
+      if (!empRows || !empRows[0]) {
+        console.warn('❌ /api/stock/history - User not found in employees');
+        return res.json([]);
+      }
+      
+      const businessId = empRows[0].business_id;
+      console.log('📦 /api/stock/history - business_id:', businessId);
+      
+      const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = ? ORDER BY timestamp DESC', [businessId]);
+      console.log('📦 /api/stock/history - Returning', rows?.length || 0, 'records for business', businessId);
+      res.json(rows);
     }
-    
-    const businessId = empRows[0].business_id;
-    console.log('📦 /api/stock/history - business_id:', businessId);
-    
-    const [rows] = await pool.execute('SELECT * FROM stock_history WHERE business_id = ? ORDER BY timestamp DESC', [businessId]);
-    console.log('📦 /api/stock/history - Returning', rows?.length || 0, 'records for business', businessId);
-    res.json(rows);
   } catch (err) {
     console.error('❌ /api/stock/history error:', err.message);
     res.status(500).json({ error: err.message });
@@ -1610,10 +1765,23 @@ app.get('/api/stock/history', authMiddleware, async (req, res) => {
 // Categories CRUD
 app.get('/api/categories', authMiddleware, async (req, res) => {
   try {
-    const businessId = await resolveBusinessId(req);
-    if (!businessId) return res.json([]);
-    const [rows] = await pool.execute('SELECT * FROM categories WHERE business_id = ? ORDER BY name', [businessId]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM categories WHERE business_id = ? ORDER BY name', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all categories from all companies
+      const [rows] = await pool.execute('SELECT * FROM categories ORDER BY name');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's categories
+      const businessId = await resolveBusinessId(req);
+      if (!businessId) return res.json([]);
+      const [rows] = await pool.execute('SELECT * FROM categories WHERE business_id = ? ORDER BY name', [businessId]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1676,10 +1844,24 @@ app.delete('/api/categories/:id', authMiddleware, async (req, res) => {
 // Audit logs read endpoint
 app.get('/api/audit-logs', authMiddleware, async (req, res) => {
   try {
-    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
-    const businessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
-    if (!businessId) return res.json([]);
-    const [rows] = await pool.execute('SELECT id, business_id, user_id, user_name, action, resource, details, timestamp FROM audit_logs WHERE business_id = ? ORDER BY timestamp DESC LIMIT 1000', [businessId]);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    let sql, params;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      sql = 'SELECT id, business_id, user_id, user_name, action, resource, details, timestamp FROM audit_logs WHERE business_id = ? ORDER BY timestamp DESC LIMIT 1000';
+      params = [businessIdFilter];
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all audit logs from all companies
+      sql = 'SELECT id, business_id, user_id, user_name, action, resource, details, timestamp FROM audit_logs ORDER BY timestamp DESC LIMIT 1000';
+      params = [];
+    } else {
+      // Regular user sees only their company's audit logs
+      sql = 'SELECT id, business_id, user_id, user_name, action, resource, details, timestamp FROM audit_logs WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY timestamp DESC LIMIT 1000';
+      params = [req.user.id];
+    }
+    
+    const [rows] = await pool.execute(sql, params);
     const mapped = (rows || []).map((r) => ({
       id: r.id,
       businessId: r.business_id,
@@ -1849,8 +2031,21 @@ app.delete('/api/products/:id', authMiddleware, async (req, res) => {
 // Services CRUD (separate table for non-stock items: memberships, courses, art school, etc.)
 app.get('/api/services', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM services WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY name', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM services WHERE business_id = ? ORDER BY name', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all services from all companies
+      const [rows] = await pool.execute('SELECT * FROM services ORDER BY name');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's services
+      const [rows] = await pool.execute('SELECT * FROM services WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY name', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1917,8 +2112,21 @@ app.delete('/api/services/:id', authMiddleware, async (req, res) => {
 // Employees CRUD (scoped to business)
 app.get('/api/employees', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees WHERE business_id = ?', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all employees from all companies
+      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's employees
+      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1993,8 +2201,21 @@ app.delete('/api/employees/:id', authMiddleware, async (req, res) => {
 // Customers CRUD
 app.get('/api/customers', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM customers WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM customers WHERE business_id = ?', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all customers from all companies
+      const [rows] = await pool.execute('SELECT * FROM customers');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's customers
+      const [rows] = await pool.execute('SELECT * FROM customers WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2003,8 +2224,21 @@ app.get('/api/customers', authMiddleware, async (req, res) => {
 // Tasks CRUD
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM tasks WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date_to_do DESC', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM tasks WHERE business_id = ? ORDER BY date_to_do DESC', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all tasks from all companies
+      const [rows] = await pool.execute('SELECT * FROM tasks ORDER BY date_to_do DESC');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's tasks
+      const [rows] = await pool.execute('SELECT * FROM tasks WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date_to_do DESC', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2070,12 +2304,12 @@ app.delete('/api/reports/:id', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/customers', authMiddleware, async (req, res) => {
-  const { id, name, phone, email, address, category, details } = req.body;
+  const { id, name, company, phone, email, address, category, details } = req.body;
   try {
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0].business_id;
     const cid = id || Date.now().toString();
-    await pool.execute('INSERT INTO customers (id, business_id, name, phone, email, address, category, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), phone=VALUES(phone), email=VALUES(email), address=VALUES(address), category=VALUES(category), details=VALUES(details)', [cid, businessId, name, phone, email, address, category, details]);
+    await pool.execute('INSERT INTO customers (id, business_id, name, company, phone, email, address, category, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), company=VALUES(company), phone=VALUES(phone), email=VALUES(email), address=VALUES(address), category=VALUES(category), details=VALUES(details)', [cid, businessId, name, company, phone, email, address, category, details]);
     // audit
     try { const aid = Date.now().toString(); await pool.execute('INSERT INTO audit_logs (id, business_id, user_id, user_name, action, resource, details) VALUES (?, ?, ?, ?, ?, ?, ?)', [aid, businessId, req.user.id, req.user.email || req.user.id, 'create', 'customer', JSON.stringify(req.body)]); } catch (e) { /* ignore */ }
     res.json({ success: true, id: cid });
@@ -2086,9 +2320,9 @@ app.post('/api/customers', authMiddleware, async (req, res) => {
 
 app.put('/api/customers/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, phone, email, address, category, details } = req.body;
+  const { name, company, phone, email, address, category, details } = req.body;
   try {
-    await pool.execute('UPDATE customers SET name = ?, phone = ?, email = ?, address = ?, category = ?, details = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, phone, email, address, category, details, id, req.user.id]);
+    await pool.execute('UPDATE customers SET name = ?, company = ?, phone = ?, email = ?, address = ?, category = ?, details = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, company, phone, email, address, category, details, id, req.user.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2108,8 +2342,21 @@ app.delete('/api/customers/:id', authMiddleware, async (req, res) => {
 // Suppliers CRUD
 app.get('/api/suppliers', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM suppliers WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM suppliers WHERE business_id = ?', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all suppliers from all companies
+      const [rows] = await pool.execute('SELECT * FROM suppliers');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's suppliers
+      const [rows] = await pool.execute('SELECT * FROM suppliers WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2154,11 +2401,24 @@ app.delete('/api/suppliers/:id', authMiddleware, async (req, res) => {
 // Roles CRUD
 app.get('/api/roles', authMiddleware, async (req, res) => {
   try {
-    console.log('[GET-ROLES] Fetching roles for user:', req.user.id);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    let sql, params;
     
-    const [rows] = await pool.execute('SELECT id, name, permissions FROM roles WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      sql = 'SELECT id, name, permissions FROM roles WHERE business_id = ?';
+      params = [businessIdFilter];
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all roles from all companies
+      sql = 'SELECT id, name, permissions FROM roles';
+      params = [];
+    } else {
+      // Regular user sees only their company's roles
+      sql = 'SELECT id, name, permissions FROM roles WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)';
+      params = [req.user.id];
+    }
     
-    console.log('[GET-ROLES] Found roles:', rows ? rows.length : 0);
+    const [rows] = await pool.execute(sql, params);
     
     // parse permissions JSON if stored as JSON
     const out = (rows || []).map(r => ({ 
@@ -2168,13 +2428,11 @@ app.get('/api/roles', authMiddleware, async (req, res) => {
         try { 
           return JSON.parse(r.permissions); 
         } catch (e) { 
-          console.log('[GET-ROLES] Could not parse permissions for role', r.id);
           return r.permissions || []; 
         } 
       })() 
     }));
     
-    console.log('[GET-ROLES] Returning:', out);
     res.json(out);
   } catch (err) {
     console.error('[GET-ROLES] ERROR:', err);
@@ -2185,35 +2443,25 @@ app.get('/api/roles', authMiddleware, async (req, res) => {
 app.post('/api/roles', authMiddleware, async (req, res) => {
   const { id, name, permissions } = req.body;
   try {
-    console.log('[POST-ROLES] Request received:', { id, name, permissions });
-    
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     let businessId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
     if (!businessId && req.user && (req.user.businessId || req.user.business_id)) {
       businessId = req.user.businessId || req.user.business_id;
     }
     if (!businessId) {
-      console.log('[POST-ROLES] ERROR: Business not found');
       return res.status(400).json({ error: 'Business not found for current user' });
     }
     
-    console.log('[POST-ROLES] Business ID:', businessId);
-    
     const rid = id || Date.now().toString();
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
-    
-    console.log('[POST-ROLES] Creating role:', { rid, businessId, name, permsStr });
     
     const insertResult = await pool.execute(
       'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), permissions=VALUES(permissions)', 
       [rid, businessId, name, permsStr]
     );
     
-    console.log('[POST-ROLES] Insert result:', insertResult[0]);
-    
     // Verify the role was created
     const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [rid, businessId]);
-    console.log('[POST-ROLES] Verification:', verifyRole && verifyRole.length > 0 ? verifyRole[0] : 'NOT FOUND');
     
     res.json({ success: true, id: rid });
   } catch (err) {
@@ -2240,14 +2488,10 @@ app.put('/api/roles/:id', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Business not found for current user' });
     }
 
-    console.log('[PUT-ROLES] Updating role:', { id, businessId, name, permsStr });
-    
     const updateResult = await pool.execute('UPDATE roles SET name = ?, permissions = ? WHERE id = ? AND business_id = ?', [name, permsStr, id, businessId]);
-    console.log('[PUT-ROLES] Update result:', updateResult[0]);
     
     // Verify the role was updated
     const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [id, businessId]);
-    console.log('[PUT-ROLES] Verification:', verifyRole && verifyRole.length > 0 ? verifyRole[0] : 'NOT FOUND');
     
     res.json({ success: true });
   } catch (err) {
@@ -2269,8 +2513,21 @@ app.delete('/api/roles/:id', authMiddleware, async (req, res) => {
 // Transactions endpoints
 app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM transactions WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM transactions WHERE business_id = ? ORDER BY date DESC', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all transactions from all companies
+      const [rows] = await pool.execute('SELECT * FROM transactions ORDER BY date DESC');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's transactions
+      const [rows] = await pool.execute('SELECT * FROM transactions WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2279,14 +2536,35 @@ app.get('/api/transactions', authMiddleware, async (req, res) => {
 // Settings endpoints (per-business)
 app.get('/api/settings', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
-    if (!rows || rows.length === 0) return res.json({});
+    let settingsRows;
+    if (req.isSuperAdmin) {
+      // Super admin gets settings for the first available business (or all if needed for admin dashboard)
+      // For super admin, return only the super_admin_org settings if available
+      [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
+    } else {
+      // Regular user gets their own company's settings
+      [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
+    }
+    if (!settingsRows || settingsRows.length === 0) return res.json({});
     // Normalize column names to frontend expectations
-    const r = rows[0];
+    const r = settingsRows[0];
     let landing = null;
     try { landing = r.landing_content ? JSON.parse(r.landing_content) : null; } catch (e) { landing = r.landing_content || null; }
     let loginRedirects = null;
     try { loginRedirects = r.login_redirects ? JSON.parse(r.login_redirects) : null; } catch (e) { loginRedirects = r.login_redirects || null; }
+    
+    // Validate login redirects - only allow valid routes
+    const validRoutes = ['/', '/dashboard', '/inventory', '/services', '/clients', '/pos', '/reports', '/admin', '/sales-history', '/service-history'];
+    if (loginRedirects && typeof loginRedirects === 'object') {
+      const cleanedRedirects = {};
+      for (const [roleId, route] of Object.entries(loginRedirects)) {
+        if (validRoutes.includes(route)) {
+          cleanedRedirects[roleId] = route;
+        }
+      }
+      loginRedirects = cleanedRedirects;
+    }
+    
     const out = {
       businessId: r.business_id,
       name: r.name,
@@ -2374,8 +2652,21 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
 // Account Heads CRUD
 app.get('/api/account-heads', authMiddleware, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM account_heads WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY title', [req.user.id]);
-    res.json(rows);
+    const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    
+    if (req.isSuperAdmin && businessIdFilter) {
+      // Super admin with businessId filter
+      const [rows] = await pool.execute('SELECT * FROM account_heads WHERE business_id = ? ORDER BY title', [businessIdFilter]);
+      res.json(rows);
+    } else if (req.isSuperAdmin) {
+      // Super admin sees all account heads from all companies
+      const [rows] = await pool.execute('SELECT * FROM account_heads ORDER BY title');
+      res.json(rows);
+    } else {
+      // Regular user sees only their company's account heads
+      const [rows] = await pool.execute('SELECT * FROM account_heads WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY title', [req.user.id]);
+      res.json(rows);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2588,8 +2879,22 @@ app.put('/api/businesses/:id', authMiddleware, async (req, res) => {
 // GET all subscription plans
 app.get('/api/plans', authMiddleware, async (req, res) => {
   try {
+    // Get plans from plans table
     const [rows] = await pool.execute('SELECT * FROM plans ORDER BY price ASC');
-    res.json(rows);
+    
+    // Parse features if they're JSON strings
+    const plans = (rows || []).map((plan) => {
+      if (typeof plan.features === 'string') {
+        try {
+          plan.features = JSON.parse(plan.features);
+        } catch (e) {
+          plan.features = [];
+        }
+      }
+      return plan;
+    });
+    
+    res.json(plans);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2601,11 +2906,19 @@ app.post('/api/plans', authMiddleware, async (req, res) => {
     
     const id = 'plan_' + Date.now();
     const featuresJson = JSON.stringify(features || []);
+    
     await pool.execute(
-      'INSERT INTO plans (id, name, price, interval, features) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO plans (id, name, price, billing_interval, features) VALUES (?, ?, ?, ?, ?)',
       [id, name, price, interval || 'monthly', featuresJson]
     );
-    res.json({ id, name, price, interval: interval || 'monthly', features: features || [] });
+    
+    res.json({ 
+      id, 
+      name, 
+      price, 
+      interval: interval || 'monthly', 
+      features: features || []
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2618,7 +2931,7 @@ app.put('/api/plans/:id', authMiddleware, async (req, res) => {
     
     if (name) { updates.push('name = ?'); params.push(name); }
     if (price !== undefined) { updates.push('price = ?'); params.push(price); }
-    if (interval) { updates.push('interval = ?'); params.push(interval); }
+    if (interval) { updates.push('billing_interval = ?'); params.push(interval); }
     if (features) { updates.push('features = ?'); params.push(JSON.stringify(features)); }
     
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
@@ -2626,7 +2939,11 @@ app.put('/api/plans/:id', authMiddleware, async (req, res) => {
     
     const sql = `UPDATE plans SET ${updates.join(', ')} WHERE id = ?`;
     await pool.execute(sql, params);
-    res.json({ success: true });
+    
+    res.json({ 
+      success: true,
+      message: 'Plan updated successfully'
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2757,19 +3074,15 @@ app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, asyn
       'UPDATE businesses SET status = ?, account_approved = 1, account_approved_at = NOW() WHERE id = ?',
       ['approved', businessId]
     );
-    console.log(`[APPROVE-BUSINESS] Business status updated: ${updateResult[0].affectedRows} rows`);
-    
     // Check if admin role already exists for this business
     const [existingRole] = await pool.execute(
       'SELECT id FROM roles WHERE business_id = ? AND name = ?',
       [businessId, 'Admin']
     );
-    console.log(`[APPROVE-BUSINESS] Checking for existing role: ${existingRole ? existingRole.length : 0} found`);
     
     let roleId;
     if (existingRole && existingRole.length > 0) {
       roleId = existingRole[0].id;
-      console.log(`[APPROVE-BUSINESS] Using existing role: ${roleId}`);
     } else {
       // Create admin role for the business
       roleId = 'role_' + businessId + '_admin';
@@ -2785,15 +3098,10 @@ app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, asyn
         audit: true
       });
       
-      console.log(`[APPROVE-BUSINESS] Creating new role: ${roleId}`);
-      console.log(`[APPROVE-BUSINESS] Permissions: ${adminPermissions}`);
-      
       const roleInsertResult = await pool.execute(
         'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?)',
         [roleId, businessId, 'Admin', adminPermissions]
       );
-      console.log(`[APPROVE-BUSINESS] Role inserted: ${roleInsertResult[0].affectedRows} rows affected`);
-      console.log(`[APPROVE-BUSINESS] Role insert response:`, roleInsertResult[0]);
     }
     
     // Update all employees in this business to have account_approved = 1 and assign admin role
@@ -2801,7 +3109,6 @@ app.post('/api/super-admin/approve-business/:id', superAdminAuthMiddleware, asyn
       'UPDATE employees SET account_approved = 1, account_approved_at = NOW(), role_id = ? WHERE business_id = ?',
       [roleId, businessId]
     );
-    console.log(`[APPROVE-BUSINESS] Employees updated: ${empUpdateResult[0].affectedRows} rows affected`);
     
     // Verify the role was actually created
     const [verifyRole] = await pool.execute(
@@ -3118,6 +3425,30 @@ app.post('/api/super-admin/settings', superAdminAuthMiddleware, async (req, res)
         'INSERT INTO settings (business_id, landing_content) VALUES ("super_admin_org", ?)',
         [landingContentJson]
       );
+    }
+
+    // Also save plans from landingContent to the plans table
+    if (landingContent && landingContent.plans && Array.isArray(landingContent.plans)) {
+      try {
+        // Delete existing plans and re-insert (to keep in sync)
+        await pool.execute('DELETE FROM plans WHERE id LIKE "landing_%"');
+        
+        for (const plan of landingContent.plans) {
+          if (plan.name && plan.price !== undefined) {
+            const planId = 'landing_' + plan.name.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
+            const featuresJson = JSON.stringify(plan.features || []);
+            
+            await pool.execute(
+              'INSERT INTO plans (id, name, price, billing_interval, features) VALUES (?, ?, ?, ?, ?)',
+              [planId, plan.name, plan.price, plan.period || 'monthly', featuresJson]
+            );
+          }
+        }
+        console.log('✅ Synced plans to plans table:', landingContent.plans.length, 'plans saved');
+      } catch (planErr) {
+        console.warn('⚠️ Failed to sync plans to plans table:', planErr.message);
+        // Don't fail the entire request if plan syncing fails
+      }
     }
 
     res.json({ success: true, message: 'Landing page configuration saved' });

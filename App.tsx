@@ -51,11 +51,15 @@ const LocationTracker = () => {
     // Use the hash-based path from HashRouter
     const hash = window.location.hash;
     const path = hash.replace('#', '') || '/';
-    const publicPaths = ['/landing', '/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/payment-registration', '/payment', '/print-receipt'];
+    const publicPaths = ['/landing', '/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/payment-registration', '/payment', '/print-receipt', '/logout'];
     const isPublicPath = publicPaths.includes(path);
     
-    // Only save if: 1) not a public path, 2) not root, 3) has actual content
-    if (!isPublicPath && path !== '/' && path.length > 1) {
+    // Valid routes that can be saved as lastLocation
+    const validRoutes = ['/', '/dashboard', '/inventory', '/services', '/clients', '/pos', '/reports', '/admin', '/sales-history', '/service-history', '/stock', '/suppliers', '/courses', '/finance', '/audit-trails', '/communications', '/settings', '/categories', '/tasks', '/user-profile', '/super-admin'];
+    const isValidRoute = validRoutes.some(valid => path === valid || path.startsWith(valid + '/'));
+    
+    // Only save if: 1) not a public path, 2) is a valid route, 3) not root, 4) has actual content
+    if (!isPublicPath && isValidRoute && path !== '/' && path.length > 1) {
       localStorage.setItem('lastLocation', path);
     }
   }, [location]);
@@ -89,6 +93,7 @@ const App = () => {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isActiveBusiness, setIsActiveBusiness] = useState(false);
   const [lastLocation, setLastLocation] = useState<string | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   const checkAuth = () => {
     (async () => {
@@ -96,7 +101,7 @@ const App = () => {
         const user = await getCurrentUser();
         if (user) {
           setIsAuthenticated(true);
-          setIsSuperAdmin(!!user.isSuperAdmin);
+          setIsSuperAdmin(!!user.is_super_admin);
           setIsActiveBusiness(true);
         } else {
           setIsAuthenticated(false);
@@ -104,6 +109,8 @@ const App = () => {
       } catch (e) {
         console.error('Auth check failed:', e);
         setIsAuthenticated(false);
+      } finally {
+        setIsAuthChecking(false);
       }
     })();
   };
@@ -126,6 +133,8 @@ const App = () => {
       setIsAuthenticated(false);
       setIsSuperAdmin(false);
       setIsActiveBusiness(false);
+      setLastLocation(null);
+      localStorage.removeItem('lastLocation');
   };
 
   return (
@@ -136,7 +145,7 @@ const App = () => {
           <Routes>
             <Route path="/landing" element={<Landing />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/login" element={isAuthenticated ? <Navigate to={lastLocation || "/"} /> : <Login onLogin={checkAuth} />} />
+            <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login onLogin={checkAuth} />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
@@ -146,8 +155,9 @@ const App = () => {
             {/* Payment Route - Accessible if authenticated but not active */}
             <Route path="/payment" element={isAuthenticated ? <Payment /> : <Navigate to="/login" />} />
 
-            {/* Root Redirect Logic */}
+            {/* Root Redirect Logic - wait for auth check to complete before redirecting */}
             <Route path="/" element={
+                isAuthChecking ? <div className="flex items-center justify-center min-h-screen"><div className="text-xl text-slate-600">Loading...</div></div> :
                 !isAuthenticated ? <Navigate to="/landing" /> : 
                 !isSuperAdmin && !isActiveBusiness ? <Navigate to="/payment" /> :
                 <Layout onLogout={handleLogout} lastLocation={lastLocation} />
@@ -173,15 +183,17 @@ const App = () => {
                  <Route path="settings" element={<Settings />} />
                  <Route path="categories" element={<CategoriesPage />} />
 
-                 {/* Super Admin Routes - Always defined, permission checked in components */}
-                 <Route path="super-admin" element={<SuperAdminDashboard onLogout={handleLogout} />} />
-                 <Route path="super-admin/approvals" element={<SuperAdminApprovals />} />
-                 <Route path="super-admin/payments" element={<SuperAdminPayments />} />
-                 <Route path="super-admin/activation" element={<SuperAdminActivation />} />
-                 <Route path="super-admin/feedbacks" element={<SuperAdminFeedbacks />} />
-                 <Route path="super-admin/data" element={<SuperAdminData />} />
-                 <Route path="super-admin/landing-config" element={<SuperAdminLandingConfig />} />
+                   {/* Super Admin Routes - Only accessible to super admins */}
+                 <Route path="super-admin" element={isSuperAdmin ? <SuperAdminDashboard onLogout={handleLogout} /> : <Navigate to="/" />} />
+                 <Route path="super-admin/approvals" element={isSuperAdmin ? <SuperAdminApprovals /> : <Navigate to="/" />} />
+                 <Route path="super-admin/payments" element={isSuperAdmin ? <SuperAdminPayments /> : <Navigate to="/" />} />
+                 <Route path="super-admin/activation" element={isSuperAdmin ? <SuperAdminActivation /> : <Navigate to="/" />} />
+                 <Route path="super-admin/feedbacks" element={isSuperAdmin ? <SuperAdminFeedbacks /> : <Navigate to="/" />} />
+                 <Route path="super-admin/data" element={isSuperAdmin ? <SuperAdminData /> : <Navigate to="/" />} />
+                 <Route path="super-admin/landing-config" element={isSuperAdmin ? <SuperAdminLandingConfig /> : <Navigate to="/" />} />
             </Route>
+            {/* Catch-all for unknown routes - redirect based on auth state */}
+            <Route path="*" element={isAuthChecking ? <div className="flex items-center justify-center min-h-screen"><div className="text-xl text-slate-600">Loading...</div></div> : isAuthenticated ? <Navigate to={lastLocation || "/"} /> : <Navigate to="/landing" />} />
           </Routes>
         </Router>
       </BusinessProvider>

@@ -5,10 +5,12 @@ import db from '../services/apiClient';
 import { Product, Role, Category } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Edit2, Trash2, X, Save, Plus } from 'lucide-react';
 
 const Courses = () => {
     const { symbol } = useCurrency();
+    const { selectedBusinessId } = useBusinessContext();
   const [items, setItems] = useState<Product[]>([]);
   const [userRole, setUserRole] = useState<Role | null>(null);
     const [isSuper, setIsSuper] = useState(false);
@@ -34,16 +36,27 @@ const Courses = () => {
             }
         })();
         return () => { mounted = false; };
-  }, []);
+  }, [selectedBusinessId]);
 
     const location = useLocation();
 
     const refreshData = async () => {
         try {
+            // Get current user to check if super admin
+            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            
             // Combine products and services so items saved to either table show up
-            const prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+            let prods = db.products && db.products.getAll ? await db.products.getAll() : [];
             let svcs: any[] = [];
             try { svcs = db.services && db.services.getAll ? await db.services.getAll() : []; } catch(e) { svcs = []; }
+            
+            // Filter by selected business only for non-super-admin users
+            if (!isSuperAdmin && selectedBusinessId) {
+                prods = (Array.isArray(prods) ? prods : []).filter((p: any) => p.business_id === selectedBusinessId);
+                svcs = (Array.isArray(svcs) ? svcs : []).filter((s: any) => s.business_id === selectedBusinessId);
+            }
+            
             const combined = [...(prods || []), ...(svcs || [])];
             try {
                 const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];

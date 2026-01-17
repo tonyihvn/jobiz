@@ -8,10 +8,12 @@ import { useCurrency } from '../services/CurrencyContext';
 import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2 } from 'lucide-react';
 import RichTextEditor from '../components/Shared/RichTextEditor';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Finance = () => {
     const { symbol } = useCurrency();
     const { businessId } = useContextBusinessId();
+    const { selectedBusinessId } = useBusinessContext();
     const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'transactions' | 'heads' | 'personnel'>('transactions');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -36,6 +38,7 @@ const Finance = () => {
   const [newTx, setNewTx] = useState<Partial<Transaction>>({ type: TransactionType.INFLOW, amount: 0 });
   const [newHead, setNewHead] = useState<Partial<AccountHead>>({ type: TransactionType.INFLOW });
   const [newEmp, setNewEmp] = useState<Partial<Employee>>({});
+  const [employeeSaveError, setEmployeeSaveError] = useState<string>('');
 
   useEffect(() => {
         (async () => {
@@ -55,27 +58,38 @@ const Finance = () => {
                     } catch (e) { /* ignore */ }
             } catch (e) { console.warn('Failed to load user roles', e); }
         })();
-    }, [businessId]);
+    }, [businessId, selectedBusinessId]);
 
     const refreshData = async () => {
         try {
-            let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll() : [];
-            let sals = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
+            let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll(selectedBusinessId) : [];
+            let sals = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
+            
+            // Get current user to check if super admin
+            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            
+            // Filter by selected business only for non-super-admin users
+            if (!isSuperAdmin && selectedBusinessId) {
+                txs = (Array.isArray(txs) ? txs : []).filter((t: any) => t.business_id === selectedBusinessId);
+                sals = (Array.isArray(sals) ? sals : []).filter((s: any) => s.business_id === selectedBusinessId);
+            }
+            
             if (!Array.isArray(txs) || txs.length === 0) {
                     // No default transactions - start empty
                     txs = [];
             }
             setTransactions(Array.isArray(txs) ? txs : []);
             setSales(Array.isArray(sals) ? sals : []);
-            const heads = db.accountHeads && db.accountHeads.getAll ? await db.accountHeads.getAll() : [];
+            const heads = db.accountHeads && db.accountHeads.getAll ? await db.accountHeads.getAll(selectedBusinessId) : [];
             setAccountHeads(heads || []);
-            const emps = db.employees && db.employees.getAll ? await db.employees.getAll() : [];
+            const emps = db.employees && db.employees.getAll ? await db.employees.getAll(selectedBusinessId) : [];
             setEmployees(emps || []);
-            const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+            const custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
             setCustomers(custs || []);
-            const supps = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll() : [];
+            const supps = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll(selectedBusinessId) : [];
             setSuppliers(supps || []);
-            const rls = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
+            const rls = db.roles && db.roles.getAll ? await db.roles.getAll(selectedBusinessId) : [];
             setRoles(rls || []);
         } catch (e) {
             console.warn('Failed to refresh finance data', e);
@@ -161,12 +175,16 @@ const Finance = () => {
     };
 
     const handleSaveEmployee = async () => {
-        if (!newEmp.name || (!newEmp.password && !editingId)) return;
+        setEmployeeSaveError('');
+        if (!newEmp.name || (!newEmp.password && !editingId)) {
+            setEmployeeSaveError('Full Name and Password are required');
+            return;
+        }
         const emp: any = {
                 id: editingId || Date.now().toString(),
                 businessId: businessId || '',
                 name: newEmp.name!,
-                roleId: newEmp.roleId || 'staff',
+                role_id: newEmp.roleId || 'staff',
                 password: newEmp.password,
                 salary: Number(newEmp.salary || 0),
                 email: newEmp.email || '',
@@ -190,11 +208,19 @@ const Finance = () => {
                 if (db.employees && db.employees.add) await db.employees.add(emp);
                 else if (db.employees && (db.employees as any).save) await (db.employees as any).save([emp, ...employees]);
             }
-        } catch (e) { console.warn('Save employee failed', e); alert('Failed to save employee'); }
-        setShowEmployeeModal(false);
-        setNewEmp({});
-        setEditingId(null);
-        await refreshData();
+            // Only close modal and clear data on success
+            setShowEmployeeModal(false);
+            setNewEmp({});
+            setEditingId(null);
+            setEmployeeSaveError('');
+            await refreshData();
+        } catch (e: any) {
+            // Extract error message - could be from server response or exception
+            const errorMessage = e?.message || String(e) || 'Failed to save employee';
+            console.warn('Save employee failed', e);
+            setEmployeeSaveError(errorMessage);
+            // Keep modal open so user can fix the error
+        }
     };
 
   const transactionColumns: Column<Transaction>[] = [
@@ -243,7 +269,7 @@ const Finance = () => {
 
   const employeeColumns: Column<Employee>[] = [
     { header: 'Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
-    { header: 'Role', accessor: (e) => roles.find(r=>r.id===e.roleId)?.name || e.roleId, key: 'roleId', filterable: true },
+    { header: 'Role', accessor: (e: any) => roles.find(r=>r.id===e.role_id)?.name || e.role_id || 'Unassigned', key: 'role_id', filterable: true },
     { header: 'Email', accessor: 'email', key: 'email', filterable: true },
     { header: 'Salary', accessor: (e: Employee) => `${symbol}${fmt(Number(e.salary || 0), 2)}`, key: 'salary', sortable: true, filterable: true },
     { 
@@ -475,8 +501,14 @@ const Finance = () => {
             <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                  <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Employee' : 'Add Employee'}</h3>
-                    <button onClick={() => setShowEmployeeModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+                    <button onClick={() => { setShowEmployeeModal(false); setEmployeeSaveError(''); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
                 </div>
+                {employeeSaveError && (
+                    <div className="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-lg">
+                        <p className="text-sm text-rose-800 font-medium">Error:</p>
+                        <p className="text-sm text-rose-700 mt-1">{employeeSaveError}</p>
+                    </div>
+                )}
                 <div className="space-y-4">
                      <div className="grid grid-cols-2 gap-4">
                         <div>

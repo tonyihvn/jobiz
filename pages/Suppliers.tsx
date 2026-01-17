@@ -3,10 +3,11 @@ import { Product, CategoryGroup, Supplier, Role } from '../types';
 import { authFetch } from '../services/auth';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
 
     const Suppliers = () => {
-  
+  const { selectedBusinessId } = useBusinessContext();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [newSupplier, setNewSupplier] = useState<Partial<Supplier>>({});
@@ -18,13 +19,13 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
   useEffect(() => {
         (async () => {
             try {
-                const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll() : [];
+                const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll(selectedBusinessId) : [];
                 setSuppliers(sups || []);
                 const roles = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
                 setUserRole((roles || []).find((r: any) => r.id === 'admin') || null);
             } catch (e) { console.warn('Failed to load suppliers/roles', e); }
         })();
-    }, []);
+    }, [selectedBusinessId]);
 
         // No global quick-create listeners — product/service creation lives in Product Master and Services pages
 
@@ -43,7 +44,7 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
       (async () => {
         if(window.confirm('Are you sure?')) {
             try { if (db.suppliers && db.suppliers.delete) await db.suppliers.delete(id); } catch (e) { console.warn('Delete failed', e); }
-            try { const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll() : []; setSuppliers(sups || []); } catch {};
+            try { const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll(selectedBusinessId) : []; setSuppliers(sups || []); } catch {};
         }
       })();
   };
@@ -67,7 +68,7 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
         try { if (db.suppliers && db.suppliers.save) await db.suppliers.save([s, ...(suppliers || [])]); } catch (e) { console.warn('Save failed', e); }
     }
     
-    try { const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll() : []; setSuppliers(sups || []); } catch {}
+    try { const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll(selectedBusinessId) : []; setSuppliers(sups || []); } catch {}
     setShowModal(false);
     setNewSupplier({});
     setEditingId(null);

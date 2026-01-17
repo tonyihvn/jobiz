@@ -3,9 +3,11 @@ import db from '../services/apiClient';
 import { Role } from '../types';
 import { Shield, Check, Plus, Save, X, Settings, Menu, Database, MapPin, Trash2, Edit2 } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Admin = () => {
   const { businessId } = useContextBusinessId();
+  const { selectedBusinessId } = useBusinessContext();
   const [activeTab, setActiveTab] = useState<'roles' | 'locations'>('roles');
   
   // Roles management
@@ -28,19 +30,19 @@ const Admin = () => {
         (async () => {
             try {
                 // Load roles
-                const rolesData = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
+                const rolesData = db.roles && db.roles.getAll ? await db.roles.getAll(selectedBusinessId) : [];
                 if (!mounted) return;
                 setRoles(Array.isArray(rolesData) ? rolesData : []);
                 if (!selectedRole && Array.isArray(rolesData) && rolesData.length > 0) setSelectedRole(rolesData[0]);
                 
                 // Load locations
-                const locsData = db.locations && db.locations.getAll ? await db.locations.getAll() : [];
+                const locsData = db.locations && db.locations.getAll ? await db.locations.getAll(selectedBusinessId) : [];
                 if (!mounted) return;
                 setLocations(Array.isArray(locsData) ? locsData : []);
                 
                 // build dynamic permissions from categories (group names)
                 try {
-                    const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
+                    const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId) : [];
                     const groups: Record<string, boolean> = {};
                     (cats || []).forEach((c: any) => { if (c && c.group) groups[c.group] = groups[c.group] || !!(c.isProduct || c.is_product); });
                     const groupEntries = Object.keys(groups).map(g => ({ group: g, isProduct: groups[g] }));
@@ -89,7 +91,7 @@ const Admin = () => {
             }
         })();
         return () => { mounted = false; };
-  }, [businessId]);
+  }, [businessId, selectedBusinessId]);
 
     // menuPermissions and resourcePermissions are built dynamically and stored in state
     // They default to empty until categories are loaded (built in useEffect)
@@ -146,10 +148,11 @@ const Admin = () => {
     if (!selectedRole) return;
     
     let newPerms;
-    if (selectedRole.permissions.includes(permId)) {
-        newPerms = selectedRole.permissions.filter(p => p !== permId);
+    const perms = Array.isArray(selectedRole.permissions) ? selectedRole.permissions : [];
+    if (perms.includes(permId)) {
+        newPerms = perms.filter(p => p !== permId);
     } else {
-        newPerms = [...selectedRole.permissions, permId];
+        newPerms = [...perms, permId];
     }
 
     updateRolePermissions(newPerms);
@@ -201,7 +204,7 @@ const Admin = () => {
         address: newLocation.address
       });
       if (result && result.success) {
-        const updatedLocations = await db.locations.getAll();
+        const updatedLocations = await db.locations.getAll(selectedBusinessId);
         setLocations(Array.isArray(updatedLocations) ? updatedLocations : []);
         setNewLocation({ name: '', address: '' });
       }
@@ -221,7 +224,7 @@ const Admin = () => {
         address: editingLocation.address
       });
       if (result && result.success) {
-        const updatedLocations = await db.locations.getAll();
+        const updatedLocations = await db.locations.getAll(selectedBusinessId);
         setLocations(Array.isArray(updatedLocations) ? updatedLocations : []);
         setEditingLocation(null);
       }
@@ -238,7 +241,7 @@ const Admin = () => {
       setLoadingLocations(true);
       const result = await db.locations.delete(locId);
       if (result && result.success) {
-        const updatedLocations = await db.locations.getAll();
+        const updatedLocations = await db.locations.getAll(selectedBusinessId);
         setLocations(Array.isArray(updatedLocations) ? updatedLocations : []);
       }
     } catch (err) {
@@ -346,7 +349,7 @@ const Admin = () => {
                               </h3>
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                   {menuPermissions.map(perm => {
-                                      const hasPerm = selectedRole.permissions.includes(perm.id);
+                                      const hasPerm = selectedRole && Array.isArray(selectedRole.permissions) && selectedRole.permissions.includes(perm.id);
                                       return (
                                           <div 
                                               key={perm.id}
@@ -375,8 +378,9 @@ const Admin = () => {
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                   {resourcePermissions.map(res => {
                                       // Check if any permission exists for this resource
+                                      const perms = Array.isArray(selectedRole?.permissions) ? selectedRole.permissions : [];
                                       const hasAny = ['create', 'read', 'update', 'delete'].some(act => 
-                                          selectedRole.permissions.includes(`${res.id}:${act}`)
+                                          perms.includes(`${res.id}:${act}`)
                                       );
                                       
                                       return (
@@ -398,7 +402,8 @@ const Admin = () => {
                                                       <div className="flex gap-1 mt-1">
                                                           {['C','R','U','D'].map((l, i) => {
                                                               const act = ['create', 'read', 'update', 'delete'][i];
-                                                              const active = selectedRole.permissions.includes(`${res.id}:${act}`);
+                                                              const perms = Array.isArray(selectedRole?.permissions) ? selectedRole.permissions : [];
+                                                              const active = perms.includes(`${res.id}:${act}`);
                                                               return (
                                                                   <span key={act} className={`text-[10px] font-bold px-1 rounded ${active ? 'bg-indigo-200 text-indigo-800' : 'bg-slate-200 text-slate-400'}`}>
                                                                       {l}
@@ -584,7 +589,8 @@ const Admin = () => {
                           { id: 'delete', label: 'Delete', desc: 'Can remove records' }
                       ].map(action => {
                           const permKey = `${editingResource.id}:${action.id}`;
-                          const isChecked = selectedRole.permissions.includes(permKey);
+                          const perms = Array.isArray(selectedRole?.permissions) ? selectedRole.permissions : [];
+                          const isChecked = perms.includes(permKey);
                           
                           return (
                               <label key={action.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import db from '../services/apiClient';
 import { CompanySettings, Role } from '../types';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Save, Download, Upload, Image as ImageIcon, Plus, Check, AlertCircle } from 'lucide-react';
 import { getImageUrl } from '../services/format';
 
 const Settings = () => {
+    const { selectedBusinessId } = useBusinessContext();
     const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
@@ -27,7 +29,7 @@ const Settings = () => {
                     }
                 }
                 if (db.locations && db.locations.getAll) {
-                    const locs = await db.locations.getAll();
+                    const locs = await db.locations.getAll(selectedBusinessId);
                     if (mounted) setLocations(locs || []);
                 }
                 if (db.roles && db.roles.getAll) {
@@ -39,7 +41,7 @@ const Settings = () => {
             }
         })();
         return () => { mounted = false; };
-    }, []);
+    }, [selectedBusinessId]);
 
     const handleSave = async () => {
         try {

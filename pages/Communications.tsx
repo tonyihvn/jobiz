@@ -3,8 +3,10 @@ import { MessageSquare, Mail, Smartphone, Send, Users, CheckCircle } from 'lucid
 import { Category } from '../types';
 import db from '../services/apiClient';
 import { authFetch } from '../services/auth';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Communications = () => {
+  const { selectedBusinessId } = useBusinessContext();
   const [method, setMethod] = useState<'email' | 'sms'>('email');
     const [recipientType, setRecipientType] = useState<'all' | 'group' | 'individual'>('all');
         const [selectedGroup, setSelectedGroup] = useState<string>('Membership');
@@ -16,15 +18,15 @@ const Communications = () => {
     useEffect(() => {
         (async () => {
             try {
-                const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
+                const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId) : [];
                 setCategories(cats || []);
                 const groups = Array.from(new Set((cats || []).map((c: any) => c.group).filter(Boolean)));
                 if (groups.length > 0) setSelectedGroup(groups[0]);
-                const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                const custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
                 setContacts(Array.isArray(custs) ? custs : []);
             } catch (e) { /* ignore */ }
         })();
-    }, []);
+    }, [selectedBusinessId]);
   const [message, setMessage] = useState('');
   const [subject, setSubject] = useState('');
   const [isSent, setIsSent] = useState(false);

@@ -10,7 +10,7 @@ type TabType = 'notifications' | 'businesses' | 'plans' | 'approvals' | 'payment
 
 const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     const { symbol } = useCurrency();
-    const { selectedBusiness } = useBusinessContext();
+    const { selectedBusiness, selectedBusinessId } = useBusinessContext();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('notifications');
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
@@ -64,18 +64,21 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     }
   };
 
-  // Load business data when viewing data tab
+  // Load business data when viewing data tab or when selected business changes
   useEffect(() => {
     const loadBusinessData = async () => {
       if (activeTab === 'data' || activeTab === 'payments' || activeTab === 'approvals') {
         try {
           const data = {
-            products: await db.products.getAll().catch(() => []),
-            sales: await db.sales.getAll().catch(() => []),
-            customers: await db.customers.getAll().catch(() => []),
-            employees: await db.employees.getAll().catch(() => []),
+            products: await db.products.getAll(selectedBusinessId).catch(() => []),
+            sales: await db.sales.getAll(selectedBusinessId).catch(() => []),
+            customers: await db.customers.getAll(selectedBusinessId).catch(() => []),
+            employees: await db.employees.getAll(selectedBusinessId).catch(() => []),
             transactions: await db.transactions.getAll().catch(() => []),
           };
+          
+          // Backend already filters by selectedBusinessId when passed
+          
           setBusinessData(data);
         } catch (e) {
           console.error('Failed to load business data:', e);
@@ -83,7 +86,7 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
       }
     };
     loadBusinessData();
-  }, [activeTab]);
+  }, [activeTab, selectedBusinessId]);
 
   const toggleStatus = (b: Business) => {
       const newStatus = b.status === 'active' ? 'suspended' : 'active';

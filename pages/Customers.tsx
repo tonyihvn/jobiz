@@ -4,9 +4,11 @@ import db from '../services/apiClient';
 import { Customer, Role } from '../types';
 import { Plus, X, Save, Edit2, Trash2 } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Customers = () => {
   const { businessId } = useContextBusinessId();
+  const { selectedBusinessId } = useBusinessContext();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({});
@@ -16,9 +18,17 @@ const Customers = () => {
   useEffect(() => {
         (async () => {
             try {
-                const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
-                setCustomers(custs || []);
+                let custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                
+                // Get current user to check if super admin
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+                const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+                
+                // Filter by selected business only for non-super-admin users
+                if (!isSuperAdmin && selectedBusinessId) {
+                    custs = (Array.isArray(custs) ? custs : []).filter((c: any) => c.business_id === selectedBusinessId);
+                }
+                setCustomers(custs || []);
                 if (currentUser && db.roles && db.roles.getAll) {
                     const roles = await db.roles.getAll();
                     setUserRole(Array.isArray(roles) ? roles.find(r => r.id === currentUser.roleId) || null : null);
@@ -27,7 +37,7 @@ const Customers = () => {
                 console.warn('Failed to load customers', e);
             }
         })();
-    }, [businessId]);
+    }, [businessId, selectedBusinessId]);
 
   const hasPermission = (action: string) => {
     if (!userRole) return false;
@@ -56,6 +66,7 @@ const Customers = () => {
                 id: editingId || Date.now().toString(),
                 businessId: businessId || '',
                 name: newCustomer.name!,
+                company: newCustomer.company || '',
                 phone: newCustomer.phone || '',
                 email: newCustomer.email || '',
                 address: newCustomer.address || '',
@@ -74,6 +85,7 @@ const Customers = () => {
 
   const columns: Column<Customer>[] = [
     { header: 'Customer Name', accessor: 'name', key: 'name', sortable: true, filterable: true },
+    { header: 'Company', accessor: 'company', key: 'company', sortable: true, filterable: true },
     { header: 'Category', accessor: 'category', key: 'category', filterable: true, sortable: true },
     { header: 'Phone', accessor: 'phone', key: 'phone', filterable: true },
     { header: 'Email', accessor: 'email', key: 'email', filterable: true },
@@ -129,6 +141,12 @@ const Customers = () => {
                             <label className="block text-sm font-medium text-slate-700 mb-1">Customer Name</label>
                             <input type="text" className="w-full border rounded-lg p-2.5 outline-none" value={newCustomer.name} onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} />
                         </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Company Name</label>
+                            <input type="text" className="w-full border rounded-lg p-2.5 outline-none" value={newCustomer.company} onChange={e => setNewCustomer({...newCustomer, company: e.target.value})} />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
                             <select 

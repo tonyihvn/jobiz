@@ -1,5 +1,11 @@
 import { authFetch, login as authLogin, logout as authLogout, getToken, register as authRegister } from './auth';
 
+function appendBusinessIdToUrl(url: string, businessId?: string): string {
+  if (!businessId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}businessId=${encodeURIComponent(businessId)}`;
+}
+
 async function safeJson(res: Response) {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -47,7 +53,7 @@ export const api = {
   },
 
   products: {
-    getAll: () => authFetch('/api/products').then(safeJson),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/products', businessId)).then(safeJson),
     add: (p: any) => {
       const body = toSnake(p, { categoryName: 'category_name', categoryGroup: 'category_group', isService: 'is_service', imageUrl: 'image_url' });
       return authFetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -60,23 +66,23 @@ export const api = {
   },
 
   locations: {
-    getAll: () => authFetch('/api/locations').then(safeJson),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/locations', businessId)).then(safeJson),
     add: (d: any) => authFetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }).then(safeJson),
     update: (id: string, d: any) => authFetch(`/api/locations/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) }).then(safeJson),
     delete: (id: string) => authFetch(`/api/locations/${id}`, { method: 'DELETE' }).then(safeJson)
   },
 
   stock: {
-    getForProduct: (productId: string) => authFetch(`/api/stock/${productId}`).then(safeJson),
-    history: (productId: string) => authFetch(`/api/stock/history/${productId}`).then(safeJson),
+    getForProduct: (productId: string, businessId?: string) => authFetch(appendBusinessIdToUrl(`/api/stock/${productId}`, businessId)).then(safeJson),
+    history: (productId: string, businessId?: string) => authFetch(appendBusinessIdToUrl(`/api/stock/history/${productId}`, businessId)).then(safeJson),
     increase: (productId: string, locationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string, notes?: string) => authFetch('/api/stock/increase', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, locationId, qty, supplierId, batchNumber, referenceId, notes }) }).then(safeJson),
     decrease: (productId: string, locationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string) => authFetch('/api/stock/decrease', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, locationId, qty, supplierId, batchNumber, referenceId }) }).then(safeJson),
     move: (productId: string, fromLocationId: string, toLocationId: string, qty: number, supplierId?: string, batchNumber?: string, referenceId?: string) => authFetch('/api/stock/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, fromLocationId, toLocationId, qty, supplierId, batchNumber, referenceId }) }).then(safeJson),
-    historyAll: () => authFetch('/api/stock/history').then(safeJson)
+    historyAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/stock/history', businessId)).then(safeJson)
   },
 
   sales: {
-    getAll: () => authFetch('/api/sales').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/sales', businessId)).then(safeJson).catch(() => []),
     add: (sale: any) => authFetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson)
   },
 
@@ -88,7 +94,7 @@ export const api = {
   },
 
   services: {
-    getAll: () => authFetch('/api/services').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/services', businessId)).then(safeJson).catch(() => []),
     add: (s: any) => {
       const body = toSnake(s, { categoryName: 'category_name', categoryGroup: 'category_group', imageUrl: 'image_url' });
       return authFetch('/api/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
@@ -102,7 +108,7 @@ export const api = {
 
   // Generic placeholders; serverside endpoints may need to be implemented
   customers: {
-    getAll: () => authFetch('/api/customers').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/customers', businessId)).then(safeJson).catch(() => []),
     add: (c: any) => {
       const body = toSnake(c);
       return authFetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -110,7 +116,7 @@ export const api = {
   },
 
   suppliers: {
-    getAll: () => authFetch('/api/suppliers').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/suppliers', businessId)).then(safeJson).catch(() => []),
     add: (s: any) => {
       const body = toSnake(s, { contactPerson: 'contact_person' });
       return authFetch('/api/suppliers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -118,7 +124,7 @@ export const api = {
   },
 
   employees: {
-    getAll: () => authFetch('/api/employees').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/employees', businessId)).then(safeJson).catch(() => []),
     add: (e: any) => authFetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) }).then(safeJson),
     update: (id: string, e: any) => authFetch(`/api/employees/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) }).then(safeJson).catch(() => null),
     delete: (id: string) => authFetch(`/api/employees/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
@@ -154,7 +160,7 @@ const db = {
   },
   // Transactions (server implements /api/transactions)
   transactions: {
-    getAll: () => authFetch('/api/transactions').then(safeJson).then((data: any[]) => 
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/transactions', businessId)).then(safeJson).then((data: any[]) => 
       (data || []).map(t => ({
         ...t,
         accountHead: t.account_head || t.accountHead,
@@ -188,6 +194,8 @@ const db = {
   // Sales helpers (compat)
   sales: {
     ...api.sales,
+    update: (id: string, sale: any) => authFetch(`/api/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson).catch(() => null),
+    delete: (id: string) => authFetch(`/api/sales/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null),
     processReturn: async (saleId: string, reason: string, products?: any[]) => {
       try {
         return await authFetch(`/api/sales/${saleId}/return`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, products }) }).then(safeJson).catch(() => null);
@@ -196,7 +204,7 @@ const db = {
   },
   // Account heads, roles, categories, reports, tasks, audit: provide safe defaults or minimal implementations
   accountHeads: {
-    getAll: () => authFetch('/api/account-heads').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/account-heads', businessId)).then(safeJson).catch(() => []),
     add: (a: any) => authFetch('/api/account-heads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a) }).then(safeJson).catch(() => null),
     update: (id: string, a: any) => authFetch(`/api/account-heads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a) }).then(safeJson).catch(() => null),
     delete: (id: string) => authFetch(`/api/account-heads/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
@@ -217,7 +225,7 @@ const db = {
     }
   },
   roles: {
-    getAll: () => authFetch('/api/roles').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/roles', businessId)).then(safeJson).catch(() => []),
     add: (r: any) => {
       console.log('[API-ROLES-ADD] Creating role:', r);
       return authFetch('/api/roles', { 
@@ -287,7 +295,7 @@ const db = {
     }
   },
   categories: {
-    getAll: () => authFetch('/api/categories').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/categories', businessId)).then(safeJson).catch(() => []),
     add: (c: any) => {
       const body = toSnake(c, { categoryGroup: 'group', isProduct: 'is_product' });
       return authFetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
@@ -321,7 +329,7 @@ const db = {
     delete: (id: string) => authFetch(`/api/reports/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
   },
   tasks: {
-    getAll: () => authFetch('/api/tasks').then(safeJson).catch(() => []),
+    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/tasks', businessId)).then(safeJson).catch(() => []),
     add: (t: any) => authFetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).then(safeJson).catch(() => null),
     update: (id: string, t: any) => authFetch(`/api/tasks/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).then(safeJson).catch(() => null),
     delete: (id: string) => authFetch(`/api/tasks/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null),
@@ -337,9 +345,10 @@ const db = {
     }
   },
   audit: {
-      getAll: async () => {
+      getAll: async (businessId?: string) => {
         try {
-          const res = await authFetch('/api/audit-logs');
+          const url = appendBusinessIdToUrl('/api/audit-logs', businessId);
+          const res = await authFetch(url);
           if (!res.ok) return [];
           const data = await res.json();
           return data;

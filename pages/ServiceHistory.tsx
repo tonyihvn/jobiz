@@ -5,32 +5,60 @@ import { authFetch } from '../services/auth';
 import { SaleRecord, Product, CompanySettings } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
-import { Printer, X, FileText, Download } from 'lucide-react';
+import { useBusinessContext } from '../services/BusinessContext';
+import { Printer, X, FileText, Download, Trash2 } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 
 const ServiceHistory = () => {
     const { symbol } = useCurrency();
+    const { selectedBusinessId } = useBusinessContext();
   const [services, setServices] = useState<SaleRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'services' | 'items'>('services');
-  
-  // Document Viewing State
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [docType, setDocType] = useState<'thermal' | 'a4'>('a4');
-  const [viewingSale, setViewingSale] = useState<SaleRecord | null>(null);
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
     const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
+    const [currentUser, setCurrentUser] = useState<any>(null);
 
     useEffect(() => {
         let mounted = true;
         (async () => {
             try {
-                const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
-                const p = db.products && db.products.getAll ? await db.products.getAll() : [];
+                console.log('[ServiceHistory] Loading data, selectedBusinessId:', selectedBusinessId);
+                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
+                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
                 const sett = db.settings && db.settings.get ? await db.settings.get() : emptySettings;
-                const c = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
+                const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+                
+                console.log('[ServiceHistory] Raw API response:', {
+                  salesCount: (Array.isArray(s) ? s : []).length,
+                  productsCount: (Array.isArray(p) ? p : []).length,
+                  customersCount: (Array.isArray(c) ? c : []).length,
+                  firstSaleHasBizId: s && s[0] ? !!s[0].business_id : 'no sales',
+                  userIsSuperAdmin: u && (u.is_super_admin || u.isSuperAdmin),
+                });
+                
+                // For super admin: show filtered data when businessId is passed
+                // For regular user: always filtered to their business
+                const isSuperAdmin = u && (u.is_super_admin || u.isSuperAdmin);
+                if (isSuperAdmin && selectedBusinessId) {
+                    console.log('[ServiceHistory] Super admin with business selection:', selectedBusinessId);
+                    // Backend should already filter with businessId query param
+                } else if (isSuperAdmin) {
+                    console.log('[ServiceHistory] Super admin: showing ALL data from all companies');
+                } else if (selectedBusinessId) {
+                    console.log('[ServiceHistory] Filtering by business (non-super-admin):', selectedBusinessId);
+                    // Backend already filters for regular users
+                }
+                
+                console.log('[ServiceHistory] After API call:', {
+                  salesCount: (Array.isArray(s) ? s : []).length,
+                  productsCount: (Array.isArray(p) ? p : []).length,
+                  customersCount: (Array.isArray(c) ? c : []).length,
+                });
                 
                 if (!mounted) return;
                 // Filter sales to only include those with service items
@@ -47,17 +75,178 @@ const ServiceHistory = () => {
                 setProducts(Array.isArray(p) ? p : []);
                 setSettings(sett as CompanySettings);
                 setCustomers(Array.isArray(c) ? c : []);
+                setCurrentUser(u);
             } catch (e) {
                 console.error('[ServiceHistory] Failed to load service history data:', e);
             }
         })();
         return () => { mounted = false; };
-    }, []);
+    }, [selectedBusinessId]);
 
-  const handleViewDocument = (sale: SaleRecord, type: 'thermal' | 'a4') => {
-      setViewingSale(sale);
-      setDocType(type);
-      setShowDocModal(true);
+  const handleViewDocument = (sale: SaleRecord, type?: 'thermal' | 'a4') => {
+      // If is_proforma is 1, force A4 template (not thermal)
+      const useA4 = sale.isProforma || (sale as any).is_proforma === 1;
+      const docType = useA4 ? 'a4' : type || 'a4';
+      
+      const receiptWindow = window.open('', 'ServiceInvoice', `width=${docType === 'a4' ? 1000 : 800},height=${docType === 'a4' ? 900 : 700},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no`);
+      if (!receiptWindow) {
+        alert('Please allow pop-ups to view invoices');
+        return;
+      }
+      
+      const customer = sale.customerId ? customers.find(c => c.id === sale.customerId) : null;
+      const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${useA4 ? 'Proforma Invoice' : 'Service Invoice'}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+              background: white; 
+              padding: ${useA4 ? '0' : '40px'}; 
+            }
+            .wrapper { 
+              display: flex; 
+              flex-direction: column; 
+              ${useA4 ? 'min-height: 297mm; width: 210mm; margin: 0 auto;' : ''} 
+            }
+            .container { 
+              ${useA4 ? 'max-width: 210mm; min-height: 297mm;' : 'max-width: 900px;'} 
+              margin: 0 auto; 
+              flex: 1; 
+              background: white; 
+              color: #1e293b; 
+              padding: ${hasHeaderFooter ? '0' : '40px'}; 
+            }
+            .content { padding: 40px; }
+            .header-img { width: 100%; height: auto; display: block; }
+            .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+            .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+            .title p { color: #64748b; font-size: 13px; }
+            .company { text-align: right; }
+            .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+            .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+            .bill-to { margin-bottom: 24px; }
+            .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+            .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+            .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+            .detail-item { }
+            .detail-label { font-weight: bold; color: #64748b; }
+            table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+            thead { border-bottom: 2px solid #1e293b; }
+            th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
+            td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
+            .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+            .totals-table { width: 280px; }
+            .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+            .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; }
+            .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+            @media print { 
+              body { padding: 0; margin: 0; } 
+              .wrapper { min-height: auto; } 
+              .container { padding: 0; } 
+              .content { padding: 40px; } 
+              @page { size: A4; margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="wrapper">
+            ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+            <div class="container">
+              <div class="content">
+                <div class="header">
+                  <div class="title">
+                    <h1>${useA4 ? (sale.isProforma ? 'PROFORMA INVOICE' : 'SERVICE INVOICE') : 'SERVICE INVOICE'}</h1>
+                    <p>#${sale.id.slice(-8)}</p>
+                  </div>
+                  ${!hasHeaderFooter ? `<div class="company">
+                    <h2>${settings.name}</h2>
+                    <p>${settings.address || ''}</p>
+                    <p>${settings.phone || ''}</p>
+                    <p>${settings.email || ''}</p>
+                  </div>` : ''}
+                </div>
+
+                <div class="bill-to">
+                  <h3>BILL TO</h3>
+                  ${customer ? `
+                    <p><strong>${customer.name || ''}</strong></p>
+                    ${customer.company ? `<p>${customer.company}</p>` : ''}
+                    <p>${customer.address || 'N/A'}</p>
+                    <p>Phone: ${customer.phone || 'N/A'}</p>
+                    <p>Email: ${customer.email || 'N/A'}</p>
+                  ` : '<p>Walk-in Customer</p>'}
+                </div>
+
+                <div class="invoice-details">
+                  <div class="detail-item">
+                    <span class="detail-label">Invoice Date:</span> ${new Date(sale.date).toLocaleDateString()}
+                  </div>
+                  <div class="detail-item">
+                    <span class="detail-label">Invoice ID:</span> ${sale.id.slice(-8)}
+                  </div>
+                  ${sale.particulars ? `<div class="detail-item"><span class="detail-label">Particulars:</span> ${sale.particulars}</div>` : ''}
+                </div>
+
+                <table>
+                  <thead>
+                    <tr>
+                      <th>DESCRIPTION</th>
+                      <th style="text-align: right;">RATE</th>
+                      <th style="text-align: right;">QTY</th>
+                      <th style="text-align: right;">AMOUNT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${enrichItems(sale).map((item: any) => {
+                        const desc = item.description ? item.name + ' — ' + item.description : item.name || '';
+                        const amount = (Number(item.price) * Number(item.quantity)).toFixed(2);
+                        return `<tr><td>${desc}</td><td style="text-align: right;">${symbol}${(Number(item.price)).toFixed(2)}</td><td style="text-align: right;">${item.quantity || 0}</td><td style="text-align: right; font-weight: bold;">${symbol}${amount}</td></tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+
+                <div class="totals">
+                  <div class="totals-table">
+                    <div class="totals-row">
+                      <span>Subtotal</span>
+                      <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                    </div>
+                    ${Number(sale.vat) > 0 ? `
+                    <div class="totals-row">
+                      <span>VAT (${settings.vatRate || 7.5}%)</span>
+                      <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                    </div>
+                    ` : ''}
+                    <div class="totals-row final">
+                      <span>TOTAL</span>
+                      <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+              </div>
+            </div>
+            ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+          </div>
+          <script>
+            window.onload = () => { window.print(); };
+          </script>
+        </body>
+        </html>
+      `;
+      
+      receiptWindow.document.write(htmlContent);
+      receiptWindow.document.close();
   };
 
   const enrichItems = (sale: SaleRecord) => {
@@ -116,17 +305,272 @@ const ServiceHistory = () => {
       } catch (e) { console.warn('WhatsApp send failed', e); alert('Failed to open WhatsApp'); }
   };
 
+  const handleDeleteSale = async (saleId: string) => {
+      if (!window.confirm('Are you sure you want to delete this service invoice? This action cannot be undone.')) {
+          return;
+      }
+      try {
+          const response = await db.sales.delete(saleId);
+          if (response && !response.error) {
+              alert('Service invoice deleted successfully');
+              setServices(services.filter(s => s.id !== saleId));
+          } else {
+              alert('Failed to delete: ' + (response?.error || 'Unknown error'));
+          }
+      } catch (e) {
+          console.error('Delete failed:', e);
+          alert('Failed to delete service invoice');
+      }
+  };
+
+  const printReceipt = (sale: SaleRecord) => {
+      try {
+          const customer = sale.customerId ? customers.find(c => c.id === sale.customerId) : null;
+          const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+          
+          const printWindow = window.open('', 'ServiceInvoicePrint', 'width=900,height=800,resizable=yes,scrollbars=no');
+          if (!printWindow) {
+              alert('Please allow pop-ups to print invoices');
+              return;
+          }
+          
+          const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Service Invoice</title>
+              <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: Arial, sans-serif; background: white; }
+                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; }
+                .content { padding: 40px; }
+                .header-img { width: 100%; height: auto; display: block; }
+                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+                .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+                .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
+                .title p { color: #64748b; font-size: 13px; }
+                .company { text-align: right; }
+                .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
+                .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
+                .bill-to { margin-bottom: 24px; }
+                .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
+                .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+                table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+                thead { border-bottom: 2px solid #1e293b; }
+                th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
+                td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
+                .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
+                .totals-table { width: 240px; }
+                .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; }
+                @media print { body { padding: 0; margin: 0; } .wrapper { min-height: auto; } .container { padding: 0; } .content { padding: 40px; } }
+              </style>
+            </head>
+            <body>
+              <div class="wrapper">
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+                <div class="container">
+                  <div class="content">
+                    <div class="header">
+                      <div class="title">
+                        <h1>SERVICE INVOICE</h1>
+                        <p>#${sale.id.slice(-8)}</p>
+                      </div>
+                      ${!hasHeaderFooter ? `<div class="company">
+                        <h2>${settings.name}</h2>
+                        <p>${settings.address}</p>
+                        <p>${settings.phone}</p>
+                        <p>${settings.email}</p>
+                      </div>` : ''}
+                    </div>
+
+                    <div class="bill-to">
+                      <h3>BILL TO</h3>
+                      ${customer ? `
+                        <p><strong>${customer.name}</strong></p>
+                        ${customer.company ? `<p>${customer.company}</p>` : ''}
+                        <p>${customer.address || 'N/A'}</p>
+                        <p>${customer.phone || 'N/A'}</p>
+                      ` : '<p>Walk-in Customer</p>'}
+                    </div>
+
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>SERVICE DESCRIPTION</th>
+                          <th style="text-align: right;">RATE</th>
+                          <th style="text-align: right;">QTY</th>
+                          <th style="text-align: right;">AMOUNT</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${enrichItems(sale).map((item: any) => `
+                          <tr>
+                            <td>${item.description ? `${item.name} — ${item.description}` : item.name || ''}</td>
+                            <td style="text-align: right;">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                            <td style="text-align: right;">${item.quantity || 0}</td>
+                            <td style="text-align: right; font-weight: bold;">${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+
+                    <div class="totals">
+                      <div class="totals-table">
+                        <div class="totals-row">
+                          <span>Subtotal</span>
+                          <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                        </div>
+                        <div class="totals-row">
+                          <span>VAT (${settings.vatRate || 7.5}%)</span>
+                          <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                        </div>
+                        ${sale.deliveryFee ? `
+                          <div class="totals-row">
+                            <span>Delivery</span>
+                            <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
+                          </div>
+                        ` : ''}
+                        <div class="totals-row final">
+                          <span>TOTAL</span>
+                          <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+              </div>
+              <script>
+                window.onload = () => { window.print(); };
+              </script>
+            </body>
+            </html>
+          `;
+          
+          printWindow.document.write(htmlContent);
+          printWindow.document.close();
+      } catch (e) {
+          console.error('Print failed:', e);
+          alert('Failed to print invoice');
+      }
+  };
+
   const downloadReceipt = (sale: SaleRecord) => {
       try {
-          const text = buildReceiptText(sale);
-          const blob = new Blob([text], { type: 'text/plain' });
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Invoice_${sale.id.slice(-8)}.txt`;
-          a.click();
-          window.URL.revokeObjectURL(url);
-      } catch (e) { console.warn('Download failed', e); alert('Failed to download receipt'); }
+          const customer = sale.customerId ? customers.find(c => c.id === sale.customerId) : null;
+          const enrichedItems = enrichItems(sale);
+          
+          const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+          
+          const invoiceHTML = `
+            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; min-height: 297mm;">
+              ${hasHeaderFooter ? `<div style="margin-bottom: 24px; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+              <div style="padding: 20px; flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+                  <div>
+                    ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="height: 60px; margin-bottom: 12px;" />` : ''}
+                    <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 4px 0;">INVOICE</h1>
+                    <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id}</p>
+                  </div>
+                  ${!hasHeaderFooter ? `<div style="text-align: right;">
+                    <h2 style="font-weight: bold; font-size: 12px; margin: 0 0 4px 0;">${settings.name}</h2>
+                    <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.address}</p>
+                    <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.phone}</p>
+                    <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.email}</p>
+                  </div>` : ''}
+                </div>
+              
+              <div style="margin-bottom: 24px;">
+                <h3 style="font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px;">BILL TO</h3>
+                ${customer ? `
+                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0;"><strong>${customer.name}</strong></p>
+                  ${customer.company ? `<p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0;">${customer.company}</p>` : ''}
+                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0;">${customer.address || 'N/A'}</p>
+                  <p style="font-size: 13px; color: #1e293b; margin: 0;">${customer.phone || 'N/A'}</p>
+                ` : '<p style="font-size: 13px; color: #1e293b; margin: 0;">Walk-in Customer</p>'}
+              </div>
+              
+              <table style="width: 100%; margin-bottom: 24px; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #1e293b;">
+                    <th style="text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px;">Description</th>
+                    <th style="text-align: right; padding: 10px 0; font-weight: bold; font-size: 12px;">Qty</th>
+                    <th style="text-align: right; padding: 10px 0; font-weight: bold; font-size: 12px;">Unit</th>
+                    <th style="text-align: right; padding: 10px 0; font-weight: bold; font-size: 12px;">Price</th>
+                    <th style="text-align: right; padding: 10px 0; font-weight: bold; font-size: 12px;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${enrichedItems.map((item: any) => `
+                    <tr style="border-bottom: 1px solid #e2e8f0;">
+                      <td style="padding: 12px 0; font-size: 13px;">${item.description ? `${item.name} — ${item.description}` : item.name || ''}</td>
+                      <td style="text-align: right; padding: 12px 0; font-size: 13px;">${item.quantity || 0}</td>
+                      <td style="text-align: right; padding: 12px 0; font-size: 13px;">${item.unit || 'N/A'}</td>
+                      <td style="text-align: right; padding: 12px 0; font-size: 13px;">${symbol}${(Number(item.price)).toFixed(2)}</td>
+                      <td style="text-align: right; padding: 12px 0; font-size: 13px;"><strong>${symbol}${(Number(item.price) * Number(item.quantity)).toFixed(2)}</strong></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              
+              <div style="display: flex; justify-content: flex-end;">
+                <div style="width: 240px;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                    <span>Subtotal</span>
+                    <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                    <span>VAT (7.5%)</span>
+                    <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
+                  </div>
+                  ${sale.deliveryFee ? `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                      <span>Delivery</span>
+                      <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
+                    </div>
+                  ` : ''}
+                  <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold;">
+                    <span>Total</span>
+                    <span>${symbol}${Number(sale.total).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div style="margin-top: 60px; display: flex; justify-content: space-between;">
+                <div style="flex: 1;">
+                  <p style="margin: 0 0 30px 0; font-size: 13px; font-weight: bold;">Customer</p>
+                  <div style="border-top: 1px solid #000; width: 150px;"></div>
+                </div>
+                <div style="flex: 1; text-align: right;">
+                  <p style="margin: 0 0 30px 0; font-size: 13px; font-weight: bold;">Signed Manager</p>
+                  <div style="border-top: 1px solid #000; width: 150px;"></div>
+                </div>
+              </div>
+              </div>
+              ${hasHeaderFooter ? `<div style="margin-top: auto; width: 100%;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+            </div>
+          `;
+          
+          const element = document.createElement('div');
+          element.innerHTML = invoiceHTML;
+          
+          const opt = {
+              margin: [10, 10, 10, 10] as [number, number, number, number],
+              filename: `Invoice_${sale.id.slice(-8)}.pdf`,
+              image: { type: 'jpeg' as const, quality: 0.98 },
+              html2canvas: { scale: 2 },
+              jsPDF: { orientation: 'portrait' as const, unit: 'mm', format: 'a4' }
+          };
+          
+          html2pdf().set(opt).from(element).save();
+      } catch (e) { 
+          console.warn('PDF download failed', e); 
+          alert('Failed to download invoice as PDF'); 
+      }
   };
 
   const serviceColumns: Column<SaleRecord>[] = [
@@ -139,12 +583,33 @@ const ServiceHistory = () => {
         header: 'Actions',
         accessor: (sale: SaleRecord) => (
             <div className="flex gap-2 flex-wrap">
-                <button onClick={() => handleViewDocument(sale, 'a4')} title="View Invoice" className="text-blue-600 hover:bg-blue-50 p-1 rounded">
+                <button 
+                  onClick={() => {
+                    // Enrich sale data with item names and customer info before sending to POS
+                    const enrichedSale = {
+                      ...sale,
+                      items: enrichItems(sale),
+                      customer: sale.customerId ? customers.find(c => c.id === sale.customerId) : null,
+                    };
+                    window.history.pushState({ usr: enrichedSale }, '', '/#/pos');
+                    window.location.href = '/#/pos';
+                  }} 
+                  title="Edit Service"
+                  className="text-blue-600 hover:bg-blue-50 p-1 rounded font-medium text-xs"
+                >
+                  Edit
+                </button>
+                <button onClick={() => handleViewDocument(sale)} title="View Invoice" className="text-blue-600 hover:bg-blue-50 p-1 rounded">
                     <FileText size={16} />
                 </button>
                 <button onClick={() => downloadReceipt(sale)} title="Download" className="text-green-600 hover:bg-green-50 p-1 rounded">
                     <Printer size={16} />
                 </button>
+                {currentUser && (currentUser.is_super_admin || currentUser.roleId) && (
+                    <button onClick={() => handleDeleteSale(sale.id)} title="Delete Service" className="text-red-600 hover:bg-red-50 p-1 rounded">
+                        <Trash2 size={16} />
+                    </button>
+                )}
             </div>
         ),
         key: 'actions'
@@ -206,127 +671,6 @@ const ServiceHistory = () => {
 
       {activeTab === 'services' && <DataTable data={services} columns={serviceColumns} title="Service Invoices" />}
       {activeTab === 'items' && <DataTable data={itemHistory} columns={itemColumns} title="Service Item History" />}
-
-      {/* Document Modal */}
-      {showDocModal && viewingSale && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-lg max-h-[90vh] w-full max-w-4xl flex flex-col service-doc-modal" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', overflowY: 'auto' }}>
-            <div className="p-4 border-b flex justify-between items-center no-print sticky top-0 bg-white z-10">
-              <h3 className="text-lg font-bold text-slate-800">Service Invoice #{viewingSale.id.slice(-8)}</h3>
-              <div className="flex gap-2">
-                <button onClick={() => downloadReceipt(viewingSale)} title="Download as PDF" className="px-3 py-1 bg-green-600 text-white rounded flex items-center gap-1"><Download size={16}/> Download</button>
-                <button onClick={() => window.print()} className="px-3 py-1 bg-blue-600 text-white rounded flex items-center gap-1"><Printer size={16}/> Print</button>
-                <button onClick={() => sendEmailReceipt(viewingSale)} className="px-3 py-1 bg-purple-600 text-white rounded flex items-center gap-1">Email</button>
-                <button onClick={() => setShowDocModal(false)} className="px-3 py-1 hover:bg-slate-100 rounded"><X size={20}/></button>
-              </div>
-            </div>
-
-            <div className="p-8 bg-gray-100 overflow-auto flex justify-center flex-1">
-              {/* Document Content */}
-              <div id="a4-service-invoice" className="w-[210mm] h-[297mm] bg-white shadow-none px-12 py-8 flex flex-col overflow-hidden print:overflow-visible">
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl font-bold text-slate-900">INVOICE</h1>
-                  <h2 className="text-xl font-semibold text-slate-800 mt-2">{settings.name}</h2>
-                  <p className="text-sm text-slate-600">{settings.address}</p>
-                  <p className="text-sm text-slate-600">{settings.phone} | {settings.email}</p>
-                </div>
-
-                <div className="flex justify-between mb-8 pb-6 border-b-2 border-slate-800">
-                  <div>
-                    <p className="text-xs font-medium text-slate-700">INVOICE NUMBER</p>
-                    <p className="font-mono text-lg font-bold text-slate-900">{viewingSale.id.slice(-8)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs font-medium text-slate-700">DATE</p>
-                    <p className="font-mono text-lg font-bold text-slate-900">{new Date(viewingSale.date).toLocaleDateString()}</p>
-                  </div>
-                </div>
-
-                <div className="mb-8">
-                  <p className="text-xs font-medium text-slate-700 mb-1">BILL TO:</p>
-                  <p className="text-lg font-semibold text-slate-900">{customers.find(c => c.id === viewingSale.customerId)?.name || viewingSale.customerId || 'N/A'}</p>
-                </div>
-
-                <table className="w-full mb-auto text-sm flex-1">
-                  <thead className="bg-slate-100 border-b-2 border-slate-800">
-                    <tr>
-                      <th className="text-left p-3 font-bold text-slate-900">SERVICE DESCRIPTION</th>
-                      <th className="text-right p-3 font-bold text-slate-900">RATE</th>
-                      <th className="text-right p-3 font-bold text-slate-900">QTY</th>
-                      <th className="text-right p-3 font-bold text-slate-900">AMOUNT</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enrichItems(viewingSale).map((item, idx) => (
-                      <tr key={idx} className="border-b border-slate-200">
-                        <td className="p-3 text-slate-900">{item.name}</td>
-                        <td className="text-right p-3 text-slate-900 font-mono">{symbol}{fmt(item.price,2)}</td>
-                        <td className="text-right p-3 text-slate-900">{item.quantity}</td>
-                        <td className="text-right p-3 text-slate-900 font-bold font-mono">{symbol}{fmt(Number(item.price) * Number(item.quantity),2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div className="flex justify-end mt-6 pt-6 border-t-2 border-slate-800">
-                  <div className="w-56">
-                    <div className="flex justify-between mb-3 pb-3 border-b border-slate-200">
-                      <span className="text-sm text-slate-700">Subtotal:</span>
-                      <span className="text-sm font-mono font-bold text-slate-900">{symbol}{fmt(viewingSale.subtotal || 0,2)}</span>
-                    </div>
-                    <div className="flex justify-between mb-3">
-                      <span className="text-sm text-slate-700">VAT ({settings.vatRate || 0}%):</span>
-                      <span className="text-sm font-mono font-bold text-slate-900">{symbol}{fmt(viewingSale.vat || 0,2)}</span>
-                    </div>
-                    <div className="flex justify-between text-lg font-bold text-slate-900 pt-3 border-t-2 border-slate-800">
-                      <span>TOTAL:</span>
-                      <span className="font-mono">{symbol}{fmt(viewingSale.total || 0,2)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-center text-xs text-slate-600 mt-auto pt-6 border-t border-slate-200">
-                  <p>Thank you for your business!</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`
-        /* Hide scrollbar on document viewer modal */
-        .service-doc-modal::-webkit-scrollbar {
-          display: none;
-        }
-        
-        /* Ensure no shadows on PDF content */
-        #a4-service-invoice * {
-          box-shadow: none !important;
-          -webkit-box-shadow: none !important;
-        }
-        
-        /* Print styles to ensure clean PDF output */
-        @media print {
-          #a4-service-invoice {
-            box-shadow: none !important;
-            -webkit-box-shadow: none !important;
-            width: 210mm;
-            height: 297mm;
-            margin: 0;
-            padding: 0;
-          }
-          
-          #a4-service-invoice * {
-            box-shadow: none !important;
-            -webkit-box-shadow: none !important;
-          }
-          
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

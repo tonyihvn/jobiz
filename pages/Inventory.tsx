@@ -9,9 +9,11 @@ import { Plus, Package, Layers, X, Save, Printer, Barcode, Edit2, Trash2, Upload
 import useFmtCurrency from '../services/useFmtCurrency';
 import { Location } from '../types';
 import { authFetch } from '../services/auth';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const Inventory = () => {
     const { symbol } = useCurrency();
+    const { selectedBusinessId } = useBusinessContext();
     const [activeTab, setActiveTab] = useState<'products'>('products');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -78,13 +80,13 @@ const Inventory = () => {
   useEffect(() => {
         (async () => {
             await refreshData();
-            try { if (db.locations && db.locations.getAll) { const locs = await db.locations.getAll(); setLocationsList(locs || []); } } catch (e) {}
-            try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(); setSuppliers(sups || []); } } catch (e) {}
+            try { if (db.locations && db.locations.getAll) { const locs = await db.locations.getAll(selectedBusinessId); setLocationsList(locs || []); } } catch (e) {}
+            try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(selectedBusinessId); setSuppliers(sups || []); } } catch (e) {}
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
                 if (currentUser && db.roles && db.roles.getAll) {
-                    const roles = await db.roles.getAll();
+                    const roles = await db.roles.getAll(selectedBusinessId);
                     const role = Array.isArray(roles) ? roles.find((r: Role) => r.id === currentUser.roleId) : null;
                     setUserRole(role || null);
                 }
@@ -92,7 +94,7 @@ const Inventory = () => {
                 console.warn('Failed to load user/roles', e);
             }
         })();
-    }, []);
+    }, [selectedBusinessId]);
 
     // Refresh products when a product is created elsewhere (e.g., from Suppliers quick-create)
     useEffect(() => {
@@ -105,7 +107,17 @@ const Inventory = () => {
 
     const refreshData = async () => {
         try {
-            const prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+            let prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+            
+            // Get current user to check if super admin
+            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            
+            // Filter by selected business only for non-super-admin users
+            if (!isSuperAdmin && selectedBusinessId) {
+                prods = (Array.isArray(prods) ? prods : []).filter((p: any) => p.business_id === selectedBusinessId);
+            }
+            
             // normalize service flag: support both camelCase and snake_case from backend
             const isServiceFlag = (p: any) => {
                 if (typeof p.isService !== 'undefined') return !!p.isService;

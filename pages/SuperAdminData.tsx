@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Download, RefreshCw, Edit2, X, Save } from 'lucide-react';
 import { getToken } from '../services/auth';
+import { useBusinessContext } from '../services/BusinessContext';
 
 interface BusinessData {
   business: any;
@@ -17,6 +18,7 @@ interface BusinessData {
 }
 
 const SuperAdminData = () => {
+  const { selectedBusinessId } = useBusinessContext();
   const [businesses, setBusinesses] = useState<BusinessData[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessData | null>(null);
@@ -34,24 +36,73 @@ const SuperAdminData = () => {
   const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
-    fetchAllBusinessesData();
-  }, []);
+    console.log('[SuperAdminData] useEffect triggered, selectedBusinessId:', selectedBusinessId);
+    if (selectedBusinessId) {
+      console.log('[SuperAdminData] Fetching data for selected business:', selectedBusinessId);
+      fetchSelectedBusinessData(selectedBusinessId);
+    } else {
+      console.log('[SuperAdminData] No business selected, loading all businesses');
+      fetchAllBusinessesData();
+    }
+  }, [selectedBusinessId]);
 
   const fetchAllBusinessesData = async () => {
     setLoading(true);
     try {
+      console.log('[SuperAdminData] Fetching ALL businesses data...');
       const response = await fetch('/api/super-admin/all-data', {
         headers: { 'Authorization': `Bearer ${getToken()}` }
       });
       if (response.ok) {
         const data = await response.json();
+        console.log('[SuperAdminData] Received data, businesses:', data.businessesData?.length);
         setBusinesses(data.businessesData || []);
         if (data.businessesData && data.businessesData.length > 0) {
+          console.log('[SuperAdminData] Setting selected business to first:', data.businessesData[0].business.name);
           setSelectedBusiness(data.businessesData[0]);
         }
+      } else {
+        console.error('[SuperAdminData] API returned status:', response.status);
       }
     } catch (error) {
-      console.error('Failed to fetch business data:', error);
+      console.error('[SuperAdminData] Failed to fetch business data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSelectedBusinessData = async (businessId: string) => {
+    setLoading(true);
+    try {
+      console.log('[SuperAdminData] Fetching all data and filtering for business:', businessId);
+      // Fetch all data first
+      const response = await fetch('/api/super-admin/all-data', {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (response.ok) {
+        const allData = await response.json();
+        const allBusinesses = allData.businessesData || [];
+        
+        // Find the selected business
+        const selectedBiz = allBusinesses.find((biz: any) => biz.business.id === businessId);
+        
+        if (selectedBiz) {
+          console.log('[SuperAdminData] Loaded data for selected business:', selectedBiz);
+          setSelectedBusiness(selectedBiz);
+          setBusinesses([selectedBiz]);
+        } else {
+          console.warn('[SuperAdminData] Business not found:', businessId);
+          // Fallback: show first business if selected one not found
+          if (allBusinesses.length > 0) {
+            setSelectedBusiness(allBusinesses[0]);
+            setBusinesses([allBusinesses[0]]);
+          }
+        }
+      } else {
+        console.warn('[SuperAdminData] Failed to load business data, status:', response.status);
+      }
+    } catch (error) {
+      console.error('[SuperAdminData] Failed to fetch business data:', error);
     } finally {
       setLoading(false);
     }

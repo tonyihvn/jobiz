@@ -10,6 +10,34 @@ export function fmtCurrency(value: any, decimals = 2) {
 }
 
 /**
+ * Check if a user has permission for a given action
+ * Handles both object format { category: true } and array format ['category', 'category:read']
+ */
+export function checkPermission(permissions: any, action: string): boolean {
+  if (!permissions) return false;
+  
+  // Handle object format: { categories: true, 'categories:read': true }
+  if (typeof permissions === 'object' && !Array.isArray(permissions)) {
+    return !!permissions[action] || 
+           !!permissions[`${action}:read`] || 
+           !!permissions[`${action}:create`] || 
+           !!permissions[`${action}:update`] || 
+           !!permissions[`${action}:delete`];
+  }
+  
+  // Handle array format: ['categories', 'categories:read']
+  if (Array.isArray(permissions)) {
+    return permissions.includes(action) || 
+           permissions.includes(`${action}:read`) || 
+           permissions.includes(`${action}:create`) || 
+           permissions.includes(`${action}:update`) || 
+           permissions.includes(`${action}:delete`);
+  }
+  
+  return false;
+}
+
+/**
  * Converts a relative image URL to an absolute URL if needed
  * Ensures uploaded images are properly served from the backend
  * Works in both development (with Vite proxy) and production
@@ -41,4 +69,4 @@ export function getImageUrl(url: string | null | undefined): string | null {
   return url;
 }
 
-export default { fmt, fmtCurrency, getImageUrl };
+export default { fmt, fmtCurrency, getImageUrl, checkPermission };

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import db from '../services/apiClient';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
+import { useBusinessContext } from '../services/BusinessContext';
 import { SaleRecord, Transaction, TransactionType } from '../types';
 import { DollarSign, TrendingUp, TrendingDown, ShoppingBag } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -23,6 +24,7 @@ const StatCard = ({ title, value, subtext, icon: Icon, color }: any) => (
 
 const Dashboard = () => {
   const { symbol } = useCurrency();
+  const { selectedBusinessId } = useBusinessContext();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [servicesList, setServicesList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -35,9 +37,9 @@ const Dashboard = () => {
     let mounted = true;
     (async () => {
       try {
-        const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
-        const t = db.transactions && db.transactions.getAll ? await db.transactions.getAll() : [];
-        const sv = db.services && db.services.getAll ? await db.services.getAll() : [];
+        const s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
+        const t = db.transactions && db.transactions.getAll ? await db.transactions.getAll(selectedBusinessId) : [];
+        const sv = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
         const sett = db.settings && db.settings.get ? await db.settings.get() : null;
         const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
         if (!mounted) return;
@@ -55,7 +57,7 @@ const Dashboard = () => {
       }
     })();
     return () => { mounted = false; };
-  }, []);
+  }, [selectedBusinessId]);
 
   // Compute total sales from sale items to ensure services/products both counted
   const getStartDate = (range: 'week'|'month'|'year') => {

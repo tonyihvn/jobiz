@@ -5,10 +5,12 @@ import db from '../services/apiClient';
 import { Product, Role, Category } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
+import { useBusinessContext } from '../services/BusinessContext';
 import { Edit2, Trash2, X, Save, Plus } from 'lucide-react';
 
 const Services = () => {
     const { symbol } = useCurrency();
+    const { selectedBusinessId } = useBusinessContext();
   const [items, setItems] = useState<Product[]>([]);
   const [userRole, setUserRole] = useState<Role | null>(null);
     const [isSuper, setIsSuper] = useState(false);
@@ -32,7 +34,7 @@ const Services = () => {
                 console.warn('Failed to resolve user/roles', e);
             }
         })();
-        }, []);
+        }, [selectedBusinessId]);
 
     // Refresh services list when a service is created elsewhere
     useEffect(() => {
@@ -46,13 +48,20 @@ const Services = () => {
 
     const refreshData = async () => {
         try {
+            // Get current user to check if super admin
+            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            
             // Services are stored in `services` table — prefer that endpoint if available
             let svcList: any[] = [];
             try {
-                svcList = db.services && db.services.getAll ? await db.services.getAll() : [];
+                svcList = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
             } catch (e) {
                 // fallback to products table where some services may live
-                const prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+                let prods = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+                
+                // Backend already filters by business when appropriate
+                
                 const isSvc = (p: any) => {
                     if (typeof p.isService !== 'undefined') return !!p.isService;
                     if (typeof p.is_service !== 'undefined') return !!p.is_service;
@@ -60,6 +69,9 @@ const Services = () => {
                 };
                 svcList = (prods || []).filter((p: any) => isSvc(p));
             }
+            
+            // Backend already filters by business when appropriate
+            
             // load categories for dropdowns (normalize fields)
             try {
                 const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];

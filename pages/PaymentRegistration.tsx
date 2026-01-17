@@ -209,15 +209,15 @@ export default function PaymentRegistration() {
             <div className="mb-8">
               <h3 className="text-lg font-bold text-gray-900 mb-3">💳 Online Payment Link</h3>
               <p className="text-gray-600 mb-4">Use the payment link below to complete your card payment securely:</p>
-              <a
-                href="https://sandbox.flutterwave.com/pay/shs2heoecs27"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full py-3 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-center font-bold"
+              <button
+                disabled
+                onClick={() => alert('Online payment not ready, use bank account for now')}
+                className="block w-full py-3 px-4 bg-gray-400 text-white rounded-lg cursor-not-allowed transition text-center font-bold opacity-60"
+                title="Online payment not ready, use bank account for now"
               >
-                🔗 Complete Payment Here
-              </a>
-              <p className="text-xs text-gray-500 mt-2">You will be redirected to our secure payment portal</p>
+                🔗 Complete Payment Here (Coming Soon)
+              </button>
+              <p className="text-xs text-gray-500 mt-2">Online payment is not yet available. Please use bank transfer below.</p>
             </div>
 
             <hr className="my-8" />
@@ -234,6 +234,13 @@ export default function PaymentRegistration() {
               >
                 Back to Plans
               </button>
+              <button
+                type="button"
+                onClick={() => setStep('success')}
+                className="w-full px-6 py-2 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+              >
+                Finish Setup
+              </button>
             </div>
           </div>
         )}
@@ -248,6 +255,7 @@ export default function PaymentRegistration() {
               You'll receive an email notification once your account is activated.
             </p>
             <p className="text-sm text-gray-500">Redirecting...</p>
+            <a href="/" className="text-indigo-600 hover:underline"> Go to Dashboard Now</a>
           </div>
         )}
       </div>

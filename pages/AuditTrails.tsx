@@ -3,8 +3,10 @@ import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
 import { AuditLog } from '../types';
 import { Activity, X } from 'lucide-react';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const AuditTrails = () => {
+  const { selectedBusinessId } = useBusinessContext();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -12,11 +14,11 @@ const AuditTrails = () => {
   useEffect(() => {
     (async () => {
       try {
-        const l = db.audit && db.audit.getAll ? await db.audit.getAll() : [];
+        const l = db.audit && db.audit.getAll ? await db.audit.getAll(selectedBusinessId) : [];
         setLogs(l || []);
       } catch (e) { console.warn('Failed to load audit logs', e); setLogs([]); }
     })();
-  }, []);
+  }, [selectedBusinessId]);
 
   const handleViewDetails = (log: AuditLog) => {
     setSelectedLog(log);

@@ -55,6 +55,7 @@ export interface Customer {
   id: string;
   businessId: string;
   name: string;
+  company?: string;
   phone: string;
   email: string;
   address: string;
@@ -149,6 +150,7 @@ export interface SaleRecord {
   // Location where goods were taken from for this sale
   locationId?: string;
   isProforma?: boolean;
+  proformaTitle?: string;
   deliveryFee?: number;
   particulars?: string;
   isReturn?: boolean;

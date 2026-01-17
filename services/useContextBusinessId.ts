@@ -19,7 +19,7 @@ export const useContextBusinessId = () => {
         const user = await getCurrentUser();
         if (user) {
           setUserBusinessId(user.businessId);
-          setIsSuperAdmin(user.isSuperAdmin || false);
+          setIsSuperAdmin(user.is_super_admin || user.isSuperAdmin || false);
         }
       } catch (e) {
         console.warn('Failed to get current user', e);

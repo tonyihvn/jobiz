@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS customers (
   id VARCHAR(64) PRIMARY KEY,
   business_id VARCHAR(64) NOT NULL,
   name VARCHAR(255),
+  company VARCHAR(255),
   phone VARCHAR(100),
   email VARCHAR(255),
   address TEXT,
