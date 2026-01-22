@@ -12,16 +12,16 @@ require('dotenv').config();
 
   const conn = await pool.getConnection();
   try {
-    // Seed demo business
+    // Seed demo business with account_approved = 1
     const businessId = 'biz_demo_123';
-    await conn.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [businessId, 'JOBIZ Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
+    await conn.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, account_approved, account_approved_at, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', 1, NOW(), ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), account_approved = 1`, [businessId, 'JOBIZ Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // Roles
     await conn.execute(`INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE permissions = VALUES(permissions)`, ['admin', businessId, 'Administrator', 'inventory:create,inventory:read,inventory:update,inventory:delete,inventory:move,pos:any_location']);
 
-    // Employees
-    await conn.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email)`, ['usr_demo_admin', businessId, 'Demo Admin', 'admin', 'admin', 5000, 'admin@omnisales.com', '555-0123', 'loc_main']);
-    await conn.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email)`, ['usr_super', 'super_admin_org', 'Super Admin', 'super_role', 'super', 'super', 0, 'super@omnisales.com']);
+    // Employees with email_verified and account_approved set for immediate login
+    await conn.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id, email_verified, email_verified_at, account_approved, account_approved_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), 1, NOW()) ON DUPLICATE KEY UPDATE email = VALUES(email), email_verified = 1, account_approved = 1`, ['usr_demo_admin', businessId, 'Demo Admin', 'admin', 'admin', 5000, 'admin@omnisales.com', '555-0123', 'loc_main']);
+    await conn.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, email_verified, email_verified_at, account_approved, account_approved_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 1, NOW(), 1, NOW()) ON DUPLICATE KEY UPDATE email = VALUES(email), email_verified = 1, account_approved = 1`, ['usr_super', 'super_admin_org', 'Super Admin', 'super_role', 'super', 'super', 0, 'super@omnisales.com', '000']);
 
     // Locations
     await conn.execute(`INSERT INTO locations (id, business_id, name, address) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)`, ['loc_main', businessId, 'Main Store', 'Headquarters']);

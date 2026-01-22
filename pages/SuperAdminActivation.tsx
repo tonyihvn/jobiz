@@ -54,19 +54,41 @@ const SuperAdminActivation = () => {
 
   const toggleBusinessStatus = async (businessId: string, newStatus: 'active' | 'suspended') => {
     try {
-      const response = await fetch(`/api/super-admin/toggle-business/${encodeURIComponent(businessId)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (response.ok) {
-        fetchBusinesses();
+      if (newStatus === 'active') {
+        // Activate with account_approved = 1
+        if (!window.confirm('Activate this business? This will set account_approved = 1 for the business and all employees.')) {
+          return;
+        }
+        const response = await fetch(`/api/super-admin/activate-business/${encodeURIComponent(businessId)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getToken()}`
+          }
+        });
+        if (response.ok) {
+          fetchBusinesses();
+        } else {
+          const data = await response.json();
+          alert(`Failed to activate business: ${data.error || 'Unknown error'}`);
+        }
+      } else {
+        // Suspend business
+        const response = await fetch(`/api/super-admin/toggle-business/${encodeURIComponent(businessId)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getToken()}`
+          },
+          body: JSON.stringify({ status: newStatus })
+        });
+        if (response.ok) {
+          fetchBusinesses();
+        }
       }
     } catch (error) {
       console.error('Failed to toggle business status:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

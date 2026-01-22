@@ -366,6 +366,7 @@ const db = {
     submitPaymentReceipt: (url: string) => authFetch('/api/superadmin/verify-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ receiptUrl: url }) }).then(safeJson).catch(() => null),
     updateBusinessStatus: (id: string, status: string) => authFetch(`/api/businesses/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }).then(safeJson).catch(() => null),
     verifyPayment: (id: string) => authFetch(`/api/superadmin/verify-payment/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(safeJson).catch(() => null),
+    activateBusiness: (id: string) => authFetch(`/api/super-admin/activate-business/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then(safeJson).catch(() => null),
     savePlan: (plan: any) => {
       if (plan.id && !plan.id.startsWith('plan_')) {
         return authFetch(`/api/plans/${plan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan) }).then(safeJson).catch(() => null);

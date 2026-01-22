@@ -89,14 +89,23 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   }, [activeTab, selectedBusinessId]);
 
   const toggleStatus = (b: Business) => {
-      const newStatus = b.status === 'active' ? 'suspended' : 'active';
-      db.superAdmin.updateBusinessStatus(b.id, newStatus);
-      refreshData();
+      if (b.status === 'active') {
+          // Suspend business
+          const newStatus = 'suspended';
+          db.superAdmin.updateBusinessStatus(b.id, newStatus);
+          refreshData();
+      } else {
+          // Force activate business with account_approved
+          if(window.confirm(`Activate account for ${b.name}? This will set account_approved = 1 for the business and all employees.`)) {
+              db.superAdmin.activateBusiness(b.id);
+              refreshData();
+          }
+      }
   };
 
   const handleVerifyPayment = (b: Business) => {
       if(window.confirm(`Confirm payment receipt for ${b.name} and activate account?`)) {
-          db.superAdmin.verifyPayment(b.id);
+          db.superAdmin.activateBusiness(b.id);
           refreshData();
       }
   };

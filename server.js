@@ -484,7 +484,7 @@ app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const [rows] = await pool.execute(
-      'SELECT id, name, role_id, email, password, email_verified, account_approved FROM employees WHERE email = ?',
+      'SELECT e.id, e.name, e.role_id, e.email, e.password, e.email_verified, e.account_approved, e.business_id, b.account_approved as business_account_approved FROM employees e LEFT JOIN businesses b ON e.business_id = b.id WHERE e.email = ?',
       [email]
     );
     if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
@@ -500,12 +500,21 @@ app.post('/api/login', async (req, res) => {
       });
     }
 
-    // Check account approval
+    // Check account approval (both employee and business must be approved)
     if (!user.account_approved) {
       return res.status(403).json({ 
         error: 'Account not approved',
         code: 'ACCOUNT_NOT_APPROVED',
         message: 'Your account is pending approval from the administrator'
+      });
+    }
+
+    // Check business account approval
+    if (user.business_id && !user.business_account_approved) {
+      return res.status(403).json({ 
+        error: 'Business account not approved',
+        code: 'BUSINESS_NOT_APPROVED',
+        message: 'Your business account is pending approval from the administrator'
       });
     }
 
@@ -601,8 +610,8 @@ app.post('/api/register', async (req, res) => {
     const businessStatus = 'pending'; // Await super admin approval
     
     await pool.execute(
-      'INSERT INTO businesses (id, name, email, phone, status, paymentStatus, registeredAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-      [businessId, companyName, email, phone || null, businessStatus, 'unpaid']
+      'INSERT INTO businesses (id, name, email, phone, status, paymentStatus, account_approved, registeredAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+      [businessId, companyName, email, phone || null, businessStatus, 'unpaid', 0]
     );
 
     // Create admin employee for this business
@@ -3263,6 +3272,32 @@ app.put('/api/super-admin/toggle-business/:id', superAdminAuthMiddleware, async 
   }
 });
 
+// POST activate business account (sets account_approved = 1 in both businesses and employees)
+app.post('/api/super-admin/activate-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = decodeURIComponent(req.params.id);
+    console.log(`[ACTIVATE-BUSINESS] Processing business: ${businessId}`);
+    
+    // Update business status to active and set account_approved
+    await pool.execute(
+      'UPDATE businesses SET status = ?, account_approved = 1, account_approved_at = NOW() WHERE id = ?',
+      ['active', businessId]
+    );
+    
+    // Update all employees in this business to have account_approved = 1
+    const empUpdateResult = await pool.execute(
+      'UPDATE employees SET account_approved = 1, account_approved_at = NOW() WHERE business_id = ?',
+      [businessId]
+    );
+    
+    console.log(`[ACTIVATE-BUSINESS] SUCCESS: Activated business ${businessId}. Employees updated: ${empUpdateResult[0].affectedRows}`);
+    res.json({ success: true, message: 'Business account activated successfully' });
+  } catch (err) {
+    console.error('[ACTIVATE-BUSINESS] ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE business (for Super Admin)
 app.delete('/api/super-admin/delete-business/:id', superAdminAuthMiddleware, async (req, res) => {
   try {
@@ -3732,7 +3767,7 @@ async function ensureSuperAdmin() {
 
     console.log('Creating default Super Admin account...');
     const superBusinessId = 'super_admin_org';
-    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [superBusinessId, 'Super Admin Org', 'super@jobiz.ng', 'plan_pro', '2030-01-01']);
+    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, account_approved, account_approved_at, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', 1, NOW(), ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), account_approved = 1`, [superBusinessId, 'Super Admin Org', 'super@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // default role
     const perms = 'all';
@@ -3740,7 +3775,7 @@ async function ensureSuperAdmin() {
 
     const superPass = process.env.SUPER_ADMIN_PASSWORD || '@@BJAdmin22';
     const hashed = await bcrypt.hash(superPass, 10);
-    await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone) VALUES (?, ?, 1, ?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email), password = VALUES(password)`, ['usr_super', superBusinessId, 'Super Admin', 'super_role', hashed, 'super@jobiz.ng', '000']);
+    await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, email_verified, email_verified_at, account_approved, account_approved_at) VALUES (?, ?, 1, ?, ?, ?, 0, ?, ?, 1, NOW(), 1, NOW()) ON DUPLICATE KEY UPDATE email = VALUES(email), password = VALUES(password), email_verified = 1, account_approved = 1`, ['usr_super', superBusinessId, 'Super Admin', 'super_role', hashed, 'super@jobiz.ng', '000']);
 
     console.log('Super Admin ensured (id: usr_super). Use env SUPER_ADMIN_PASSWORD to set a custom password.');
   } catch (err) {
@@ -3796,8 +3831,8 @@ async function ensureDemoSeed() {
     } else {
       console.log('Seeding demo data for business:', demoBiz);
     }
-    // Insert business
-    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name)`, [demoBiz, 'Jobiz Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
+    // Insert business with account_approved = 1 so demo users can login
+    await pool.execute(`INSERT INTO businesses (id, name, email, status, paymentStatus, account_approved, account_approved_at, planId, subscriptionExpiry, registeredAt) VALUES (?, ?, ?, 'active', 'paid', 1, NOW(), ?, ?, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), account_approved = 1`, [demoBiz, 'Jobiz Demo Corp', 'admin@jobiz.ng', 'plan_pro', '2030-01-01']);
 
     // Roles
     const adminPerms = JSON.stringify(['dashboard','pos','inventory','stock','suppliers','clients','services','courses','sales_history','service_history','finance','communications','admin','settings','tasks','reports','audit_trails','inventory:create','inventory:read','inventory:update','inventory:delete','suppliers:create','suppliers:read','suppliers:update','suppliers:delete','clients:create','clients:read','clients:update','clients:delete','employees:create','employees:read','employees:update','employees:delete','finance:create','finance:read','finance:update','finance:delete', 'tasks:create', 'tasks:read', 'tasks:update', 'tasks:delete', 'reports:create', 'reports:read', 'reports:update', 'reports:delete', 'inventory:move', 'pos:any_location']);
@@ -3812,7 +3847,7 @@ async function ensureDemoSeed() {
       if (empCnt === 0) {
         const usePass = providedPass || 'admin';
         const hashed = await bcrypt.hash(usePass, 10);
-        await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE email = VALUES(email)`, [adminId, demoBiz, 'Demo Admin', 'admin', hashed, 5000, 'admin@jobiz.ng', '555-0123', 'loc_main']);
+        await pool.execute(`INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, default_location_id, email_verified, email_verified_at, account_approved, account_approved_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), 1, NOW()) ON DUPLICATE KEY UPDATE email = VALUES(email), email_verified = 1, account_approved = 1`, [adminId, demoBiz, 'Demo Admin', 'admin', hashed, 5000, 'admin@jobiz.ng', '555-0123', 'loc_main']);
         if (providedPass) {
           console.log('Demo Admin created: admin@jobiz.ng / (from DEMO_ADMIN_PASSWORD env)');
         } else {
