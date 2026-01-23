@@ -342,7 +342,6 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 // Test endpoint to verify uploads directory
 app.get('/api/test-uploads', authMiddleware, (req, res) => {
   try {
