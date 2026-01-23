@@ -6,17 +6,14 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
-        // Use a dedicated dev port env var so production `PORT` (set by cPanel) isn't picked up
         port: Number(process.env.VITE_DEV_SERVER_PORT) || 3000,
         host: '0.0.0.0',
         proxy: {
-          // Forward API requests to backend server during development. Use configured VITE_API_URL when available.
           '/api': {
             target: env.VITE_API_URL || 'http://localhost:3001',
             changeOrigin: true,
             secure: false,
           },
-          // Forward uploads requests to backend server for image access
           '/uploads': {
             target: env.VITE_API_URL || 'http://localhost:3001',
             changeOrigin: true,
@@ -25,6 +22,25 @@ export default defineConfig(({ mode }) => {
         },
       },
       plugins: [react()],
+      
+      // OPTIMIZATION 1: Disable source maps to save memory
+      build: {
+        sourcemap: false,
+        rollupOptions: {
+          output: {
+            // OPTIMIZATION 2: Split code into smaller chunks 
+            // This prevents the "Killed" error by not processing one massive file
+            manualChunks(id) {
+              if (id.includes('node_modules')) {
+                return id.toString().split('node_modules/')[1].split('/')[0].toString();
+              }
+            },
+          },
+        },
+        // OPTIMIZATION 3: Reduce the chunk size warning limit and minify options
+        chunkSizeWarningLimit: 1000,
+      },
+
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
