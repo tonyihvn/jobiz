@@ -26,19 +26,18 @@ export default defineConfig(({ mode }) => {
       // OPTIMIZATION 1: Disable source maps to save memory
       build: {
         sourcemap: false,
+        minify: 'esbuild', // Faster and uses less RAM than 'terser'
+        cssMinify: true,
+        reportCompressedSize: false, // Saves a lot of RAM by not calculating sizes
+        chunkSizeWarningLimit: 2000,
         rollupOptions: {
           output: {
-            // OPTIMIZATION 2: Split code into smaller chunks 
-            // This prevents the "Killed" error by not processing one massive file
-            manualChunks(id) {
-              if (id.includes('node_modules')) {
-                return id.toString().split('node_modules/')[1].split('/')[0].toString();
-              }
+            // Simplify chunking: Don't split everything, just separate the biggest culprits
+            manualChunks: {
+              'vendor': ['react', 'react-dom', 'react-router-dom'],
             },
           },
         },
-        // OPTIMIZATION 3: Reduce the chunk size warning limit and minify options
-        chunkSizeWarningLimit: 1000,
       },
 
       define: {
