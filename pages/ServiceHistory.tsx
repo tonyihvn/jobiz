@@ -702,6 +702,8 @@ const ServiceHistory = () => {
                   </div>
                 </div>
               </div>
+              ${sale.particulars ? `<div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569;"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
+              ${settings.invoiceNotes ? `<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569;"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}  
               
               <div style="margin-top: 60px; display: flex; justify-content: space-between;">
                 <div style="flex: 1;">
@@ -710,7 +712,7 @@ const ServiceHistory = () => {
                 </div>
                 <div style="flex: 1; text-align: right;">
                   <p style="margin: 0 0 30px 0; font-size: 13px; font-weight: bold;">Signed Manager</p>
-                  <div style="border-top: 1px solid #000; width: 150px;"></div>
+                  <div style="border-top: 1px solid #000; width: 150px; float:right; position: absolute; right: 0px;"></div>
                 </div>
               </div>
               </div>
