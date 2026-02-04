@@ -635,7 +635,7 @@ const ServiceHistory = () => {
               <div style="padding: 20px; flex: 1;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                   <div>
-                    ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="height: 60px; margin-bottom: 12px;" />` : ''}
+                    ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 100px; margin: auto; margin-bottom: 12px;" />` : ''}
                     <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 4px 0;">INVOICE</h1>
                     <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id}</p>
                   </div>

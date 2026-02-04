@@ -220,11 +220,12 @@ const PrintReceipt = () => {
           <div id="a4-invoice" className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible">
             {/* Header Image */}
             {settings.headerImageUrl && (
-              <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto max-h-[150px] object-cover" />
+              <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto" style={{ display: 'block' }} />
             )}
             <div className="flex-1 overflow-visible px-12 py-8">
               <div className="flex justify-between items-start mb-12">
                 <div>
+                  {!settings.headerImageUrl && settings.logoUrl && <img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" className="w-auto h-20 mb-4" />}
                   <h1 className="text-4xl font-bold text-slate-800 tracking-tight">
                     {saleData.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}
                   </h1>
@@ -321,7 +322,7 @@ const PrintReceipt = () => {
 
             {/* Footer Image */}
             {settings.footerImageUrl && (
-              <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full h-auto max-h-[100px] object-cover mt-auto" />
+              <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full h-auto mt-auto" style={{ display: 'block' }} />
             )}
           </div>
         )}
@@ -348,13 +349,12 @@ const PrintReceipt = () => {
         /* A4 Invoice specific styling */
         #a4-invoice {
           width: 210mm !important;
-          height: 297mm !important;
+          height: auto !important;
           box-sizing: border-box;
           display: flex !important;
           flex-direction: column !important;
           margin: 0 auto;
           padding: 0;
-          page-break-after: always;
         }
 
         #a4-invoice .flex-1 {
@@ -448,6 +448,21 @@ const PrintReceipt = () => {
             page-break-after: avoid;
             margin: 0 !important;
             padding: 0 !important;
+          }
+          
+          #a4-invoice {
+            width: 210mm !important;
+            height: auto !important;
+            page-break-after: avoid;
+            page-break-inside: avoid;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          #a4-invoice img {
+            page-break-inside: avoid !important;
+            page-break-after: avoid !important;
+          }
           }
           
           .printable-receipt * {

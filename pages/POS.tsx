@@ -668,7 +668,7 @@ const POS = () => {
             <div style="padding: 20px; flex: 1;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                 <div>
-                  ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="height: 60px; margin-bottom: 12px;" />` : ''}
+                  ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 60px; margin-bottom: 12px;" />` : ''}
                   <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 4px 0;">${sale.isProforma ? (sale.proformaTitle || 'PROFORMA INVOICE') : 'INVOICE'}</h1>
                   <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id}</p>
                 </div>
@@ -859,9 +859,9 @@ const POS = () => {
           </div>
         </div>
       ) : (
-        <div className="h-[calc(100vh-2rem)] flex flex-col md:flex-row gap-4 overflow-hidden">
+        <div className="flex flex-col md:flex-row gap-4 pb-20">
             {/* Product Grid (Left) */}
-            <div className="flex-1 flex flex-col gap-4 h-1/2 md:h-auto overflow-hidden">
+            <div className="flex-1 flex flex-col gap-4">
         {/* Filters */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex gap-4 overflow-x-auto no-scrollbar">
             {categories.map(cat => (
@@ -894,7 +894,7 @@ const POS = () => {
         </div>
 
         {/* Grid */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredProducts.map(product => (
                 <button
                     key={product.id}
@@ -950,7 +950,7 @@ const POS = () => {
       </div>
 
     {/* Cart (Right) */}
-    <div className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col h-1/2 md:h-full overflow-auto">
+    <div className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col">
         <div className="p-4 border-b border-slate-100 bg-slate-50">
             <div className="flex justify-between items-center mb-2">
                 <h2 className="font-bold text-lg text-slate-800">Current Order</h2>
@@ -1000,7 +1000,7 @@ const POS = () => {
             )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="p-4 space-y-3 min-h-[200px]">
             {cart.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50">
                     <EmptyCartIcon size={48} />

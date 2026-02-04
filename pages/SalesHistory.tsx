@@ -634,6 +634,12 @@ const SalesHistory = () => {
                         <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                       </div>
                       ` : ''}
+                      ${Number(sale.deliveryFee) > 0 ? `
+                      <div class="totals-row">
+                        <span>Delivery</span>
+                        <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
                       <div class="totals-row final">
                         <span>TOTAL</span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
