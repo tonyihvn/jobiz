@@ -218,14 +218,17 @@ const PrintReceipt = () => {
         {/* A4 Invoice */}
         {receiptType === 'a4' && (
           <div id="a4-invoice" className="bg-white w-[210mm] min-h-[297mm] flex flex-col overflow-visible">
-            {/* Header Image */}
-            {settings.headerImageUrl && (
-              <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto" style={{ display: 'block' }} />
-            )}
+            {/* Header Image or Logo */}
+            {settings.headerImageUrl ? (
+              <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-auto" style={{ display: 'block', minHeight: '100px' }} />
+            ) : settings.logoUrl ? (
+              <div className="w-full py-5 flex items-center justify-center" style={{ minHeight: '100px' }}>
+                <img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" className="w-auto h-auto" style={{ maxHeight: '100px' }} />
+              </div>
+            ) : null}
             <div className="flex-1 overflow-visible px-12 py-8">
               <div className="flex justify-between items-start mb-12">
                 <div>
-                  {!settings.headerImageUrl && settings.logoUrl && <img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" className="w-auto h-20 mb-4" />}
                   <h1 className="text-4xl font-bold text-slate-800 tracking-tight">
                     {saleData.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}
                   </h1>
@@ -358,7 +361,6 @@ const PrintReceipt = () => {
         }
 
         #a4-invoice .flex-1 {
-          flex: 1 !important;
           overflow: visible !important;
           display: flex !important;
           flex-direction: column !important;

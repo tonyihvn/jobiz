@@ -506,11 +506,11 @@ const ServiceHistory = () => {
               <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: Arial, sans-serif; background: white; }
-                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; }
+                .wrapper { display: flex; flex-direction: column; }
+                .container { max-width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; }
                 .content { padding: 40px; }
                 .header-img { width: 100%; height: auto; display: block; }
-                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+                .footer-img { width: 100%; height: auto; display: block; }
                 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
                 .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 13px; }
@@ -533,7 +533,7 @@ const ServiceHistory = () => {
             </head>
             <body>
               <div class="wrapper">
-                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 100px;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}
                 <div class="container">
                   <div class="content">
                     <div class="header">
@@ -630,9 +630,19 @@ const ServiceHistory = () => {
           const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
           
           const invoiceHTML = `
-            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; min-height: 297mm;">
-              ${hasHeaderFooter ? `<div style="margin-bottom: 24px; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
-              <div style="padding: 20px; flex: 1;">
+            <!DOCTYPE html>
+            <html style="margin: 0; padding: 0;">
+            <head>
+              <meta charset="UTF-8">
+              <style>
+                @page { margin: 0; padding: 0; page-break-after: avoid; }
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                html { margin: 0; padding: 0; }
+                body { margin: 0; padding: 0; width: 100%; background: white; font-family: Arial, sans-serif; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+            <div style="font-family: Arial, sans-serif; width: 210mm; margin: 0; padding: 0; color: #1e293b; display: flex; flex-direction: column;\">\n              ${hasHeaderFooter ? `<div style="margin: 0; padding: 0; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 100px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}\n              <div style="padding: 20px; display: flex; flex-direction: column; margin: 0;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                   <div>
                     ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 100px; margin: auto; margin-bottom: 12px;" />` : ''}
@@ -716,8 +726,10 @@ const ServiceHistory = () => {
                 </div>
               </div>
               </div>
-              ${hasHeaderFooter ? `<div style="margin-top: auto; width: 100%;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+              ${hasHeaderFooter ? `<div style="width: 100%; margin: 0; padding: 0;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
             </div>
+            </body>
+            </html>
           `;
           
           const element = document.createElement('div');

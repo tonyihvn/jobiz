@@ -45,6 +45,7 @@ const POS = () => {
     const [searchTerm, setSearchTerm] = useState('');
         const [selectedCategory, setSelectedCategory] = useState<string>('Products');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const cartRef = useRef<HTMLDivElement>(null);
 
     // Derived category tabs (from products)
     const [categoriesState, setCategoriesState] = React.useState<any[]>([]);
@@ -224,6 +225,13 @@ const POS = () => {
             return [...prev, { ...product, quantity: 1, discount: 0 }];
         });
         setSearchTerm(''); // Clear search after scan/add
+        
+        // Scroll to cart on small screens (mobile)
+        setTimeout(() => {
+            if (window.innerWidth < 768 && cartRef.current) {
+                cartRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
     };
 
             const updateQuantity = async (id: string, delta: number) => {
@@ -663,12 +671,11 @@ const POS = () => {
       } else {
         // A4 Invoice
         return `
-          <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; min-height: 297mm;">
-            ${hasHeaderFooter ? `<div style="margin-bottom: 24px; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
-            <div style="padding: 20px; flex: 1;">
+          <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; page-break-after: avoid;">
+            ${hasHeaderFooter ? `<div style="width: 100%; min-height: 100px; display: flex; align-items: center;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}
+            <div style="padding: 40px; display: flex; flex-direction: column;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                 <div>
-                  ${!hasHeaderFooter && settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 60px; margin-bottom: 12px;" />` : ''}
                   <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 4px 0;">${sale.isProforma ? (sale.proformaTitle || 'PROFORMA INVOICE') : 'INVOICE'}</h1>
                   <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id}</p>
                 </div>
@@ -677,7 +684,12 @@ const POS = () => {
                   <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.address}</p>
                   <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.phone}</p>
                   <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.email}</p>
-                </div>` : ''}
+                </div>` : `<div style="text-align: right;">
+                  <h2 style="font-weight: bold; font-size: 12px; margin: 0 0 4px 0;">${settings.name}</h2>
+                  <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.address}</p>
+                  <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.phone}</p>
+                  <p style="font-size: 11px; color: #64748b; margin: 0;">${settings.email}</p>
+                </div>`}
               </div>
               
               <div style="margin-bottom: 24px;">
@@ -756,7 +768,7 @@ const POS = () => {
                 </div>
               </div>
             </div>
-            ${hasHeaderFooter ? `<div style="margin-top: auto; width: 100%;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+            ${hasHeaderFooter ? `<div style="width: 100%;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
           </div>
         `;
       }
@@ -950,7 +962,7 @@ const POS = () => {
       </div>
 
     {/* Cart (Right) */}
-    <div className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col">
+    <div ref={cartRef} className="w-full md:w-96 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col">
         <div className="p-4 border-b border-slate-100 bg-slate-50">
             <div className="flex justify-between items-center mb-2">
                 <h2 className="font-bold text-lg text-slate-800">Current Order</h2>

@@ -531,12 +531,12 @@ const SalesHistory = () => {
               <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
-                @page { size: A4; margin: 0; padding: 0; }
-                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '0'}; box-sizing: border-box; display: flex; flex-direction: column; }
+                @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
+                .wrapper { display: flex; flex-direction: column; }
+                .container { max-width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
                 .header-img { width: 100%; height: auto; display: block; }
-                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
-                .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+                .footer-img { width: 100%; height: auto; display: block; }
+                .content { padding: 40px; display: flex; flex-direction: column; }
                 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
                 .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 13px; }
@@ -565,7 +565,7 @@ const SalesHistory = () => {
             </head>
             <body>
               <div class="container">
-                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 100px;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}
                 <div class="content">
                   <div class="header">
                     <div class="title">
@@ -577,7 +577,12 @@ const SalesHistory = () => {
                       <p>${settings.address || ''}</p>
                       <p>${settings.phone || ''}</p>
                       <p>${settings.email || ''}</p>
-                    </div>` : ''}
+                    </div>` : `<div class="company">
+                      <h2>${settings.name}</h2>
+                      <p>${settings.address || ''}</p>
+                      <p>${settings.phone || ''}</p>
+                      <p>${settings.email || ''}</p>
+                    </div>`}
                   </div>
 
                   <div class="bill-to">
@@ -717,12 +722,12 @@ const SalesHistory = () => {
               <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
-                @page { size: A4; margin: 0; padding: 0; }
-                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-                .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '0'}; box-sizing: border-box; display: flex; flex-direction: column; }
+                @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
+                .wrapper { display: flex; flex-direction: column; }
+                .container { max-width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
                 .header-img { width: 100%; height: auto; display: block; }
-                .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
-                .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
+                .footer-img { width: 100%; height: auto; display: block; }
+                .content { padding: 40px; display: flex; flex-direction: column; }
                 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
                 .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 13px; }
@@ -1030,13 +1035,17 @@ const SalesHistory = () => {
             <meta charset="UTF-8">
             <title>${invoiceTitle}</title>
             <style>
+              @page { margin: 0; padding: 0; page-break-after: avoid; }
               * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 40px; }
-              .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-              .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; }
-              .content { padding: 40px; }
-              .header-img { width: 100%; height: auto; display: block; }
-              .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
+              html { margin: 0; padding: 0; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; width: 100%; }
+              .wrapper { display: flex; flex-direction: column; width: 100%; margin: 0; padding: 0; }
+              .container { width: 210mm; margin: 0; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
+              .content { padding: 40px; display: flex; flex-direction: column; }
+              .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
+              .logo-container { width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 100px; }
+              .logo-img { width: auto; height: 100px; display: block; }
+              .footer-img { width: 100%; height: auto; display: block; }
               .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
               .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
               .title p { color: #64748b; font-size: 13px; }
@@ -1065,7 +1074,7 @@ const SalesHistory = () => {
           </head>
           <body>
             <div class="wrapper">
-              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : (settings.logoUrl ? `<div class="logo-container"><img src="${settings.logoUrl}" class="logo-img" /></div>` : '')}
               <div class="container">
                 <div class="content">
                   <div class="header">
@@ -1073,12 +1082,12 @@ const SalesHistory = () => {
                       <h1>${invoiceTitle}</h1>
                       <p>#${sale.id.slice(-8)}</p>
                     </div>
-                    ${!hasHeaderFooter ? `<div class="company">
+                    <div class="company">
                       <h2>${settings.name}</h2>
                       <p>${settings.address || ''}</p>
                       <p>${settings.phone || ''}</p>
                       <p>${settings.email || ''}</p>
-                    </div>` : ''}
+                    </div>
                   </div>
 
                   <div class="bill-to">
@@ -1157,12 +1166,13 @@ const SalesHistory = () => {
             <title>${invoiceTitle}</title>
             <style>
               * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
-              @page { size: A4; margin: 0; padding: 0; }
-              .wrapper { display: flex; flex-direction: column; width: 210mm; height: 297mm; }
-              .container { width: 100%; flex: 1; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
-              .content { padding: 40px; flex: 1; display: flex; flex-direction: column; }
-              .header-img { width: 100%; height: auto; display: block; }
+              html { margin: 0; padding: 0; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; }
+              @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
+              .wrapper { display: flex; flex-direction: column; width: 210mm; margin: 0; padding: 0; }
+              .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
+              .content { padding: 40px; display: flex; flex-direction: column; }
+              .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
               .footer-img { width: 100%; height: auto; display: block; }
               .header { text-align: center; margin-bottom: 24px; }
               .company-header { margin-bottom: 4px; }
