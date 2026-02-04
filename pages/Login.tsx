@@ -24,10 +24,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         const data = await apiLogin(email, password);
         if (data && data.user) {
           onLogin(data.user);
-          // Give UI time to update auth state, then redirect to dashboard
-          setTimeout(() => {
-            navigate('/');
-          }, 100);
+          // The route guard in App.tsx will auto-redirect to / when isAuthenticated becomes true
         } else {
           setError('Invalid credentials');
           setIsLoading(false);

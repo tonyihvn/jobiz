@@ -228,34 +228,59 @@ const db = {
     getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/roles', businessId)).then(safeJson).catch(() => []),
     add: (r: any) => {
       console.log('[API-ROLES-ADD] Creating role:', r);
+      // Convert businessId to business_id for API
+      const roleData = { ...r };
+      if (roleData.businessId && !roleData.business_id) {
+        roleData.business_id = roleData.businessId;
+        delete roleData.businessId;
+      }
       return authFetch('/api/roles', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(r) 
-      }).then(res => {
+        body: JSON.stringify(roleData) 
+      }).then(async res => {
         console.log('[API-ROLES-ADD] Response status:', res.status);
-        return safeJson(res);
+        try {
+          const data = await safeJson(res);
+          console.log('[API-ROLES-ADD] Response data:', data);
+          return data && data.success ? data : { success: true, ...data };
+        } catch (err) {
+          console.error('[API-ROLES-ADD] safeJson error:', err);
+          return { success: false, error: err.message };
+        }
       }).catch(err => {
-        console.error('[API-ROLES-ADD] Error:', err);
-        return null;
+        console.error('[API-ROLES-ADD] Fetch error:', err);
+        return { success: false, error: err.message };
       });
     },
     update: (id: string, r: any) => {
       console.log('[API-ROLES-UPDATE] Updating role:', { id, data: r });
+      // Convert businessId to business_id for API
+      const roleData = { ...r };
+      if (roleData.businessId && !roleData.business_id) {
+        roleData.business_id = roleData.businessId;
+        delete roleData.businessId;
+      }
       return authFetch(`/api/roles/${id}`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(r) 
-      }).then(res => {
+        body: JSON.stringify(roleData) 
+      }).then(async res => {
         console.log('[API-ROLES-UPDATE] Response status:', res.status);
-        return safeJson(res);
+        try {
+          const data = await safeJson(res);
+          console.log('[API-ROLES-UPDATE] Response data:', data);
+          return data && data.success ? data : { success: true, ...data };
+        } catch (err) {
+          console.error('[API-ROLES-UPDATE] safeJson error:', err);
+          return { success: false, error: err.message };
+        }
       }).catch(err => {
-        console.error('[API-ROLES-UPDATE] Error:', err);
-        return null;
+        console.error('[API-ROLES-UPDATE] Fetch error:', err);
+        return { success: false, error: err.message };
       });
     },
-    delete: (id: string) => authFetch(`/api/roles/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
-    ,
+    delete: (id: string) => authFetch(`/api/roles/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => ({ success: false, error: 'Failed to delete role' })),
     save: async (items: any[]) => {
       if (!Array.isArray(items)) return null;
       const res: any[] = [];
@@ -269,10 +294,11 @@ const db = {
               delete roleData.businessId;
             }
             console.log('[ROLES-SAVE-UPDATE] Updating role:', roleData);
-            res.push(await authFetch(`/api/roles/${it.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
+            const result = await authFetch(`/api/roles/${it.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
               console.error('[ROLES-SAVE-UPDATE] Error:', err);
-              return null;
-            }));
+              return { success: false, error: err.message };
+            });
+            res.push(result);
           } else {
             // For create, convert businessId to business_id if needed
             const roleData = { ...it };
@@ -281,14 +307,15 @@ const db = {
               delete roleData.businessId;
             }
             console.log('[ROLES-SAVE-CREATE] Creating role:', roleData);
-            res.push(await authFetch('/api/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
+            const result = await authFetch('/api/roles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(roleData) }).then(safeJson).catch((err) => {
               console.error('[ROLES-SAVE-CREATE] Error:', err);
-              return null;
-            }));
+              return { success: false, error: err.message };
+            });
+            res.push(result);
           }
         } catch (e) { 
           console.error('[ROLES-SAVE] Catch error:', e);
-          res.push(null); 
+          res.push({ success: false, error: (e as any).message }); 
         }
       }
       return res;

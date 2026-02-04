@@ -604,28 +604,100 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // Create business
+    // Create business (auto-approve so the admin can start using immediately)
     const businessId = Date.now().toString();
-    const businessStatus = 'pending'; // Await super admin approval
+    const businessStatus = 'approved'; // Automatically approved for the registering admin
     
     await pool.execute(
-      'INSERT INTO businesses (id, name, email, phone, status, paymentStatus, account_approved, registeredAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
-      [businessId, companyName, email, phone || null, businessStatus, 'unpaid', 0]
+      'INSERT INTO businesses (id, name, email, phone, status, paymentStatus, account_approved, account_approved_at, registeredAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+      [businessId, companyName, email, phone || null, businessStatus, 'unpaid', 1]
     );
 
-    // Create admin employee for this business
+    // Create admin role for this business immediately
+    const roleId = 'role_' + businessId + '_admin';
+    const adminPermissions = JSON.stringify([
+      'dashboard',
+      'pos',
+      'stock',
+      'suppliers',
+      'clients',
+      'sales_history',
+      'finance',
+      'communications',
+      'settings',
+      'categories',
+      'inventory:create',
+      'inventory:read',
+      'inventory:update',
+      'inventory:delete',
+      'inventory:move',
+      'pos:any_location',
+      'products:create',
+      'products:read',
+      'products:update',
+      'products:delete',
+      'categories:create',
+      'categories:read',
+      'categories:update',
+      'categories:delete',
+      'suppliers:create',
+      'suppliers:read',
+      'suppliers:update',
+      'suppliers:delete',
+      'customers:create',
+      'customers:read',
+      'customers:update',
+      'customers:delete',
+      'sales:create',
+      'sales:read',
+      'sales:update',
+      'sales:delete',
+      'employees:create',
+      'employees:read',
+      'employees:update',
+      'employees:delete',
+      'finance:read',
+      'finance:create',
+      'finance:update',
+      'audit:read',
+      'stock:increase',
+      'stock:decrease',
+      'stock:move'
+    ]);
+    
+    await pool.execute(
+      'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?)',
+      [roleId, businessId, 'Admin', adminPermissions]
+    );
+
+    // Create admin employee for this business with the newly created admin role
     const employeeId = Date.now().toString() + '_admin';
     const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
     
+    // Auto-approve the admin who registered the business (they are the owner)
+    // Auto-verify email as they provided it during registration
     await pool.execute(
-      'INSERT INTO employees (id, business_id, name, email, phone, password, is_super_admin, role_id, account_approved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [employeeId, businessId, companyName + ' Admin', email, phone || null, hashedPassword, 0, 'admin', 0]
+      'INSERT INTO employees (id, business_id, name, email, phone, password, is_super_admin, role_id, account_approved, email_verified, account_approved_at, email_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())',
+      [employeeId, businessId, companyName + ' Admin', email, phone || null, hashedPassword, 0, roleId, 1, 1]
     );
 
     // Create default settings for business
     await pool.execute(
       'INSERT INTO settings (business_id, name, currency) VALUES (?, ?, ?)',
       [businessId, companyName, '$']
+    );
+
+    // Create default location for the business
+    const locationId = 'loc_' + businessId + '_main';
+    await pool.execute(
+      'INSERT INTO locations (id, business_id, name, address) VALUES (?, ?, ?, ?)',
+      [locationId, businessId, 'Main Location', 'Default Location']
+    );
+
+    // Set default location for the admin employee
+    await pool.execute(
+      'UPDATE employees SET default_location_id = ? WHERE id = ?',
+      [locationId, employeeId]
     );
 
     // Generate email verification token
@@ -2501,27 +2573,41 @@ app.get('/api/roles', authMiddleware, async (req, res) => {
 });
 
 app.post('/api/roles', authMiddleware, async (req, res) => {
-  const { id, name, permissions } = req.body;
+  const { id, name, permissions, business_id, businessId } = req.body;
   try {
-    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
-    let businessId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
-    if (!businessId && req.user && (req.user.businessId || req.user.business_id)) {
-      businessId = req.user.businessId || req.user.business_id;
+    console.log('[POST-ROLES] Request body:', { id, name, permissions, business_id, businessId });
+    
+    let bId = business_id || businessId;
+    
+    // If no businessId in request, try to get from employee record
+    if (!bId) {
+      const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+      bId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
     }
-    if (!businessId) {
+    
+    // Last resort: check user object
+    if (!bId && req.user && (req.user.businessId || req.user.business_id)) {
+      bId = req.user.businessId || req.user.business_id;
+    }
+    
+    if (!bId) {
+      console.error('[POST-ROLES] Business ID not found');
       return res.status(400).json({ error: 'Business not found for current user' });
     }
     
     const rid = id || Date.now().toString();
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
     
+    console.log('[POST-ROLES] Inserting role:', { rid, bId, name, permsStr });
+    
     const insertResult = await pool.execute(
       'INSERT INTO roles (id, business_id, name, permissions) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), permissions=VALUES(permissions)', 
-      [rid, businessId, name, permsStr]
+      [rid, bId, name, permsStr]
     );
     
     // Verify the role was created
-    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [rid, businessId]);
+    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [rid, bId]);
+    console.log('[POST-ROLES] Verification result:', verifyRole);
     
     res.json({ success: true, id: rid });
   } catch (err) {
@@ -2532,26 +2618,37 @@ app.post('/api/roles', authMiddleware, async (req, res) => {
 
 app.put('/api/roles/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, permissions } = req.body;
+  const { name, permissions, business_id, businessId } = req.body;
   try {
-    console.log('[PUT-ROLES] Request:', { id, name, permissions });
+    console.log('[PUT-ROLES] Request:', { id, name, permissions, business_id, businessId });
     
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
-    // resolve business id similar to other endpoints to avoid errors when employee row is missing
-    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
-    let businessId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
-    if (!businessId && req.user && (req.user.businessId || req.user.business_id)) {
-      businessId = req.user.businessId || req.user.business_id;
+    
+    let bId = business_id || businessId;
+    
+    // If no businessId in request, try to get from employee record
+    if (!bId) {
+      const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+      bId = (bizRows && bizRows[0]) ? bizRows[0].business_id : null;
     }
-    if (!businessId) {
+    
+    // Last resort: check user object
+    if (!bId && req.user && (req.user.businessId || req.user.business_id)) {
+      bId = req.user.businessId || req.user.business_id;
+    }
+    
+    if (!bId) {
       console.log('[PUT-ROLES] ERROR: Business not found');
       return res.status(400).json({ error: 'Business not found for current user' });
     }
 
-    const updateResult = await pool.execute('UPDATE roles SET name = ?, permissions = ? WHERE id = ? AND business_id = ?', [name, permsStr, id, businessId]);
+    console.log('[PUT-ROLES] Updating role:', { id, bId, name, permsStr });
+    const updateResult = await pool.execute('UPDATE roles SET name = ?, permissions = ? WHERE id = ? AND business_id = ?', [name, permsStr, id, bId]);
+    console.log('[PUT-ROLES] Update result:', updateResult);
     
     // Verify the role was updated
-    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [id, businessId]);
+    const [verifyRole] = await pool.execute('SELECT * FROM roles WHERE id = ? AND business_id = ?', [id, bId]);
+    console.log('[PUT-ROLES] Verification result:', verifyRole);
     
     res.json({ success: true });
   } catch (err) {
@@ -3687,7 +3784,8 @@ async function runMigrations() {
     // Sanitize and split SQL into individual statements to avoid issues with some servers
     let clean = sql.replace(/\/\*[\s\S]*?\*\//g, ''); // remove block comments
     clean = clean.split('\n').filter(l => !l.trim().startsWith('--')).join('\n'); // drop -- comments
-    const statements = clean.split(/;\s*\n/).map(s => s.trim()).filter(s => s.length > 0);
+    // Split by semicolon, but handle cases where last statement doesn't end with ;
+    const statements = clean.split(';').map(s => s.trim()).filter(s => s.length > 0);
     for (const stmt of statements) {
       try {
         await pool.execute(stmt);
@@ -3732,6 +3830,24 @@ async function runMigrations() {
       }
     } catch (ee) {
       console.warn('Error while checking/adding login_redirects to settings:', ee && ee.message ? ee.message : ee);
+    }
+    // Ensure `phone` column exists on `employees` table
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        const [colRows3] = await pool.execute("SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'employees' AND COLUMN_NAME = 'phone'", [dbName]);
+        const hasPhone = colRows3 && colRows3[0] ? (colRows3[0].cnt || 0) : 0;
+        if (!hasPhone) {
+          try {
+            await pool.execute('ALTER TABLE employees ADD COLUMN phone VARCHAR(100) DEFAULT NULL');
+            console.log('ALTER TABLE: added `phone` column to employees');
+          } catch (alterErr) {
+            console.warn('Failed to ALTER employees add phone:', alterErr && alterErr.message ? alterErr.message : alterErr);
+          }
+        }
+      }
+    } catch (eee) {
+      console.warn('Error while checking/adding phone to employees:', eee && eee.message ? eee.message : eee);
     }
   } catch (err) {
     console.error('Failed to apply schema.sql:', err.message || err);
