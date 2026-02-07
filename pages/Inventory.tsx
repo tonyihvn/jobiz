@@ -79,9 +79,15 @@ const Inventory = () => {
 
   useEffect(() => {
         (async () => {
-            await refreshData();
-            try { if (db.locations && db.locations.getAll) { const locs = await db.locations.getAll(selectedBusinessId); setLocationsList(locs || []); } } catch (e) {}
-            try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(selectedBusinessId); setSuppliers(sups || []); } } catch (e) {}
+            try {
+                console.log('📦 Inventory: Loading products for business:', selectedBusinessId);
+                await refreshData();
+                console.log('✅ Inventory: Products loaded successfully');
+            } catch (err) {
+                console.error('❌ Inventory: Failed to load products', err);
+            }
+            try { if (db.locations && db.locations.getAll) { const locs = await db.locations.getAll(selectedBusinessId); setLocationsList(locs || []); } } catch (e) { console.warn('Failed to load locations', e); }
+            try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(selectedBusinessId); setSuppliers(sups || []); } } catch (e) { console.warn('Failed to load suppliers', e); }
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
@@ -107,35 +113,49 @@ const Inventory = () => {
 
     const refreshData = async () => {
         try {
+            console.log('🔄 refreshData: Fetching all products...');
             let prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+            console.log('📊 refreshData: Retrieved products count:', Array.isArray(prods) ? prods.length : 0);
             
             // Get current user to check if super admin
             const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
             const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            console.log('👤 refreshData: Current user super admin?', isSuperAdmin, 'Selected business:', selectedBusinessId);
             
             // Filter by selected business only for non-super-admin users
             if (!isSuperAdmin && selectedBusinessId) {
+                const beforeFilter = Array.isArray(prods) ? prods.length : 0;
+                // Log what business_ids the products have
+                const businessIds = (prods || []).map((p: any) => p.business_id);
+                console.log(`📍 Product business IDs:`, [...new Set(businessIds)]);
                 prods = (Array.isArray(prods) ? prods : []).filter((p: any) => p.business_id === selectedBusinessId);
+                console.log(`🔍 refreshData: Business filter applied - ${beforeFilter} → ${prods.length} products`);
+                if (beforeFilter > 0 && prods.length === 0) {
+                    console.warn('⚠️ WARNING: All products filtered out! Check that products have the correct business_id');
+                }
             }
             
             // normalize service flag: support both camelCase and snake_case from backend
-            const isServiceFlag = (p: any) => {
-                if (typeof p.isService !== 'undefined') return !!p.isService;
-                if (typeof p.is_service !== 'undefined') return !!p.is_service;
-                return false;
-            };
             const normalizedProds = (prods || []).map((p: any) => ({
                 ...p,
-                isService: isServiceFlag(p),
+                isService: typeof p.isService !== 'undefined' ? !!p.isService : (typeof p.is_service !== 'undefined' ? !!p.is_service : false),
                 categoryGroup: p.categoryGroup || p.category_group || p.group || '',
-                categoryName: p.categoryName || p.category_name || p.name || ''
+                categoryName: p.categoryName || p.category_name || p.name || '',
+                imageUrl: p.imageUrl || p.image_url || '',
             }));
-            setProducts(normalizedProds.filter((p: Product) => !p.isService));
+            
+            const filtered = normalizedProds.filter((p: Product) => !p.isService);
+            console.log(`📦 refreshData: After filtering services - ${filtered.length} products remaining`);
+            if (filtered.length > 0) console.log('📋 Sample product:', filtered[0]);
+            
+            setProducts(filtered);
+            
             const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
             const normalizedCats = (cats || []).map((c: any) => ({ ...c, isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false), group: c.group || c.category_group || '', name: c.name || c.label || '' }));
             setCategories(normalizedCats || []);
+            console.log('✅ refreshData: Complete - Products ready for display');
         } catch (e) {
-            console.warn('Failed to refresh inventory data', e);
+            console.error('❌ refreshData: Failed to refresh inventory data', e);
         }
     };
 
@@ -176,16 +196,24 @@ const Inventory = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             if (file) {
+                    console.log('🖼️ Starting image upload:', { name: file.name, size: file.size, type: file.type });
                     const fd = new FormData();
                     fd.append('file', file);
                     authFetch('/api/upload', { method: 'POST', body: fd })
-                        .then(r => r.json())
+                        .then(r => {
+                            console.log('📤 Upload response status:', r.status);
+                            return r.json();
+                        })
                         .then(data => {
+                            console.log('📤 Upload response data:', data);
                             if (data && data.url) {
+                                console.log('✅ Image URL stored:', data.url);
                                 setNewProduct(prev => ({...prev, imageUrl: data.url}));
+                            } else {
+                                console.error('❌ Upload response missing url:', data);
                             }
                         })
-                        .catch(err => console.error('Upload error', err));
+                        .catch(err => console.error('❌ Upload error', err));
             }
   };
 
@@ -193,9 +221,17 @@ const Inventory = () => {
     if (!newProduct.name || !newProduct.price) return;
     
     const currentUser = await db.auth.getCurrentUser();
+    
+    // Use selectedBusinessId from context, fallback to currentUser's businessId
+    const businessIdToUse = selectedBusinessId || currentUser?.businessId || currentUser?.business_id || '';
+    
+    console.log('📍 Current user business:', currentUser?.businessId || currentUser?.business_id);
+    console.log('📍 Selected business from context:', selectedBusinessId);
+    console.log('📍 Will save product with business_id:', businessIdToUse);
+    
     const product: Product = {
       id: editingId || Date.now().toString(),
-      businessId: currentUser?.businessId || '',
+      businessId: businessIdToUse,
       name: newProduct.name!,
       categoryName: newProduct.categoryName || 'General',
       categoryGroup: newProduct.categoryGroup || CategoryGroup.OTHER,
@@ -207,13 +243,19 @@ const Inventory = () => {
       imageUrl: newProduct.imageUrl || ''
     };
 
+    console.log('💾 Saving product with image:', { name: product.name, imageUrl: product.imageUrl, businessId: product.businessId });
+
     try {
       if (editingId) {
           if (db.products && db.products.update) await db.products.update(editingId, product);
+          console.log('✏️ Product updated:', editingId);
       } else {
           if (db.products && db.products.add) await db.products.add(product);
+          console.log('✨ Product created:', product.id, 'with business_id:', product.businessId);
       }
-    } catch (e) { console.warn('Failed to save product', e); }
+    } catch (e) { 
+      console.error('❌ Failed to save product', e); 
+    }
     
         setShowProductModal(false);
         setNewProduct({ name: '', price: 0, stock: 0, unit: 'pcs', categoryGroup: CategoryGroup.OTHER, isService: false, imageUrl: '' });
@@ -228,6 +270,7 @@ const Inventory = () => {
         header: 'Image', 
         accessor: (item: Product) => {
           const imageUrl = getImageUrl(item.imageUrl);
+          console.log('🖼️ Rendering product image:', { productName: item.name, storedUrl: item.imageUrl, processedUrl: imageUrl });
           return (
             <div className="w-10 h-10 bg-slate-100 rounded overflow-hidden flex items-center justify-center">
                 {item.imageUrl && imageUrl ? (
@@ -235,10 +278,12 @@ const Inventory = () => {
                       src={imageUrl} 
                       alt={item.name} 
                       className="w-full h-full object-cover" 
+                      crossOrigin="anonymous"
                       onError={(e) => {
-                        console.error('Image failed to load:', imageUrl);
+                        console.error('🖼️ Image failed to load:', { url: imageUrl, productName: item.name });
                         (e.target as HTMLImageElement).style.display = 'none';
                       }}
+                      onLoad={() => console.log('✅ Image loaded:', imageUrl)}
                     />
                 ) : (
                     <div className="text-slate-400 text-[10px]">No Img</div>
@@ -353,12 +398,25 @@ const Inventory = () => {
 
       
 
-            <DataTable
-                data={filteredProducts}
-                columns={productColumns}
-                title="Physical Inventory"
-               
-            />
+            {filteredProducts.length === 0 ? (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+                    <p className="text-slate-600 mb-2">No products found.</p>
+                    <p className="text-sm text-slate-500 mb-4">Check the browser console (F12) for debugging information.</p>
+                    <button 
+                        onClick={async () => { console.log('🔄 Manual refresh triggered'); await refreshData(); }}
+                        className="text-blue-600 hover:underline text-sm font-medium"
+                    >
+                        Try refreshing data
+                    </button>
+                </div>
+            ) : (
+                <DataTable
+                    data={filteredProducts}
+                    columns={productColumns}
+                    title="Physical Inventory"
+                   
+                />
+            )}
 
       {/* Product Modal */}
       {showProductModal && (
@@ -457,9 +515,11 @@ const Inventory = () => {
                                     alt="Preview" 
                                     className="w-16 h-16 rounded object-cover border" 
                                     onError={(e) => {
-                                      console.error('Preview image failed to load:', getImageUrl(newProduct.imageUrl));
+                                      const urlUsed = getImageUrl(newProduct.imageUrl) || newProduct.imageUrl;
+                                      console.error('🖼️ Preview image failed to load:', { storedUrl: newProduct.imageUrl, processedUrl: urlUsed });
                                       (e.target as HTMLImageElement).style.display = 'none';
                                     }}
+                                    onLoad={() => console.log('✅ Preview image loaded:', getImageUrl(newProduct.imageUrl))}
                                   />
                                 </div>
                             )}

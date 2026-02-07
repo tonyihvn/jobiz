@@ -106,13 +106,19 @@ const POS = () => {
                     return !isServiceFlag;
                 }) : [];
                 const combined = [...productsOnly, ...svcItems];
-                // normalize isService flag across different shapes (isService or is_service)
+                // normalize isService flag and image URLs across different shapes
                 const isServiceFlag = (p: any) => {
                     if (typeof p.isService !== 'undefined') return !!p.isService;
                     if (typeof p.is_service !== 'undefined') return !!p.is_service;
                     return false;
                 };
-                setProducts((combined || []).map((p: any) => ({ ...p, isService: isServiceFlag(p) })));
+                setProducts((combined || []).map((p: any) => ({ 
+                    ...p, 
+                    isService: isServiceFlag(p),
+                    imageUrl: p.imageUrl || p.image_url || '',
+                    categoryGroup: p.categoryGroup || p.category_group || p.group || '',
+                    categoryName: p.categoryName || p.category_name || p.name || ''
+                })));
                 setCustomers(custs || []);
                 setCurrentUser(user || null);
                 // categories map for group -> isProduct
@@ -262,7 +268,7 @@ const POS = () => {
   };
 
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const vatRate = 0.075; // 7.5%
+  const vatRate = settings.vatRate ? settings.vatRate / 100 : 0;
   const vat = subtotal * vatRate;
   const deliveryFee = delivery.enabled ? delivery.fee : 0;
   const total = subtotal + vat + deliveryFee;
@@ -305,8 +311,19 @@ const POS = () => {
                                 }
                             }
                         }
-                    // Refresh products
-                    try { const refreshed = await db.products.getAll(); setProducts(refreshed || []); } catch (e) { /* ignore */ }
+                    // Refresh products AND services
+                    try {
+                      const [refreshedProds, refreshedSvcs] = await Promise.all([
+                        db.products.getAll(selectedBusinessId),
+                        db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([])
+                      ]);
+                      const productsOnly = Array.isArray(refreshedProds) ? refreshedProds.filter((p: any) => {
+                        const isServiceFlag = typeof p.isService !== 'undefined' ? !!p.isService : (typeof p.is_service !== 'undefined' ? !!p.is_service : false);
+                        return !isServiceFlag;
+                      }) : [];
+                      const svcItems = Array.isArray(refreshedSvcs) ? refreshedSvcs.map((s: any) => ({ ...s, isService: true, isFromServicesTable: true })) : [];
+                      setProducts([...productsOnly, ...svcItems]);
+                    } catch (e) { console.warn('Failed to refresh products:', e); }
             }
 
                 if (res && res.saleId) sale.id = String(res.saleId);
@@ -400,9 +417,10 @@ const POS = () => {
           <body>
             <div class="receipt">
               <div class="header">
-                <h1>${settings.name}</h1>
-                <p>${settings.address}</p>
-                <p>${settings.phone}</p>
+                ${settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 40px; margin-bottom: 8px; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" />` : ''}
+                <h1>${settings.name ? settings.name : 'JOBIZ'}</h1>
+                <p>${settings.address ? settings.address : ''}</p>
+                <p>${settings.phone ? `Phone: ${settings.phone}` : ''}</p>
                 ${settings.motto ? `<p style="font-style: italic; font-size: 9px; margin-top: 4px;">${settings.motto}</p>` : ''}
               </div>
               <div class="divider"></div>
@@ -434,7 +452,7 @@ const POS = () => {
               </table>
               <div class="divider"></div>
               <div class="info"><span>Subtotal</span><span class="text-right">${fmtCurrency(sale.subtotal, 2)}</span></div>
-              <div class="info"><span>VAT (7.5%)</span><span class="text-right">${fmtCurrency(sale.vat, 2)}</span></div>
+              ${(settings.vatRate > 0) ? `<div class="info"><span>VAT (${settings.vatRate}%)</span><span class="text-right">${fmtCurrency(sale.vat, 2)}</span></div>` : ''}
               <div class="info" style="font-weight: bold; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccc;">
                 <span>TOTAL</span><span class="text-right">${fmtCurrency(Number(sale.total), 2)}</span>
               </div>
@@ -452,142 +470,103 @@ const POS = () => {
         // A4 Invoice
         htmlContent = `
           <!DOCTYPE html>
-          <html>
+          <html style="margin: 0; padding: 0;">
           <head>
             <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${sale.isProforma ? 'Proforma Invoice' : 'Invoice'}</title>
             <style>
+              @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
               * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 40px; }
-              .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-              .container { max-width: 210mm; margin: 0 auto; flex: 1; background: white; color: #1e293b; padding: ${settings.headerImageUrl ? '0' : '40px'}; }
-              .content { padding: 40px; }
-              .header-img { width: 100%; height: auto; display: block; }
-              .footer-img { width: 100%; height: auto; display: block; margin-top: auto; }
-              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-              .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
-              .title p { color: #64748b; font-size: 13px; }
-              .company { text-align: right; }
-              .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
-              .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
-              .bill-to { margin-bottom: 24px; }
-              .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
-              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
-              .bill-to strong { font-weight: 600; }
-              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
-              thead { border-bottom: 2px solid #1e293b; }
-              th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
-              td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
-              th.right, td.right { text-align: right; }
-              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
-              .totals-table { width: 240px; }
-              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
-              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .signatures { margin-top: 60px; display: flex; justify-content: space-between; }
-              .signature { flex: 1; }
-              .signature p { margin: 0 0 30px 0; font-size: 13px; font-weight: bold; }
-              .signature-line { border-top: 1px solid #000; width: 150px; }
-              @media print { body { padding: 0; } .container { padding: 0; } .content { padding: 40px; } .signatures { display: none !important; } .invoice-notes { display: none !important; } }
+              html { margin: 0; padding: 0; }
+              body { margin: 0; padding: 0; width: 100%; background: white; font-family: Arial, sans-serif; overflow-x: hidden; }                
             </style>
           </head>
-          <body>
-            <div class="wrapper">
-              ${settings.headerImageUrl ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
-              <div class="container">
-                <div class="content">
-                  <div class="header">
-                    <div class="title">
-                      <h1>${sale.isProforma ? (sale.proformaTitle || 'PROFORMA INVOICE') : 'INVOICE'}</h1>
-                      <p>#${sale.id}</p>
-                    </div>
-                    ${!settings.headerImageUrl ? `<div class="company">
-                      <h2>${settings.name}</h2>
-                      <p>${settings.address}</p>
-                      <p>${settings.phone}</p>
-                      <p>${settings.email}</p>
-                    </div>` : ''}
+          <body style="margin: 0; padding: 0;">
+          <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;">
+            ${settings.headerImageUrl ? `<div style="margin: 0; padding: 0; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: flex-start; min-height: 60px; margin: 0; background-color: #f8f9fa;"><img src="${settings.logoUrl}" style="width: auto; height: 50px; display: block; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : '')}
+            <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 8px; max-width: 100%; box-sizing: border-box;">
+                <div style="flex-shrink: 0;">
+                  <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 4px 0;">${sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}</h1>
+                  <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id.toString().slice(-8)}</p>
+                </div>
+                ${!settings.headerImageUrl ? `<div style="text-align: right; position: relative; flex: 0 0 auto; max-width: 50%; min-width: 0; word-wrap: break-word; overflow-wrap: break-word;">
+                  <h2 style="font-weight: bold; font-size: 12px; margin: 0 0 4px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.2;">${settings.name || ''}</h2>
+                  <p style="font-size: 10px; color: #64748b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.address || ''}</p>
+                  <p style="font-size: 10px; color: #64748b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.phone || ''}</p>
+                  <p style="font-size: 10px; color: #64748b; margin: 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.email || ''}</p>
+                </div>` : ''}
+              </div>
+            
+              <div style="margin-bottom: 20px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word;">
+                <h3 style="font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-transform: uppercase;">BILL TO</h3>
+                ${customer ? `
+                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;"><strong>${customer.name}</strong></p>
+                  ${customer.company ? `<p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.company}</p>` : ''}
+                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.address || ''}</p>
+                  <p style="font-size: 13px; color: #1e293b; margin: 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.phone || ''}</p>
+                ` : '<p style="font-size: 13px; color: #1e293b; margin: 0;">Walk-in Customer</p>'}
+              </div>
+              
+              <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 10px; table-layout: fixed; box-sizing: border-box;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #1e293b; background-color: #f1f5f9;">
+                    <th style="text-align: left; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">Description</th>
+                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 12%; word-break: break-word; overflow-wrap: break-word;">Qty</th>
+                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 12%; word-break: break-word; overflow-wrap: break-word;">Unit</th>
+                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 18%; word-break: break-word; overflow-wrap: break-word;">Price</th>
+                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 18%; word-break: break-word; overflow-wrap: break-word;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sale.items.map((item: any) => `
+                    <tr style="border-bottom: 1px solid #e2e8f0; background-color: #fafbfc;">
+                      <td style="padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.name || ''}</td>
+                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.quantity || 0}</td>
+                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.unit || 'N/A'}</td>
+                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${settings.currency}${fmtCurrency(Number(item.price), 2)}</td>
+                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #1e293b; font-weight: bold; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;"><strong>${settings.currency}${fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</strong></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              
+              <div style="display: flex; justify-content: flex-end; margin-bottom: 15px; max-width: 100%; box-sizing: border-box;">
+                <div style="width: 160px; max-width: 100%;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
+                    <span>Subtotal: </span>
+                    <span>${settings.currency}${fmtCurrency(sale.subtotal, 2)}</span>
                   </div>
-
-                  <div class="bill-to">
-                    <h3>Bill To</h3>
-                    ${customer ? `
-                      <p><strong>${customer.name}</strong></p>
-                      ${customer.company ? `<p>${customer.company}</p>` : ''}
-                      <p>${customer.address || 'N/A'}</p>
-                      <p>${customer.phone || 'N/A'}</p>
-                    ` : '<p><em>Walk-in Customer</em></p>'}
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
+                    <span>VAT (${settings.vatRate || 7.5}%)</span>
+                    <span>${settings.currency}${fmtCurrency(sale.vat, 2)}</span>
                   </div>
-
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Description</th>
-                        <th class="right">Qty</th>
-                        <th class="right">Unit</th>
-                        <th class="right">Price</th>
-                        <th class="right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${sale.items.map((item: any) => `
-                        <tr>
-                          <td>${item.name || ''}</td>
-                          <td class="right">${item.quantity || 0}</td>
-                          <td class="right">${item.unit || 'N/A'}</td>
-                          <td class="right">${fmtCurrency(item.price, 2)}</td>
-                          <td class="right"><strong>${fmtCurrency(item.price * item.quantity, 2)}</strong></td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-
-                  <div class="totals">
-                    <div class="totals-table">
-                      <div class="totals-row">
-                        <span>Subtotal</span>
-                        <span>${fmtCurrency(sale.subtotal, 2)}</span>
-                      </div>
-                      <div class="totals-row">
-                        <span>VAT (7.5%)</span>
-                        <span>${fmtCurrency(sale.vat, 2)}</span>
-                      </div>
-                      ${sale.deliveryFee ? `
-                        <div class="totals-row">
-                          <span>Delivery</span>
-                          <span>${fmtCurrency(sale.deliveryFee, 2)}</span>
-                        </div>
-                      ` : ''}
-                      <div class="totals-row final">
-                        <span>Total</span>
-                        <span>${fmtCurrency(Number(sale.total), 2)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  ${settings.invoiceNotes ? `
-                    <div class="invoice-notes" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; line-height: 1.5;">
-                      ${settings.invoiceNotes.split('\n').map((line: string) => `<p style="margin: 4px 0;">${line}</p>`).join('')}
+                  ${sale.deliveryFee ? `
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
+                      <span>Delivery</span>
+                      <span>${settings.currency}${fmtCurrency(sale.deliveryFee, 2)}</span>
                     </div>
                   ` : ''}
-
-                  <div class="signatures">
-                    <div class="signature">
-                      <p>Customer</p>
-                      <div class="signature-line"></div>
-                    </div>
-                    <div class="signature" style="text-align: right; flex-direction: column; align-items: flex-end;">
-                      <p>Signed Manager</p>
-                      <div class="signature-line" style="margin-right: 0;"></div>
-                    </div>
+                  <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 6px; font-size: 12px; font-weight: bold; color: #1e293b;">
+                    <span>Total</span>
+                    <span>${settings.currency}${fmtCurrency(Number(sale.total), 2)}</span>
                   </div>
                 </div>
               </div>
-              ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+              
+              <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 100%; box-sizing: border-box;">
+                <div style="display: flex; flex-direction: column; min-width: 0;">
+                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; word-break: break-word; overflow-wrap: break-word;">Customer</p>
+                  <div style="border-top: 1px solid #000; width: 50%; float: left; margin-top: 10px"></div>
+                </div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0;">
+                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word;">Signed Manager</p>
+                  <div style="border-top: 1px solid #000; width: 50%; float: right; margin-top: 10px"></div>
+                </div>
+              </div>
             </div>
-            <script>
-              window.onload = () => { window.print(); };
-            </script>
+            ${settings.footerImageUrl ? `<div style="width: 100%; margin: 0; padding: 0;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : ''}
+          </div>
           </body>
           </html>
         `;
@@ -672,7 +651,7 @@ const POS = () => {
         // A4 Invoice
         return `
           <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; page-break-after: avoid;">
-            ${hasHeaderFooter ? `<div style="width: 100%; min-height: 100px; display: flex; align-items: center;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}
+            ${hasHeaderFooter ? `<div style="width: 100%; min-height: 80px; display: flex; align-items: center;"><img src="${settings.headerImageUrl}" style="width: auto; height: 80px; max-width: 100%; display: block;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center;"><img src="${settings.logoUrl}" style="width: auto; height: 80px; max-width: 100%; display: block;" /></div>` : '')}
             <div style="padding: 40px; display: flex; flex-direction: column;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                 <div>
@@ -919,8 +898,9 @@ const POS = () => {
                                src={getImageUrl(product.imageUrl) || product.imageUrl} 
                                alt={product.name} 
                                className="w-full h-full object-cover" 
+                               crossOrigin="anonymous"
                                onError={(e) => {
-                                 console.error('POS product image failed to load:', getImageUrl(product.imageUrl));
+                                 console.error('POS product image failed to load:', product.imageUrl, getImageUrl(product.imageUrl));
                                  (e.target as HTMLImageElement).style.display = 'none';
                                }}
                              />
@@ -1080,7 +1060,7 @@ const POS = () => {
                 <span>{fmtCurrency(subtotal,2)}</span>
             </div>
             <div className="flex justify-between text-xs text-slate-600">
-                <span>VAT (7.5%)</span>
+                <span>VAT{settings.vatRate > 0 ? ` (${settings.vatRate}%)` : ''}</span>
                 <span>{fmtCurrency(vat,2)}</span>
             </div>
             {delivery.enabled && (

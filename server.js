@@ -50,9 +50,12 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 // Add specific middleware for uploads to ensure CORS headers
 app.use('/uploads', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
   res.header('Cache-Control', 'public, max-age=31536000');
+  res.header('X-Content-Type-Options', 'nosniff');
+  
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
   } else {
@@ -61,10 +64,23 @@ app.use('/uploads', (req, res, next) => {
 });
 
 app.use('/uploads', express.static(uploadsDir, { 
-  setHeaders: (res, path) => {
-    // Set proper cache headers for images
-    res.set('Cache-Control', 'public, max-age=31536000');
+  maxAge: '1y',
+  etag: false,
+  setHeaders: (res, path, stat) => {
+    // Force CORS headers on all responses
     res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.set('X-Content-Type-Options', 'nosniff');
+    
+    // Ensure correct content-type for images
+    const ext = path.toLowerCase();
+    if (ext.endsWith('.png')) res.set('Content-Type', 'image/png');
+    else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg')) res.set('Content-Type', 'image/jpeg');
+    else if (ext.endsWith('.gif')) res.set('Content-Type', 'image/gif');
+    else if (ext.endsWith('.webp')) res.set('Content-Type', 'image/webp');
+    else if (ext.endsWith('.svg')) res.set('Content-Type', 'image/svg+xml');
   }
 }));
 
