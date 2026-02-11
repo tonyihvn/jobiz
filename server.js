@@ -559,6 +559,19 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// GET public business info by ID (no authentication required)
+app.get('/api/public/business/:id', async (req, res) => {
+  try {
+    const businessId = decodeURIComponent(req.params.id);
+    const [rows] = await pool.execute(
+      'SELECT id, name FROM businesses WHERE id = ?',
+      [businessId]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Business not found' });
+    res.json({ id: rows[0].id, name: rows[0].name });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Registration endpoint
 app.post('/api/register', async (req, res) => {
   const { companyName, email, password, phone } = req.body;
@@ -3051,6 +3064,78 @@ app.put('/api/businesses/:id', authMiddleware, async (req, res) => {
     await pool.execute(sql, params);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET business logout redirect URL
+app.get('/api/super-admin/business-logout-url/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = decodeURIComponent(req.params.id);
+    const [rows] = await pool.execute(
+      'SELECT logout_redirect_url FROM businesses WHERE id = ?',
+      [businessId]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Business not found' });
+    res.json({ logout_redirect_url: rows[0].logout_redirect_url || null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT update business logout redirect URL (Super Admin only)
+app.put('/api/super-admin/business-logout-url/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = decodeURIComponent(req.params.id);
+    const { logout_redirect_url } = req.body;
+    
+    console.log('[LOGOUT-URL-UPDATE] Updating business:', businessId);
+    console.log('[LOGOUT-URL-UPDATE] New URL:', logout_redirect_url);
+    
+    const result = await pool.execute(
+      'UPDATE businesses SET logout_redirect_url = ? WHERE id = ?',
+      [logout_redirect_url || null, businessId]
+    );
+    
+    console.log('[LOGOUT-URL-UPDATE] Update result:', result[0].affectedRows);
+    res.json({ success: true, message: `Updated logout URL for business ${businessId}` });
+  } catch (err) {
+    console.error('[LOGOUT-URL-UPDATE] ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET current user's business logout redirect URL (Regular auth)
+app.get('/api/me/business-logout-url', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get user's business ID
+    const [employees] = await pool.execute(
+      'SELECT business_id FROM employees WHERE id = ?',
+      [userId]
+    );
+    
+    if (!employees || employees.length === 0) {
+      console.log('[LOGOUT-URL-GET] User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const businessId = employees[0].business_id;
+    
+    // Get business logout URL
+    const [businesses] = await pool.execute(
+      'SELECT logout_redirect_url FROM businesses WHERE id = ?',
+      [businessId]
+    );
+    
+    if (!businesses || businesses.length === 0) {
+      console.log('[LOGOUT-URL-GET] Business not found:', businessId);
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    console.log('[LOGOUT-URL-GET] Retrieved logout URL for user', userId, 'business', businessId, ':', businesses[0].logout_redirect_url);
+    res.json({ logout_redirect_url: businesses[0].logout_redirect_url || null });
+  } catch (err) {
+    console.error('[LOGOUT-URL-GET] ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET all subscription plans

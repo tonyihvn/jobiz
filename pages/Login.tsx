@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import db from '../services/apiClient';
 import { login as apiLogin } from '../services/auth';
 import { Lock, Mail, AlertCircle, ArrowLeft } from 'lucide-react';
@@ -13,7 +13,30 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [businessName, setBusinessName] = useState<string | null>(null);
+  const [businessLoading, setBusinessLoading] = useState(false);
   const navigate = useNavigate();
+  const { businessid } = useParams<{ businessid?: string }>();
+
+  // Fetch business name if businessid is provided
+  useEffect(() => {
+    if (businessid) {
+      setBusinessLoading(true);
+      (async () => {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/public/business/${encodeURIComponent(businessid)}`);
+          if (response.ok) {
+            const data = await response.json();
+            setBusinessName(data.name);
+          }
+        } catch (err) {
+          console.error('Failed to fetch business name:', err);
+        } finally {
+          setBusinessLoading(false);
+        }
+      })();
+    }
+  }, [businessid]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,10 +63,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
         <div className="bg-slate-900 p-8 text-center relative">
-            <button onClick={() => navigate('/landing')} className="absolute left-4 top-4 text-slate-400 hover:text-white">
+            <button onClick={() => navigate(businessid ? '/landing' : '/landing')} className="absolute left-4 top-4 text-slate-400 hover:text-white">
                 <ArrowLeft size={20} />
             </button>
-            <h1 className="text-2xl font-bold text-white mb-2">Jobiz Manager</h1>
+            <h1 className="text-2xl font-bold text-white mb-2">
+              {businessLoading ? 'Loading...' : businessName || 'Jobiz Manager'}
+            </h1>
             <p className="text-slate-400 text-sm">Sign in to access your business dashboard</p>
         </div>
         
@@ -97,11 +122,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </button>
             </form>
 
-            <div className="mt-6 text-center text-xs text-slate-400">
+            {!businessid && (
+              <div className="mt-6 text-center text-xs text-slate-400">
                 <p className="mt-4 text-brand-600 cursor-pointer hover:underline" onClick={() => navigate('/register')}>
                     Register your business
                 </p>
-            </div>
+              </div>
+            )}
         </div>
       </div>
     </div>

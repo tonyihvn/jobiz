@@ -6,7 +6,7 @@ import { Business, SubscriptionPlan } from '../types';
 import { Shield, CheckCircle, XCircle, Settings, LogOut, CreditCard, AlertTriangle, Eye, Plus, X, Save, BarChart3, MessageCircle } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
 
-type TabType = 'notifications' | 'businesses' | 'plans' | 'approvals' | 'payments' | 'activation' | 'feedbacks' | 'data';
+type TabType = 'notifications' | 'businesses' | 'plans' | 'approvals' | 'payments' | 'activation' | 'feedbacks' | 'data' | 'settings';
 
 const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     const { symbol } = useCurrency();
@@ -16,6 +16,8 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [businessData, setBusinessData] = useState<any>({});
   const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [logoutSettings, setLogoutSettings] = useState<{ [key: string]: string }>({});
+  const [savingLogoutUrl, setSavingLogoutUrl] = useState<string | null>(null);
   
   // Plan Modal
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -63,6 +65,82 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
       console.error('Failed to refresh data:', e);
     }
   };
+
+  // Load all logout redirect URLs
+  const loadLogoutSettings = async () => {
+    try {
+      const token = localStorage.getItem('omnisales_token');
+      const settings: { [key: string]: string } = {};
+      const bizs = await db.superAdmin.getBusinesses();
+      
+      console.log('Loading logout settings for', bizs.length, 'businesses');
+      
+      for (const biz of bizs) {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/super-admin/business-logout-url/${encodeURIComponent(biz.id)}`, {
+            headers: { 'Authorization': `Bearer ${token || ''}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            settings[biz.id] = data.logout_redirect_url || '';
+          } else {
+            console.warn(`Failed to load logout URL for business ${biz.id}:`, response.status, response.statusText);
+          }
+        } catch (e) {
+          console.error(`Failed to load logout URL for business ${biz.id}:`, e);
+        }
+      }
+      setLogoutSettings(settings);
+    } catch (e) {
+      console.error('Failed to load logout settings:', e);
+      alert('Failed to load logout settings. Check console for details.');
+    }
+  };
+
+  // Save logout redirect URL for a specific business
+  const saveLogoutUrl = async (businessId: string, logoutUrl: string) => {
+    setSavingLogoutUrl(businessId);
+    try {
+      const token = localStorage.getItem('omnisales_token');
+      console.log('Saving logout URL for business:', businessId);
+      console.log('Token present:', !!token);
+      console.log('API URL:', import.meta.env.VITE_API_URL || 'not set');
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/super-admin/business-logout-url/${encodeURIComponent(businessId)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || ''}`
+        },
+        body: JSON.stringify({ logout_redirect_url: logoutUrl || null })
+      });
+      
+      const data = await response.json();
+      console.log('Response status:', response.status);
+      console.log('Response data:', data);
+      
+      if (response.ok) {
+        setLogoutSettings({ ...logoutSettings, [businessId]: logoutUrl });
+        alert('Logout URL saved successfully!');
+      } else {
+        const errorMsg = data.error || response.statusText || 'Unknown error';
+        console.error('Save error:', errorMsg);
+        alert(`Failed to save logout URL: ${errorMsg}`);
+      }
+    } catch (e: any) {
+      console.error('Failed to save logout URL:', e);
+      alert(`Error saving logout URL: ${e.message}`);
+    } finally {
+      setSavingLogoutUrl(null);
+    }
+  };
+
+  // Load logout settings when switching to settings tab
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      loadLogoutSettings();
+    }
+  }, [activeTab]);
 
   // Load business data when viewing data tab or when selected business changes
   useEffect(() => {
@@ -242,6 +320,9 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                  </button>
                  <button onClick={() => setActiveTab('data')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'data' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
                      Business Data
+                 </button>
+                 <button onClick={() => setActiveTab('settings')} className={`px-6 py-3 rounded-lg font-bold transition-all text-sm ${activeTab === 'settings' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:bg-white/50'}`}>
+                     Settings
                  </button>
             </div>
 
@@ -522,6 +603,61 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                             <p className="text-slate-500">Select a business from the switcher above to view its data</p>
                         </div>
                     )}
+                </div>
+            )}
+
+            {activeTab === 'settings' && (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-indigo-100 rounded">
+                                <Settings className="text-indigo-600" size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-slate-800">Logout Redirect URLs</h3>
+                                <p className="text-sm text-slate-500">Configure where users are redirected after logout for each business</p>
+                            </div>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            {businesses.length === 0 ? (
+                                <p className="text-slate-500 text-center py-8">No businesses found</p>
+                            ) : (
+                                businesses.map((business) => (
+                                    <div key={business.id} className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition-colors">
+                                        <div className="flex flex-col md:flex-row md:items-end gap-4">
+                                            <div className="flex-1">
+                                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                                    {business.name}
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    placeholder="e.g., https://example.com/login or /login/businessid"
+                                                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600 text-sm"
+                                                    value={logoutSettings[business.id] || ''}
+                                                    onChange={(e) => setLogoutSettings({
+                                                        ...logoutSettings,
+                                                        [business.id]: e.target.value
+                                                    })}
+                                                />
+                                                <p className="text-xs text-slate-500 mt-1">
+                                                    Examples: <code className="bg-slate-100 px-1 rounded">/login</code>, <code className="bg-slate-100 px-1 rounded">#/login/123</code>, <code className="bg-slate-100 px-1 rounded">https://example.com</code>. Leave empty for default (landing page).
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => saveLogoutUrl(business.id, logoutSettings[business.id] || '')}
+                                                disabled={savingLogoutUrl === business.id}
+                                                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 disabled:bg-slate-400 transition-colors flex items-center gap-2 whitespace-nowrap"
+                                            >
+                                                <Save size={16} />
+                                                {savingLogoutUrl === business.id ? 'Saving...' : 'Save'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
         </main>
