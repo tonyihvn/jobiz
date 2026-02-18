@@ -257,8 +257,8 @@ const SalesHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
                 @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; flex: 1; }
+                .wrapper { display: flex; flex-direction: column; }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
                 .header-img { width: 100%; height: auto; display: block; }
                 .footer-img { width: 100%; height: auto; display: block; }
                 .logo-section { width: 100%; padding: 15px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; }
@@ -375,7 +375,7 @@ const SalesHistory = () => {
                     <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" alt="Footer" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
               </div>
             </body>
             </html>
@@ -536,8 +536,7 @@ const SalesHistory = () => {
                     </div>
                   </div>
                 </div>
-                </div>
-                ${settings.footerImageUrl ? `<div class="footer-image"><img src="${settings.footerImageUrl}" /></div>` : ''}
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
               </div>
             </body>
             </html>
@@ -803,7 +802,7 @@ const SalesHistory = () => {
               * { margin: 0; padding: 0; box-sizing: border-box; }
               html { margin: 0; padding: 0; }
               body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; width: 100%; overflow-x: hidden; }
-              .wrapper { display: flex; flex-direction: column; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 0; }
+              .wrapper { display: flex; flex-direction: column; max-width: 210mm; margin: 0 auto; padding: 0; }
               .container { width: 100%; margin: 0; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; flex: 1; }
               .content { padding: 40px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
               .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
@@ -1054,7 +1053,7 @@ const SalesHistory = () => {
                   </div>
                 </div>
               </div>
-              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
+              ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
             </div>
           </body>
           </html>

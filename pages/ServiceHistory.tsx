@@ -605,7 +605,7 @@ const ServiceHistory = () => {
                     <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0; position: absolute; bottom: 0; left: 0; right: 0;" />` : ''}
               </div>
               <script>
                 window.onload = () => { window.print(); };
@@ -643,8 +643,8 @@ const ServiceHistory = () => {
               </style>
             </head>
             <body style="margin: 0; padding: 0;">
-            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;\">\n ${hasHeaderFooter ? `<div style="margin: 0; padding: 0; width: 100%; height: ${settings.headerImageHeight || 100}px; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block;" /></div>` : '')}
-              <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.1, z-index:0;">
+            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;\">\n ${hasHeaderFooter ? `<div style="margin: 0; padding: 0; width: 100%; height: ${settings.headerImageHeight || 100}px; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0; /* logoAlign: left (default), center, or right */"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block;" /></div>` : '')}
+              <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box; flex: 1; page-break-inside: avoid;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 8px; max-width: 100%; box-sizing: border-box;">
                   <div style="flex-shrink: 0;">
                     <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 4px 0;">INVOICE</h1>
@@ -728,8 +728,9 @@ const ServiceHistory = () => {
                 </div>
               </div>
               </div>
-              ${hasHeaderFooter ? `<div style="width: 100%; margin: 0; padding: 0; height: ${settings.footerImageHeight || 60}px; overflow: hidden;"><img src="${settings.footerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : ''}
             </div>
+            ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
+            
             </body>
             </html>
           `;
