@@ -13,16 +13,56 @@ const BusinessSwitcher: React.FC<BusinessSwitcherProps> = ({ collapsed = false }
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    // Load businesses from super admin only once on mount
+    // Load businesses based on user role (super admin vs regular)
     const loadBusinesses = async () => {
       try {
-        const bizs = await db.superAdmin.getBusinesses();
-        setBusinesses(bizs || []);
+        // Get current user to determine if super admin
+        const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+        const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
         
-        // Auto-select first business or last selected
-        if (bizs && bizs.length > 0) {
-          const lastBusinessId = localStorage.getItem('omnisales_last_business_id');
-          const businessToSelect = bizs.find(b => b.id === lastBusinessId) || bizs[0];
+        let businessesToSet: Business[] = [];
+        let businessToSelect: Business | null = null;
+        
+        if (isSuperAdmin) {
+          // Super admin: load all businesses
+          businessesToSet = await db.superAdmin.getBusinesses() || [];
+          
+          // Auto-select first business or last selected
+          if (businessesToSet && businessesToSet.length > 0) {
+            const lastBusinessId = localStorage.getItem('omnisales_last_business_id');
+            businessToSelect = businessesToSet.find(b => b.id === lastBusinessId) || businessesToSet[0];
+          }
+        } else {
+          // Regular user: load ONLY their own business from database
+          if (currentUser && currentUser.businessId) {
+            try {
+              // Fetch the user's business details using the business_id from employee record
+              const response = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/businesses/${currentUser.businessId}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('omnisales_token') || ''}` }
+              });
+              
+              if (response.ok) {
+                const business = await response.json();
+                businessesToSet = [business];
+                businessToSelect = business;
+                console.log('[BusinessSwitcher] Regular user business loaded:', { 
+                  userId: currentUser.id, 
+                  userBusinessId: currentUser.businessId,
+                  loadedBusinessId: business.id,
+                  match: currentUser.businessId === business.id
+                });
+              } else {
+                console.warn('Failed to fetch business details for user');
+              }
+            } catch (e) {
+              console.error('Failed to fetch user business details:', e);
+            }
+          }
+        }
+        
+        setBusinesses(businessesToSet);
+        if (businessToSelect) {
+          console.log('[BusinessSwitcher] Setting selected business:', businessToSelect.id);
           setSelectedBusiness(businessToSelect);
         }
       } catch (e) {

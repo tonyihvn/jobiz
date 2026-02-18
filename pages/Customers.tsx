@@ -18,19 +18,27 @@ const Customers = () => {
   useEffect(() => {
         (async () => {
             try {
-                let custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+                let custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
                 
-                // Get current user to check if super admin
+                // Get current user to check their role permissions
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-                const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+                const userHasWildcard = currentUser && await (async () => {
+                    if (!db.roles || !db.roles.getAll) return false;
+                    const allRoles = await db.roles.getAll(selectedBusinessId);
+                    const role = Array.isArray(allRoles) ? allRoles.find((r: Role) => r.id === currentUser.roleId) : null;
+                    return !!(role && role.permissions && (
+                        role.permissions.includes('*:*') ||
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))
+                    ));
+                })();
                 
                 // Filter by selected business only for non-super-admin users
-                if (!isSuperAdmin && selectedBusinessId) {
-                    custs = (Array.isArray(custs) ? custs : []).filter((c: any) => c.business_id === selectedBusinessId);
+                if (!userHasWildcard && selectedBusinessId) {
+                    custs = (Array.isArray(custs) ? custs : []).filter((c: any) => String(c.business_id) === String(selectedBusinessId));
                 }
                 setCustomers(custs || []);
                 if (currentUser && db.roles && db.roles.getAll) {
-                    const roles = await db.roles.getAll();
+                    const roles = await db.roles.getAll(selectedBusinessId);
                     setUserRole(Array.isArray(roles) ? roles.find(r => r.id === currentUser.roleId) || null : null);
                 }
             } catch (e) {
@@ -76,7 +84,7 @@ const Customers = () => {
         try {
             if (db.customers && db.customers.add) await db.customers.add(c);
         } catch (e) { console.warn('Save customer failed', e); }
-        const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+        const custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
         setCustomers(custs || []);
         setShowModal(false);
         setNewCustomer({});

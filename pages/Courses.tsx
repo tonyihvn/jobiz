@@ -24,12 +24,28 @@ const Courses = () => {
             try {
                 await refreshData();
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-                setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
                 if (!mounted) return;
                 if (currentUser) {
-                    const roles = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
+                    const roles = db.roles && db.roles.getAll ? await db.roles.getAll(selectedBusinessId) : [];
                     const role = roles.find((r: any) => r.id === (currentUser.roleId || currentUser.role_id));
                     setUserRole(role || null);
+                    
+                    // Check if user has super admin permissions based on their role
+                    // A user is "super" if their role has wildcard permissions (*:*) or all permissions
+                    const hasWildcardPermission = role && role.permissions && (
+                        role.permissions.includes('*:*') ||  // All resources and actions
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))  // Any wildcard
+                    );
+                    setIsSuper(!!hasWildcardPermission);
+                    console.log('[Courses] User role loaded:', { 
+                        roleId: role?.id, 
+                        roleName: role?.name,
+                        hasWildcardPermission,
+                        isSuper: !!hasWildcardPermission,
+                        permissions: role?.permissions 
+                    });
+                } else {
+                    setIsSuper(false);
                 }
             } catch (e) {
                 console.warn('Courses init failed', e);
@@ -47,19 +63,19 @@ const Courses = () => {
             const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
             
             // Combine products and services so items saved to either table show up
-            let prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+            let prods = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
             let svcs: any[] = [];
-            try { svcs = db.services && db.services.getAll ? await db.services.getAll() : []; } catch(e) { svcs = []; }
+            try { svcs = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : []; } catch(e) { svcs = []; }
             
             // Filter by selected business only for non-super-admin users
             if (!isSuperAdmin && selectedBusinessId) {
-                prods = (Array.isArray(prods) ? prods : []).filter((p: any) => p.business_id === selectedBusinessId);
-                svcs = (Array.isArray(svcs) ? svcs : []).filter((s: any) => s.business_id === selectedBusinessId);
+                prods = (Array.isArray(prods) ? prods : []).filter((p: any) => String(p.business_id) === String(selectedBusinessId));
+                svcs = (Array.isArray(svcs) ? svcs : []).filter((s: any) => String(s.business_id) === String(selectedBusinessId));
             }
             
             const combined = [...(prods || []), ...(svcs || [])];
             try {
-                const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
+                const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId) : [];
                 setCategories(cats || []);
             } catch (e) { /* ignore */ }
             setItems(Array.isArray(combined) ? combined.filter((p: any) => (p.categoryGroup || '') === 'Art School') : []);
@@ -123,7 +139,7 @@ const Courses = () => {
             if (editingItem.isService) {
                 if (db.services && (db.services as any).add) await (db.services as any).add(editingItem);
             } else {
-                const current: any[] = db.products && db.products.getAll ? await db.products.getAll() : [];
+                const current: any[] = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
                 if (db.products && db.products.save) await db.products.save([...current, editingItem]);
             }
         } else {

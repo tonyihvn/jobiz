@@ -180,8 +180,15 @@ export interface CompanySettings {
   phone: string;
   email: string;
   logoUrl: string;
+  logoAlign?: 'left' | 'center' | 'right';
+  logoHeight?: number;
   headerImageUrl?: string;
+  headerImageHeight?: number;
   footerImageUrl?: string;
+  footerImageHeight?: number;
+  watermarkImageUrl?: string;
+  watermarkAlign?: 'left' | 'center' | 'right';
+  signatureUrl?: string;
   vatRate: number;
   currency: string;
   // Optional default location id that applies to all users when set by admin

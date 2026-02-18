@@ -80,6 +80,11 @@ const Inventory = () => {
   useEffect(() => {
         (async () => {
             try {
+                console.log('📦 Inventory: Loading with selectedBusinessId:', selectedBusinessId);
+                if (!selectedBusinessId) {
+                    console.warn('📦 Inventory: selectedBusinessId is not set, waiting for initialization');
+                    return;
+                }
                 console.log('📦 Inventory: Loading products for business:', selectedBusinessId);
                 await refreshData();
                 console.log('✅ Inventory: Products loaded successfully');
@@ -90,11 +95,28 @@ const Inventory = () => {
             try { if (db.suppliers && db.suppliers.getAll) { const sups = await db.suppliers.getAll(selectedBusinessId); setSuppliers(sups || []); } } catch (e) { console.warn('Failed to load suppliers', e); }
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-                setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
                 if (currentUser && db.roles && db.roles.getAll) {
                     const roles = await db.roles.getAll(selectedBusinessId);
                     const role = Array.isArray(roles) ? roles.find((r: Role) => r.id === currentUser.roleId) : null;
                     setUserRole(role || null);
+                    
+                    // Check if user has super admin permissions based on their role
+                    // A user is "super" if their role has wildcard permissions (inventory:*) or all permissions (*:*)
+                    const hasWildcardPermission = role && role.permissions && (
+                        role.permissions.includes('*:*') ||  // All resources and actions
+                        role.permissions.includes('inventory:*') ||  // All inventory actions
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))  // Any wildcard
+                    );
+                    setIsSuper(!!hasWildcardPermission);
+                    console.log('[Inventory] User role loaded:', { 
+                        roleId: role?.id, 
+                        roleName: role?.name,
+                        hasWildcardPermission,
+                        isSuper: !!hasWildcardPermission,
+                        permissions: role?.permissions 
+                    });
+                } else {
+                    setIsSuper(false);
                 }
             } catch (e) {
                 console.warn('Failed to load user/roles', e);
@@ -113,45 +135,74 @@ const Inventory = () => {
 
     const refreshData = async () => {
         try {
-            console.log('🔄 refreshData: Fetching all products...');
-            let prods = db.products && db.products.getAll ? await db.products.getAll() : [];
-            console.log('📊 refreshData: Retrieved products count:', Array.isArray(prods) ? prods.length : 0);
+            console.log('🔄 refreshData: Fetching all products and services...');
+            console.log('🔄 refreshData: selectedBusinessId is:', selectedBusinessId);
+            
+            // Use the same algorithm as POS: load products, services, and categories in parallel
+            const [prods, svcs, cats] = await Promise.all([
+                db.products && db.products.getAll ? db.products.getAll(selectedBusinessId) : Promise.resolve([]),
+                db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([]),
+                db.categories && db.categories.getAll ? db.categories.getAll(selectedBusinessId) : Promise.resolve([])
+            ]);
+            
+            console.log('📊 refreshData: API responses:', {
+                productCount: Array.isArray(prods) ? prods.length : 0,
+                serviceCount: Array.isArray(svcs) ? svcs.length : 0,
+                categoryCount: Array.isArray(cats) ? cats.length : 0,
+                products: prods,
+                services: svcs
+            });
+            
+            // Determine service flag (support both camelCase and snake_case)
+            const isServiceFlag = (p: any) => {
+                if (typeof p.isService !== 'undefined') return !!p.isService;
+                if (typeof p.is_service !== 'undefined') return !!p.is_service;
+                return false;
+            };
+            
+            // Filter products to exclude services
+            const productsOnly = Array.isArray(prods) ? prods.filter((p: any) => !isServiceFlag(p)) : [];
+            console.log('📦 refreshData: After isService filtering:', productsOnly.length, 'products');
             
             // Get current user to check if super admin
             const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
             const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
             console.log('👤 refreshData: Current user super admin?', isSuperAdmin, 'Selected business:', selectedBusinessId);
             
-            // Filter by selected business only for non-super-admin users
+            // Additional business filter for non-super-admin users (extra safety)
+            let filteredByBusiness = productsOnly;
             if (!isSuperAdmin && selectedBusinessId) {
-                const beforeFilter = Array.isArray(prods) ? prods.length : 0;
-                // Log what business_ids the products have
-                const businessIds = (prods || []).map((p: any) => p.business_id);
-                console.log(`📍 Product business IDs:`, [...new Set(businessIds)]);
-                prods = (Array.isArray(prods) ? prods : []).filter((p: any) => p.business_id === selectedBusinessId);
-                console.log(`🔍 refreshData: Business filter applied - ${beforeFilter} → ${prods.length} products`);
-                if (beforeFilter > 0 && prods.length === 0) {
+                const beforeFilter = Array.isArray(filteredByBusiness) ? filteredByBusiness.length : 0;
+                const businessIds = (filteredByBusiness || []).map((p: any) => p.business_id);
+                console.log('📍 Product business IDs:', [...new Set(businessIds)]);
+                filteredByBusiness = (Array.isArray(filteredByBusiness) ? filteredByBusiness : []).filter((p: any) => String(p.business_id) === String(selectedBusinessId));
+                console.log(`🔍 refreshData: Business filter applied - ${beforeFilter} -> ${filteredByBusiness.length} products`);
+                if (beforeFilter > 0 && filteredByBusiness.length === 0) {
                     console.warn('⚠️ WARNING: All products filtered out! Check that products have the correct business_id');
                 }
             }
             
-            // normalize service flag: support both camelCase and snake_case from backend
-            const normalizedProds = (prods || []).map((p: any) => ({
+            // Normalize all product fields
+            const normalizedProds = (filteredByBusiness || []).map((p: any) => ({
                 ...p,
-                isService: typeof p.isService !== 'undefined' ? !!p.isService : (typeof p.is_service !== 'undefined' ? !!p.is_service : false),
+                isService: false, // Ensure services are filtered out
                 categoryGroup: p.categoryGroup || p.category_group || p.group || '',
                 categoryName: p.categoryName || p.category_name || p.name || '',
                 imageUrl: p.imageUrl || p.image_url || '',
             }));
             
-            const filtered = normalizedProds.filter((p: Product) => !p.isService);
-            console.log(`📦 refreshData: After filtering services - ${filtered.length} products remaining`);
-            if (filtered.length > 0) console.log('📋 Sample product:', filtered[0]);
+            console.log(`📦 refreshData: Final product count - ${normalizedProds.length} products`, normalizedProds);
+            if (normalizedProds.length > 0) console.log('📋 Sample product:', normalizedProds[0]);
             
-            setProducts(filtered);
+            setProducts(normalizedProds);
             
-            const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
-            const normalizedCats = (cats || []).map((c: any) => ({ ...c, isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false), group: c.group || c.category_group || '', name: c.name || c.label || '' }));
+            // Normalize categories
+            const normalizedCats = (cats || []).map((c: any) => ({ 
+                ...c, 
+                isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false), 
+                group: c.group || c.category_group || '', 
+                name: c.name || c.label || '' 
+            }));
             setCategories(normalizedCats || []);
             console.log('✅ refreshData: Complete - Products ready for display');
         } catch (e) {

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Business } from '../types';
+import db from './apiClient';
 
 interface BusinessContextType {
   selectedBusinessId: string | null;
@@ -18,11 +19,31 @@ export const BusinessProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load last selected business from localStorage on mount
+  // Load business ID: from localStorage for super admins, or from employee record for regular users
   useEffect(() => {
-    const lastBusinessId = localStorage.getItem('omnisales_last_business_id');
-    if (lastBusinessId) {
-      setSelectedBusinessId(lastBusinessId);
+    const isSuperAdmin = localStorage.getItem('omnisales_is_super_admin') === 'true';
+    if (isSuperAdmin) {
+      // Super admin: use localStorage to remember last selected business
+      const lastBusinessId = localStorage.getItem('omnisales_last_business_id');
+      if (lastBusinessId) {
+        console.log('[BusinessContext] Loading from localStorage for super admin:', lastBusinessId);
+        setSelectedBusinessId(lastBusinessId);
+      }
+    } else {
+      // Regular user: get business_id directly from their employee record
+      (async () => {
+        try {
+          const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+          if (currentUser && currentUser.businessId) {
+            console.log('[BusinessContext] Regular user detected - setting businessId from employee record:', currentUser.businessId);
+            setSelectedBusinessId(currentUser.businessId);
+          } else {
+            console.warn('[BusinessContext] Regular user found but no businessId in employee record');
+          }
+        } catch (e) {
+          console.warn('[BusinessContext] Failed to get current user business_id:', e);
+        }
+      })();
     }
   }, []);
 
@@ -30,7 +51,12 @@ export const BusinessProvider: React.FC<{ children: ReactNode }> = ({ children }
     setSelectedBusinessState(business);
     if (business) {
       setSelectedBusinessId(business.id);
-      localStorage.setItem('omnisales_last_business_id', business.id);
+      const isSuperAdmin = localStorage.getItem('omnisales_is_super_admin') === 'true';
+      // Store in localStorage only for super admins
+      if (isSuperAdmin) {
+        localStorage.setItem('omnisales_last_business_id', business.id);
+      }
+      console.log('[BusinessContext] Selected business:', { businessId: business.id, isSuperAdmin });
     } else {
       setSelectedBusinessId(null);
       localStorage.removeItem('omnisales_last_business_id');

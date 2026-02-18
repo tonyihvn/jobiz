@@ -218,13 +218,17 @@ const App = () => {
                       console.log('[LOGOUT] Fetching logout URL for business:', user.businessId);
                       
                       // Fetch the user's business logout redirect URL using regular auth endpoint
+                      const controller = new AbortController();
+                      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+                      
                       const response = await fetch(
-                          `${import.meta.env.VITE_API_URL || ''}/api/me/business-logout-url`,
+                          `${(import.meta as any).env.VITE_API_URL || ''}/api/me/business-logout-url`,
                           { 
                               headers: { 'Authorization': `Bearer ${localStorage.getItem('omnisales_token') || ''}` },
-                              timeout: 5000 // 5 second timeout to prevent hanging
+                              signal: controller.signal
                           }
                       );
+                      clearTimeout(timeoutId);
                       
                       console.log('[LOGOUT] Fetch response status:', response.status);
                       

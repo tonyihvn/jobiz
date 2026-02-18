@@ -203,8 +203,11 @@ const POS = () => {
     const STOCK_TRACKED_GROUPS = Object.keys((window as any).__categoryMap || {}).filter(g => (window as any).__categoryMap[g]);
 
     const addToCart = async (product: Product) => {
-        // Only stock-tracked groups enforce inventory checks
-        const stockTracked = STOCK_TRACKED_GROUPS.includes(product.categoryGroup as CategoryGroup);
+        // Skip stock checks for services - they don't have inventory
+        const isService = product.isService || product.is_service;
+        
+        // Only stock-tracked groups enforce inventory checks (and only for products, not services)
+        const stockTracked = !isService && STOCK_TRACKED_GROUPS.includes(product.categoryGroup as CategoryGroup);
         const loc = currentUser?.defaultLocationId || settings.defaultLocationId;
 
         if (stockTracked && !isProforma) {
@@ -246,8 +249,11 @@ const POS = () => {
                 if (!current || !productItem) return;
                 const newQty = Math.max(1, current.quantity + delta);
 
-                    // Only enforce stock limits for configured stock-tracked groups
-                    const stockTracked = (window as any).__categoryMap ? !!(window as any).__categoryMap[productItem.categoryGroup] : (productItem.categoryGroup === 'Food & Drinks');
+                    // Skip stock checks for services - they don't have inventory
+                    const isService = productItem.isService || productItem.is_service;
+                    
+                    // Only enforce stock limits for configured stock-tracked products (not services)
+                    const stockTracked = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[productItem.categoryGroup] : (productItem.categoryGroup === 'Food & Drinks'));
                 if (stockTracked && (currentUser?.defaultLocationId || settings.defaultLocationId) && db.stock && db.stock.getForProduct) {
                         try {
                             const stockData = await db.stock.getForProduct(id);
@@ -276,11 +282,40 @@ const POS = () => {
     const handleCheckout = async () => {
     if (cart.length === 0) return;
     
+    // Clean items: ensure each has product_id, quantity, price, and is_service
+    const cleanedItems = cart.map(item => ({
+        product_id: (item.product_id || item.id || '').toString().trim(),
+        id: (item.product_id || item.id || '').toString().trim(),
+        quantity: parseFloat(String(item.quantity)) || 0,
+        price: parseFloat(String(item.price)) || 0,
+        is_service: item.is_service || item.isService ? 1 : 0,
+        name: (item.name || '').toString().trim(),
+        unit: (item.unit || '').toString().trim(),
+        categoryGroup: item.categoryGroup
+    }));
+
+    // Validate items - must have non-empty product_id, quantity > 0, price >= 0
+    const invalidItems = cleanedItems.filter(i => {
+        const hasValidId = i.product_id && i.product_id.length > 0;
+        const hasValidQty = !isNaN(i.quantity) && i.quantity > 0;
+        const hasValidPrice = !isNaN(i.price) && i.price >= 0;
+        return !hasValidId || !hasValidQty || !hasValidPrice;
+    });
+    
+    if (invalidItems.length > 0) {
+        const details = invalidItems.map((i, idx) => 
+            `${idx + 1}. ${i.name || 'Unknown'} - ID: '${i.product_id}', Qty: ${i.quantity}, Price: ${i.price}`
+        ).join('\n');
+        alert(`Cannot save: ${invalidItems.length} invalid item(s):\n\n${details}\n\nPlease review your cart.`);
+        console.error('[POS-VALIDATION] Invalid items:', invalidItems);
+        return;
+    }
+
                 const sale: SaleRecord = {
             id: editingSale?.id || Date.now().toString(),
             businessId: businessId || '',
             date: new Date(orderDate).toISOString(), // Use custom date
-            items: [...cart],
+            items: cleanedItems,
             subtotal,
             vat,
             total,
@@ -295,12 +330,36 @@ const POS = () => {
         };
 
         try {
+            console.log('[POS-CHECKOUT] Sending sale with items:', cleanedItems);
             const res = editingSale ? await db.sales.update(sale.id, sale) : await db.sales.add(sale);
+            
+            // Check if response contains error
+            if (res && res.error) {
+                let errorMsg = res.error;
+                if (res.rejectedItems && res.rejectedItems.length > 0) {
+                    errorMsg += '\n\nRejected items:\n';
+                    errorMsg += res.rejectedItems.map((r: any) => `- ${r.item}: ${r.reason}`).join('\n');
+                }
+                alert(`Failed to update sale:\n\n${errorMsg}`);
+                console.error('[POS-CHECKOUT] Server error:', res);
+                return;
+            }
+            
+            // Check if any items were rejected during update
+            if (editingSale && res && res.rejectedItems && res.rejectedItems.length > 0) {
+                const rejectedList = res.rejectedItems.map((r: any) => `- ${r.item}: ${r.reason}`).join('\n');
+                const msg = `Warning: ${res.rejectedItems.length} of ${cleanedItems.length} items could not be saved:\n\n${rejectedList}\n\nSale was updated with ${res.insertedCount || 0} items. Please review in Sales History.`;
+                alert(msg);
+                console.warn('[POS-CHECKOUT] Partial save:', res);
+            }
+            
             // Reduce Stock ONLY if NOT Proforma and NOT editing (to avoid double-counting)
             if (!isProforma && !editingSale) {
                     const loc = sale.locationId || currentUser?.defaultLocationId || settings.defaultLocationId;
                         for (const item of cart) {
-                            const shouldTrack = (window as any).__categoryMap ? !!(window as any).__categoryMap[item.categoryGroup] : (item.categoryGroup === 'Food & Drinks');
+                            // Skip stock reduction for services - they don't have inventory
+                            const isService = item.is_service || item.isService;
+                            const shouldTrack = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[item.categoryGroup] : (item.categoryGroup === 'Food & Drinks'));
                             if (shouldTrack) {
                                 try {
                                     if (db.stock && db.stock.decrease) {
@@ -342,7 +401,9 @@ const POS = () => {
               openReceiptPrintWindow(sale, isProforma ? 'a4' : 'thermal');
             }, 300);
         } catch (err) {
-            alert(err.message || 'Failed to complete sale');
+            console.error('[POS-CHECKOUT] Error:', err);
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            alert(`Failed to ${editingSale ? 'update' : 'complete'} sale:\n\n${errorMsg}\n\nPlease try again or contact support.`);
         }
   };
 
@@ -417,7 +478,7 @@ const POS = () => {
           <body>
             <div class="receipt">
               <div class="header">
-                ${settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: 40px; margin-bottom: 8px; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" />` : ''}
+                ${settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; margin-bottom: 8px; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" />` : ''}
                 <h1>${settings.name ? settings.name : 'JOBIZ'}</h1>
                 <p>${settings.address ? settings.address : ''}</p>
                 <p>${settings.phone ? `Phone: ${settings.phone}` : ''}</p>
@@ -430,7 +491,7 @@ const POS = () => {
               </div>
               <div class="info">
                 <span>Receipt #: ${sale.id.slice(-8)}</span>
-                <span>Cashier: ${sale.cashier}</span>
+                <span>Cashier: ${(currentUser?.name || sale.cashier || 'Cashier')}</span>
               </div>
               <table>
                 <thead>
@@ -480,21 +541,15 @@ const POS = () => {
               body { margin: 0; padding: 0; width: 100%; background: white; font-family: Arial, sans-serif; overflow-x: hidden; }                
             </style>
           </head>
-          <body style="margin: 0; padding: 0;">
-          <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;">
-            ${settings.headerImageUrl ? `<div style="margin: 0; padding: 0; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: flex-start; min-height: 60px; margin: 0; background-color: #f8f9fa;"><img src="${settings.logoUrl}" style="width: auto; height: 50px; display: block; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : '')}
-            <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box;">
+          <body style="margin: 0; padding: 0; height: 297mm; position: relative;">
+          <div style="font-family: Arial, sans-serif; max-width: 210mm; height: 100%; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;">
+            ${settings.headerImageUrl ? `<div style="margin: 0; padding: 0; width: 100%; flex-shrink: 0; order: -1; height: ${settings.headerImageHeight || 100}px; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : '')}
+            <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box; flex: 1;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 8px; max-width: 100%; box-sizing: border-box;">
                 <div style="flex-shrink: 0;">
                   <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 4px 0;">${sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}</h1>
                   <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id.toString().slice(-8)}</p>
                 </div>
-                ${!settings.headerImageUrl ? `<div style="text-align: right; position: relative; flex: 0 0 auto; max-width: 50%; min-width: 0; word-wrap: break-word; overflow-wrap: break-word;">
-                  <h2 style="font-weight: bold; font-size: 12px; margin: 0 0 4px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.2;">${settings.name || ''}</h2>
-                  <p style="font-size: 10px; color: #64748b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.address || ''}</p>
-                  <p style="font-size: 10px; color: #64748b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.phone || ''}</p>
-                  <p style="font-size: 10px; color: #64748b; margin: 0; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15;">${settings.email || ''}</p>
-                </div>` : ''}
               </div>
             
               <div style="margin-bottom: 20px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word;">
@@ -531,28 +586,30 @@ const POS = () => {
               </table>
               
               <div style="display: flex; justify-content: flex-end; margin-bottom: 15px; max-width: 100%; box-sizing: border-box;">
-                <div style="width: 160px; max-width: 100%;">
-                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
-                    <span>Subtotal: </span>
-                    <span>${settings.currency}${fmtCurrency(sale.subtotal, 2)}</span>
+                <div style="width: 180px; max-width: 100%;">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
+                    <span>Subtotal:</span>
+                    <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.subtotal, 2)}</span>
                   </div>
-                  <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
+                  ${Number(sale.vat) > 0 ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
                     <span>VAT (${settings.vatRate || 7.5}%)</span>
-                    <span>${settings.currency}${fmtCurrency(sale.vat, 2)}</span>
-                  </div>
+                    <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.vat, 2)}</span>
+                  </div>` : ''}
                   ${sale.deliveryFee ? `
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
                       <span>Delivery</span>
-                      <span>${settings.currency}${fmtCurrency(sale.deliveryFee, 2)}</span>
+                      <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.deliveryFee, 2)}</span>
                     </div>
                   ` : ''}
-                  <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 6px; font-size: 12px; font-weight: bold; color: #1e293b;">
+                  <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 8px; font-size: 13px; font-weight: bold; color: #1e293b;">
                     <span>Total</span>
-                    <span>${settings.currency}${fmtCurrency(Number(sale.total), 2)}</span>
+                    <span style="text-align: right;">${settings.currency}${fmtCurrency(Number(sale.total), 2)}</span>
                   </div>
                 </div>
               </div>
-              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
+              
+              ${settings.watermarkImageUrl ? `<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; z-index: 0;"><img src="${settings.watermarkImageUrl}" style="width: 400px; height: auto; display: block; max-width: 90vw;" onError="this.style.display='none'" /></div>` : ''}
               
               <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 100%; box-sizing: border-box;">
                 <div style="display: flex; flex-direction: column; min-width: 0;">
@@ -560,12 +617,13 @@ const POS = () => {
                   <div style="border-top: 1px solid #000; width: 50%; float: left; margin-top: 10px"></div>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0;">
+                  ${settings.signatureUrl ? `<div style="margin-bottom: 10px; width: 100%;"><img src="${settings.signatureUrl}" style="width: auto; height: 50px; max-height: 50px; display: block; margin-left: auto;" /></div>` : ''}
                   <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word;">Signed Manager</p>
                   <div style="border-top: 1px solid #000; width: 50%; float: right; margin-top: 10px"></div>
                 </div>
               </div>
             </div>
-            ${settings.footerImageUrl ? `<div style="width: 100%; margin: 0; padding: 0;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : ''}
+            ${settings.footerImageUrl ? `<div style="width: 100%; margin: 0; padding: 0; flex-shrink: 0; margin-top: auto; height: ${settings.footerImageHeight || 60}px; overflow: hidden;"><img src="${settings.footerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : ''}
           </div>
           </body>
           </html>
@@ -651,7 +709,7 @@ const POS = () => {
         // A4 Invoice
         return `
           <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; color: #1e293b; display: flex; flex-direction: column; page-break-after: avoid;">
-            ${hasHeaderFooter ? `<div style="width: 100%; min-height: 80px; display: flex; align-items: center;"><img src="${settings.headerImageUrl}" style="width: auto; height: 80px; max-width: 100%; display: block;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center;"><img src="${settings.logoUrl}" style="width: auto; height: 80px; max-width: 100%; display: block;" /></div>` : '')}
+            ${hasHeaderFooter ? `<div style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: flex; align-items: center; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block;" /></div>` : '')}
             <div style="padding: 40px; display: flex; flex-direction: column;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
                 <div>
@@ -732,9 +790,11 @@ const POS = () => {
               
               ${settings.invoiceNotes ? `
                 <div class="invoice-notes" style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; line-height: 1.5;">
-                  ${settings.invoiceNotes.split('\n').map((line: string) => `<p style="margin: 4px 0;">${line}</p>`).join('')}
+                  ${settings.invoiceNotes}
                 </div>
               ` : ''}
+              
+              ${settings.watermarkImageUrl ? `<div style="position: relative; margin-top: 30px; margin-bottom: 30px; text-align: ${settings.watermarkAlign === 'right' ? 'right' : settings.watermarkAlign === 'center' ? 'center' : 'left'}; opacity: 0.25;"><img src="${settings.watermarkImageUrl}" style="width: 360px; height: auto; display: inline-block; max-width: 100%;" onError="this.style.display='none'" /></div>` : ''}
               
               <div class="signatures" style="margin-top: 60px; display: flex; justify-content: space-between;">
                 <div style="flex: 1;">
@@ -742,12 +802,13 @@ const POS = () => {
                   <div style="border-top: 1px solid #000; width: 150px;"></div>
                 </div>
                 <div style="flex: 1; display: flex; flex-direction: column; align-items: flex-end;">
+                  ${settings.signatureUrl ? `<div style="margin-bottom: 10px;"><img src="${settings.signatureUrl}" style="width: auto; height: 50px; max-height: 50px; display: block;" /></div>` : ''}
                   <p style="margin: 0 0 30px 0; font-size: 13px; font-weight: bold;">Signed Manager</p>
                   <div style="border-top: 1px solid #000; width: 150px;"></div>
                 </div>
               </div>
             </div>
-            ${hasHeaderFooter ? `<div style="width: 100%;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+            ${hasHeaderFooter ? `<div style="width: 100%; height: ${settings.footerImageHeight || 60}px; overflow: hidden;"><img src="${settings.footerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : ''}
           </div>
         `;
       }

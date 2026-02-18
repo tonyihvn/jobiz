@@ -1572,39 +1572,93 @@ app.put('/api/sales/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
     const { items, customerId, deliveryFee, isProforma, subtotal, vat, total, ...saleData } = req.body;
     
+    console.log('[PUT-SALES] Update request for sale:', id);
+    console.log('[PUT-SALES] Items count:', Array.isArray(items) ? items.length : 0);
+    
     // Update sale header
     await pool.execute(
       'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, subtotal = ?, vat = ?, total = ? WHERE id = ?',
       [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, subtotal || 0, vat || 0, total || 0, id]
     );
     
-    // Delete old items
-    await pool.execute('DELETE FROM sale_items WHERE sale_id = ?', [id]);
+    // Delete old items - this clears all items for this sale
+    const deleteResult = await pool.execute('DELETE FROM sale_items WHERE sale_id = ?', [id]);
+    console.log('[PUT-SALES] Deleted old items:', deleteResult[0]?.affectedRows || 0);
     
     // Re-insert items (support both item.id and item.product_id)
+    const rejectedItems = [];
+    let insertedCount = 0;
+    
     if (Array.isArray(items)) {
-      for (const item of items) {
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx];
         const productId = (item.product_id || item.id || '').toString().trim();
-        const quantity = parseFloat(String(item.quantity)) || 0;
-        const price = parseFloat(String(item.price)) || 0;
+        const quantity = parseFloat(String(item.quantity));
+        const price = parseFloat(String(item.price));
         const isService = item.is_service || item.isService ? 1 : 0;
         
-        // Only insert if productId is valid (not empty string), quantity > 0, and price >= 0
-        if (productId.length > 0 && !isNaN(quantity) && quantity > 0 && !isNaN(price) && price >= 0) {
-          await pool.execute(
-            'INSERT INTO sale_items (sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?)',
-            [id, productId, quantity, price, isService]
-          );
+        // Validate all fields strictly
+        const isValidId = productId && productId.length > 0;
+        const isValidQty = !isNaN(quantity) && quantity > 0;
+        const isValidPrice = !isNaN(price) && price >= 0;
+        
+        console.log(`[PUT-SALES] Item ${idx + 1}: id='${productId}', qty=${quantity}, price=${price} - Valid: ${isValidId && isValidQty && isValidPrice}`);
+        
+        // Only insert if ALL validations pass
+        if (isValidId && isValidQty && isValidPrice) {
+          try {
+            // Generate unique ID for this sale_item (uuid-like)
+            const itemId = `${id}-${idx}-${Date.now()}`;
+            
+            const insertResult = await pool.execute(
+              'INSERT INTO sale_items (id, sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?, ?)',
+              [itemId, id, productId, quantity, price, isService]
+            );
+            console.log(`[PUT-SALES] Item ${idx + 1} inserted with id: ${itemId}`);
+            insertedCount++;
+          } catch (insertErr) {
+            console.error(`[PUT-SALES] Failed to insert item ${idx + 1}:`, insertErr.message);
+            rejectedItems.push({ 
+              item: item.name || productId, 
+              reason: `Database error: ${insertErr.message}` 
+            });
+          }
         } else {
-          console.warn('[PUT-SALES] Skipping invalid item:', { productId, quantity, price });
+          // Detailed rejection reason
+          let reasons = [];
+          if (!isValidId) reasons.push(`empty product_id`);
+          if (!isValidQty) reasons.push(`invalid quantity: ${quantity}`);
+          if (!isValidPrice) reasons.push(`invalid price: ${price}`);
+          
+          console.warn(`[PUT-SALES] Skipping item ${idx + 1}: ${reasons.join(', ')}`);
+          rejectedItems.push({ 
+            item: item.name || productId || `Item ${idx + 1}`, 
+            reason: reasons.join(', ') 
+          });
         }
       }
     }
     
-    res.json({ id, message: 'Sale updated successfully' });
+    // If all items were rejected, return error
+    if (rejectedItems.length === items.length && items.length > 0) {
+      console.error('[PUT-SALES] All items rejected! Reverting sale update.');
+      return res.status(400).json({ 
+        error: 'All items were invalid and could not be saved',
+        rejectedItems: rejectedItems
+      });
+    }
+    
+    console.log(`[PUT-SALES] Update completed: ${insertedCount} items inserted, ${rejectedItems.length} rejected`);
+
+    res.json({ 
+      id, 
+      message: `Sale updated successfully. ${insertedCount} items saved.`,
+      insertedCount,
+      rejectedItems: rejectedItems.length > 0 ? rejectedItems : undefined 
+    });
   } catch (err) {
     console.error('[PUT-SALES] Error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, sqlState: err.sqlState, code: err.code });
   }
 });
 
@@ -1643,6 +1697,107 @@ app.delete('/api/sales/:id', authMiddleware, async (req, res) => {
     }
   } catch (err) {
     console.error('[DELETE-SALES] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Item-level Return Endpoint
+app.post('/api/sales/return-item', authMiddleware, async (req, res) => {
+  try {
+    const { saleId, productId, quantity, reason, originalQuantity } = req.body;
+    
+    // Validate inputs
+    if (!saleId || !productId || !quantity || !reason) {
+      return res.status(400).json({ error: 'Missing required fields: saleId, productId, quantity, reason' });
+    }
+    
+    if (quantity <= 0 || quantity > originalQuantity) {
+      return res.status(400).json({ error: 'Invalid return quantity' });
+    }
+    
+    // Get user's business ID
+    const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    const userBusinessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
+    
+    if (!userBusinessId) {
+      return res.status(400).json({ error: 'Business not found for user' });
+    }
+    
+    // Verify the sale exists and belongs to the user's business
+    const [saleRows] = await pool.execute('SELECT id, business_id, location_id FROM sales WHERE id = ? AND business_id = ?', [saleId, userBusinessId]);
+    const sale = saleRows && saleRows[0];
+    
+    if (!sale) {
+      return res.status(404).json({ error: 'Sale not found or unauthorized' });
+    }
+    
+    // Verify the product item exists in the sale
+    const [itemRows] = await pool.execute('SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ?', [saleId, productId]);
+    const saleItem = itemRows && itemRows[0];
+    
+    if (!saleItem) {
+      return res.status(404).json({ error: 'Item not found in sale' });
+    }
+    
+    // Reduce the sale item quantity
+    const newQuantity = Number(saleItem.quantity) - Number(quantity);
+    
+    if (newQuantity < 0) {
+      return res.status(400).json({ error: 'Return quantity exceeds available quantity' });
+    }
+    
+    // Update sale item quantity or delete if fully returned
+    if (newQuantity === 0) {
+      await pool.execute('DELETE FROM sale_items WHERE sale_id = ? AND product_id = ?', [saleId, productId]);
+    } else {
+      const newTotal = Number(saleItem.total) - (Number(saleItem.price) * Number(quantity));
+      await pool.execute('UPDATE sale_items SET quantity = ?, total = ? WHERE sale_id = ? AND product_id = ?', 
+        [newQuantity, newTotal, saleId, productId]);
+    }
+    
+    // Update the sale totals
+    const [saleItemsRows] = await pool.execute('SELECT SUM(total) as subtotal FROM sale_items WHERE sale_id = ?', [saleId]);
+    const subtotal = saleItemsRows && saleItemsRows[0] && saleItemsRows[0].subtotal ? Number(saleItemsRows[0].subtotal) : 0;
+    
+    // Get VAT rate
+    const [settingsRows] = await pool.execute('SELECT vat_rate FROM settings WHERE business_id = ?', [userBusinessId]);
+    const vatRate = settingsRows && settingsRows[0] && settingsRows[0].vat_rate ? Number(settingsRows[0].vat_rate) : 0;
+    
+    const vat = (subtotal * vatRate) / 100;
+    const total = subtotal + vat;
+    
+    await pool.execute('UPDATE sales SET subtotal = ?, vat = ?, total = ? WHERE id = ?', [subtotal, vat, total, saleId]);
+    
+    // Increase inventory - restore the returned quantity
+    const locationId = sale.location_id || null;
+    if (locationId) {
+      const [stockRows] = await pool.execute('SELECT id, quantity FROM stock WHERE product_id = ? AND location_id = ?', [productId, locationId]);
+      if (stockRows && stockRows[0]) {
+        const newStockQty = Number(stockRows[0].quantity) + Number(quantity);
+        await pool.execute('UPDATE stock SET quantity = ? WHERE product_id = ? AND location_id = ?', [newStockQty, productId, locationId]);
+      }
+    }
+    
+    // Create audit trail record
+    const returnId = 'ret_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    await pool.execute(
+      'INSERT INTO audit_trail (id, business_id, entity, entity_id, action, details, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [returnId, userBusinessId, 'sale_item_return', saleId, 'item_return', JSON.stringify({
+        productId,
+        returnedQuantity: quantity,
+        reason,
+        refundAmount: Number(saleItem.price) * Number(quantity)
+      }), req.user.id]
+    );
+    
+    res.json({ 
+      success: true, 
+      id: returnId,
+      message: `Successfully returned ${quantity} unit(s)`,
+      updatedSale: { id: saleId, subtotal, vat, total }
+    });
+  } catch (err) {
+    console.error('[RETURN-ITEM] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2624,7 +2779,17 @@ app.post('/api/roles', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Business not found for current user' });
     }
     
-    const rid = id || Date.now().toString();
+    // Generate unique role ID: role_<business_id>_<role_name_slugified>
+    // If an ID is provided, use it; otherwise generate from name and business ID
+    let rid = id;
+    if (!rid && name) {
+      const nameSlug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+      // Explicitly convert bId to string to ensure consistency
+      rid = `role_${String(bId)}_${nameSlug}`;
+    } else if (!rid) {
+      rid = Date.now().toString();
+    }
+    
     const permsStr = typeof permissions === 'string' ? permissions : JSON.stringify(permissions || []);
     
     console.log('[POST-ROLES] Inserting role:', { rid, bId, name, permsStr });
@@ -2763,8 +2928,15 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       phone: r.phone,
       email: r.email,
       logoUrl: r.logo_url,
+      logoAlign: r.logo_align || 'left',
+      logoHeight: r.logo_height || 80,
       headerImageUrl: r.header_image_url,
+      headerImageHeight: r.header_image_height || 100,
       footerImageUrl: r.footer_image_url,
+      footerImageHeight: r.footer_image_height || 60,
+      watermarkImageUrl: r.watermark_image_url,
+      watermarkAlign: r.watermark_align || 'center',
+      signatureUrl: r.signature_url,
       vatRate: r.vat_rate,
       currency: r.currency,
       defaultLocationId: r.default_location_id || null,
@@ -2789,11 +2961,16 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
     const landing = typeof data.landingContent !== 'undefined' ? JSON.stringify(data.landingContent) : (typeof data.landing_content !== 'undefined' ? JSON.stringify(data.landing_content) : null);
     const loginRedirects = typeof data.loginRedirects !== 'undefined' ? JSON.stringify(data.loginRedirects) : (typeof data.login_redirects !== 'undefined' ? JSON.stringify(data.login_redirects) : null);
     const invoiceNotes = data.invoiceNotes || data.invoice_notes || null;
+    const logoAlign = data.logoAlign || data.logo_align || 'left';
+    const logoHeight = data.logoHeight || data.logo_height || 80;
+    const headerImageHeight = data.headerImageHeight || data.header_image_height || 100;
+    const footerImageHeight = data.footerImageHeight || data.footer_image_height || 60;
+    const watermarkAlign = data.watermarkAlign || data.watermark_align || 'center';
     
     // Upsert settings row
     await pool.execute(
-      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), header_image_url=VALUES(header_image_url), footer_image_url=VALUES(footer_image_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
-        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, data.headerImageUrl || data.header_image_url || null, data.footerImageUrl || data.footer_image_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
+      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, logo_align, logo_height, header_image_url, header_image_height, footer_image_url, footer_image_height, watermark_image_url, watermark_align, signature_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), logo_align=VALUES(logo_align), logo_height=VALUES(logo_height), header_image_url=VALUES(header_image_url), header_image_height=VALUES(header_image_height), footer_image_url=VALUES(footer_image_url), footer_image_height=VALUES(footer_image_height), watermark_image_url=VALUES(watermark_image_url), watermark_align=VALUES(watermark_align), signature_url=VALUES(signature_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
+        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, logoAlign, logoHeight, data.headerImageUrl || data.header_image_url || null, headerImageHeight, data.footerImageUrl || data.footer_image_url || null, footerImageHeight, data.watermarkImageUrl || data.watermark_image_url || null, watermarkAlign, data.signatureUrl || data.signature_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
     );
     res.json({ success: true });
   } catch (err) {

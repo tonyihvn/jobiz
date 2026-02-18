@@ -76,7 +76,7 @@ const Admin = () => {
                         { id: 'categories', label: 'Categories' },
                         { id: 'suppliers', label: 'Suppliers' },
                         { id: 'clients', label: 'Clients' },
-                        { id: 'employees', label: 'Employees' },
+                        { id: 'hr', label: 'Personnel & Payroll' },
                         { id: 'finance', label: 'Financial Records' }
                     ];
 
@@ -107,8 +107,13 @@ const Admin = () => {
           return;
         }
         setRolesStatus({type: 'saving', message: 'Creating role...'});
+        
+        // Generate unique role ID: role_<business_id>_<role_name_slugified>
+        const roleNameSlug = newRoleName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+        const roleId = `role_${String(businessId)}_${roleNameSlug}`;
+        
         const newRole: Role = {
-            id: newRoleName.toLowerCase().replace(/\s+/g, '_'),
+            id: roleId,
             businessId: businessId,
             name: newRoleName,
             permissions: ['dashboard']

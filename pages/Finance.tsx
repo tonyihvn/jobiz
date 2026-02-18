@@ -46,15 +46,31 @@ const Finance = () => {
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 if (currentUser && db.roles && db.roles.getAll) {
-                    const allRoles = await db.roles.getAll();
+                    const allRoles = await db.roles.getAll(selectedBusinessId);
                     const role = Array.isArray(allRoles) ? allRoles.find((r: Role) => r.id === currentUser.roleId) : null;
                     setUserRole(role || null);
+                    
+                    // Check if user has super admin permissions based on their role
+                    // A user is "super" if their role has wildcard permissions (*:*) or all permissions
+                    const hasWildcardPermission = role && role.permissions && (
+                        role.permissions.includes('*:*') ||  // All resources and actions
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))  // Any wildcard
+                    );
+                    setIsSuper(!!hasWildcardPermission);
+                    console.log('[Finance] User role loaded:', { 
+                        roleId: role?.id, 
+                        roleName: role?.name,
+                        hasWildcardPermission,
+                        isSuper: !!hasWildcardPermission,
+                        permissions: role?.permissions 
+                    });
+                } else {
+                    setIsSuper(false);
                 }
                     // load settings and statsRange
                     try {
                         const sett = db.settings && db.settings.get ? await db.settings.get() : null;
                         if (sett) { setSettings(sett); if (sett.statsRange) setStatsRange(sett.statsRange); }
-                        setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
                     } catch (e) { /* ignore */ }
             } catch (e) { console.warn('Failed to load user roles', e); }
         })();
@@ -65,14 +81,22 @@ const Finance = () => {
             let txs = db.transactions && db.transactions.getAll ? await db.transactions.getAll(selectedBusinessId) : [];
             let sals = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
             
-            // Get current user to check if super admin
+            // Get current user to check their role permissions
             const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            const userHasWildcard = currentUser && await (async () => {
+                if (!db.roles || !db.roles.getAll) return false;
+                const allRoles = await db.roles.getAll(selectedBusinessId);
+                const role = Array.isArray(allRoles) ? allRoles.find((r: Role) => r.id === currentUser.roleId) : null;
+                return !!(role && role.permissions && (
+                    role.permissions.includes('*:*') ||
+                    role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))
+                ));
+            })();
             
             // Filter by selected business only for non-super-admin users
-            if (!isSuperAdmin && selectedBusinessId) {
-                txs = (Array.isArray(txs) ? txs : []).filter((t: any) => t.business_id === selectedBusinessId);
-                sals = (Array.isArray(sals) ? sals : []).filter((s: any) => s.business_id === selectedBusinessId);
+            if (!userHasWildcard && selectedBusinessId) {
+                txs = (Array.isArray(txs) ? txs : []).filter((t: any) => String(t.business_id) === String(selectedBusinessId));
+                sals = (Array.isArray(sals) ? sals : []).filter((s: any) => String(s.business_id) === String(selectedBusinessId));
             }
             
             if (!Array.isArray(txs) || txs.length === 0) {
@@ -98,8 +122,19 @@ const Finance = () => {
     };
 
   const hasPermission = (resource: string, action: string) => {
+    if (isSuper) return true; // Super admin has all permissions
     if (!userRole) return false;
-    return userRole.permissions.includes(`${resource}:${action}`);
+    return userRole.permissions && userRole.permissions.includes(`${resource}:${action}`);
+  };
+
+  const canAccessPersonnelTab = () => {
+    if (isSuper) return true;
+    return hasPermission('hr', 'read');
+  };
+
+  const canManagePersonnel = () => {
+    if (isSuper) return true;
+    return hasPermission('hr', 'create') || hasPermission('hr', 'update');
   };
 
   // --- Deletion Handlers ---
@@ -280,12 +315,16 @@ const Finance = () => {
                 <button onClick={() => navigate(`/user-profile/${item.id}`)} className="text-slate-700 hover:bg-slate-50 p-1 rounded">
                     Profile
                 </button>
-                <button onClick={() => handleEditEmployee(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
-                    <Edit2 size={16} />
-                </button>
-                <button onClick={() => handleDeleteEmployee(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
-                    <Trash2 size={16} />
-                </button>
+                {canManagePersonnel() && (
+                  <>
+                    <button onClick={() => handleEditEmployee(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
+                      <Edit2 size={16} />
+                    </button>
+                    <button onClick={() => handleDeleteEmployee(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                )}
             </div>
             );
         },
@@ -338,18 +377,20 @@ const Finance = () => {
                     <option value="year">This Year</option>
                 </select>
             )}
-            <button 
-            onClick={() => {
-                setEditingId(null);
-                if (activeTab === 'transactions') { setNewTx({ type: TransactionType.INFLOW, amount: 0 }); setShowTransactionModal(true); }
-                else if (activeTab === 'heads') { setNewHead({ type: TransactionType.INFLOW }); setShowHeadModal(true); }
-                else { setNewEmp({}); setShowEmployeeModal(true); }
-            }}
-            className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 flex items-center gap-2"
-        >
-            <Plus size={18} /> 
-            {activeTab === 'transactions' ? 'Record Transaction' : activeTab === 'heads' ? 'Add Account Head' : 'Add Employee'}
-        </button>
+            {(activeTab !== 'personnel' || canManagePersonnel()) && (
+              <button 
+              onClick={() => {
+                  setEditingId(null);
+                  if (activeTab === 'transactions') { setNewTx({ type: TransactionType.INFLOW, amount: 0 }); setShowTransactionModal(true); }
+                  else if (activeTab === 'heads') { setNewHead({ type: TransactionType.INFLOW }); setShowHeadModal(true); }
+                  else { setNewEmp({}); setShowEmployeeModal(true); }
+              }}
+              className="bg-brand-600 text-white px-4 py-2 rounded-lg hover:bg-brand-700 flex items-center gap-2"
+            >
+              <Plus size={18} /> 
+              {activeTab === 'transactions' ? 'Record Transaction' : activeTab === 'heads' ? 'Add Account Head' : 'Add Employee'}
+            </button>
+            )}
         </div>
       </div>
 
@@ -381,17 +422,25 @@ const Finance = () => {
         >
           <FileText size={18} /> Account Heads
         </button>
-        <button 
-          onClick={() => setActiveTab('personnel')}
-          className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'personnel' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          <Users size={18} /> Personnel & Payroll
-        </button>
+        {canAccessPersonnelTab() && (
+          <button 
+            onClick={() => setActiveTab('personnel')}
+            className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'personnel' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Users size={18} /> Personnel & Payroll
+          </button>
+        )}
       </div>
 
       {activeTab === 'transactions' && <DataTable data={transactions} columns={transactionColumns} title="General Ledger" />}
       {activeTab === 'heads' && <DataTable data={accountHeads} columns={headColumns} title="Chart of Accounts" />}
-      {activeTab === 'personnel' && <DataTable data={employees} columns={employeeColumns} title="Employee Directory" />}
+      {canAccessPersonnelTab() && activeTab === 'personnel' && <DataTable data={employees} columns={employeeColumns} title="Employee Directory" />}
+      {canAccessPersonnelTab() === false && activeTab === 'personnel' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+          <p className="text-yellow-800 font-medium">You don't have permission to access Personnel & Payroll</p>
+          <p className="text-yellow-700 text-sm mt-2">Contact your administrator to grant you the necessary permissions.</p>
+        </div>
+      )}
 
       {/* Transaction Modal */}
       {showTransactionModal && (
@@ -496,7 +545,7 @@ const Finance = () => {
       )}
 
       {/* Employee Modal */}
-      {showEmployeeModal && (
+      {showEmployeeModal && canManagePersonnel() && (
          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
             <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                  <div className="flex justify-between items-center mb-6">

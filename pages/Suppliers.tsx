@@ -110,13 +110,15 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
         </div>
                 <div className="flex items-center gap-3">
                         <>
-                            <button 
-                                onClick={() => { setEditingId(null); setNewSupplier({}); setShowModal(true); }}
-                                className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-brand-700 shadow-sm transition-all"
-                            >
-                                <Plus className="w-4 h-4" /> 
-                                Add Supplier
-                            </button>
+                            {hasPermission('create') && (
+                                <button 
+                                    onClick={() => { setEditingId(null); setNewSupplier({}); setShowModal(true); }}
+                                    className="bg-brand-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-brand-700 shadow-sm transition-all"
+                                >
+                                    <Plus className="w-4 h-4" /> 
+                                    Add Supplier
+                                </button>
+                            )}
                         </>
                 </div>
       </div>

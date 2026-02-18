@@ -4,13 +4,16 @@ import { fmt, getImageUrl } from '../services/format';
 import { CompanySettings } from '../types';
 import { X, Printer, Download } from 'lucide-react';
 import { generatePDFFromElement } from '../services/pdfGenerator';
+import { useBusinessContext } from '../services/BusinessContext';
 
 const PrintReceipt = () => {
+  const { selectedBusinessId } = useBusinessContext();
   const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [saleData, setSaleData] = useState<any>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
@@ -40,14 +43,17 @@ const PrintReceipt = () => {
     // Load settings and customers
     (async () => {
       try {
-        const sett = db.settings && db.settings.get ? await db.settings.get() : null;
+        const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId) : null;
         setSettings(sett || {});
 
-        const custs = db.customers && db.customers.getAll ? await db.customers.getAll() : [];
+        const custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
         setCustomers(custs || []);
 
-        const prods = db.products && db.products.getAll ? await db.products.getAll() : [];
+        const prods = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
         setProducts(prods || []);
+
+        const emps = db.employees && db.employees.getAll ? await db.employees.getAll(selectedBusinessId) : [];
+        setEmployees(emps || []);
       } catch (err) {
         console.error('Failed to load receipt data', err);
       } finally {
@@ -63,6 +69,16 @@ const PrintReceipt = () => {
     //   }
     // }, 500);
   }, []);
+
+  // Helper to get employee name by email
+  const getEmployeeName = (emailOrName: string) => {
+    if (!emailOrName) return 'Cashier';
+    // If it's already a name (doesn't contain @), return as-is
+    if (!emailOrName.includes('@')) return emailOrName;
+    // If it looks like an email, try to find the employee
+    const emp = employees.find(e => e.email === emailOrName);
+    return emp ? emp.name : emailOrName;
+  };
 
   const numberToWords = (amount: number) => {
     if (!amount && amount !== 0) return '';
@@ -92,12 +108,12 @@ const PrintReceipt = () => {
   };
 
   const enrichItem = (item: any) => {
-    const prod = products.find(p => p.id === (item.id || item.product_id));
+    const prod = products.find(p => p.id === (item.product_id || item.id));
     return {
       ...item,
       id: item.id || item.product_id,
       name: item.name || (prod ? prod.name : '') || '',
-      unit: item.unit || prod?.unit || '',
+      unit: item.unit || prod?.unit || 'N/A',
     };
   };
 
@@ -138,7 +154,7 @@ const PrintReceipt = () => {
         {receiptType === 'thermal' && (
           <div id="thermal-receipt" className="bg-white p-4 w-[300px] printable-receipt">
             <div className="text-center mb-6">
-              {settings.logoUrl && <img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" className="w-16 mx-auto mb-2" crossOrigin="anonymous" />}
+              {settings.logoUrl && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" style={{ height: `${settings.logoHeight || 100}px`, maxHeight: `${settings.logoHeight || 100}px`, width: 'auto', maxWidth: '200px' }} crossOrigin="anonymous" /></div>}
               <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
               <p className="text-xs text-gray-500">{settings.address}</p>
               <p className="text-xs text-gray-500">{settings.phone}</p>
@@ -204,34 +220,34 @@ const PrintReceipt = () => {
 
         {/* A4 Invoice */}
         {receiptType === 'a4' && (
-          // this usually have an extract page on print preview, how can i fix it?
-          
-          <div id="a4-invoice" style={{ position: 'relative', width: '210mm', maxWidth: '100%', minWidth: '210mm', height: 'auto', boxSizing: 'border-box', margin: '0 auto', padding: 0, overflowX: 'hidden', display: 'block' }}>
+          <div id="a4-invoice" style={{ position: 'relative', width: '210mm', maxWidth: '100%', minWidth: '210mm', height: 'auto', boxSizing: 'border-box', margin: '0 auto', padding: 0, overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {/* A4 Content Wrapper - strict width constraint */}
-            <div style={{ width: '100%', maxWidth: '100%', height: '100%', boxSizing: 'border-box', margin: 0, padding: 0, display: 'block', overflowX: 'hidden', backgroundColor: 'white' }}>
+            <div style={{ width: '100%', maxWidth: '100%', height: '100%', boxSizing: 'border-box', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', backgroundColor: 'white', flex: 1, minHeight: 0 }}>
             {/* Header Image or Logo */}
             {settings.headerImageUrl ? (
               <img
                 src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl}
                 alt="Header"
-                style={{ height: '90px', maxHeight: '90px', width: '100%', maxWidth: '100%', margin: 0, padding: 0, boxSizing: 'border-box', display: 'block', objectFit: 'cover' }}
+                style={{ width: '100%', maxWidth: '100%', height: `${settings.headerImageHeight || 100}px`, maxHeight: `${settings.headerImageHeight || 100}px`, margin: 0, padding: 0, boxSizing: 'border-box', display: 'block', objectFit: 'cover' }}
+                crossOrigin="anonymous"
                 onError={e => {
                   // fallback to logo if header fails
                   if (settings.logoUrl) {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = getImageUrl(settings.logoUrl) || settings.logoUrl;
+                    e.currentTarget.style.width = 'auto';
                     e.currentTarget.style.objectFit = 'contain';
-                    e.currentTarget.style.maxHeight = '60px';
-                    // e.currentTarget.style.padding = '5px';
+                    e.currentTarget.style.height = `${settings.logoHeight || 100}px`;
+                    e.currentTarget.style.maxHeight = `${settings.logoHeight || 100}px`;
                   }
                 }}
               />
             ) : settings.logoUrl ? (
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', padding: '8px 12px', width: '100%', boxSizing: 'border-box', minHeight: '60px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start', padding: '8px 12px', width: '100%', boxSizing: 'border-box', minHeight: `${settings.logoHeight || 100}px` }}>
                 <img
                   src={getImageUrl(settings.logoUrl) || settings.logoUrl}
                   alt="Logo"
-                  style={{ height: '50px', width: 'auto', maxWidth: '180px', display: 'block' }}
+                  style={{ height: `${settings.logoHeight || 100}px`, maxHeight: `${settings.logoHeight || 100}px`, width: 'auto', maxWidth: '200px', display: 'inline-block' }}
                   crossOrigin="anonymous"
                   onError={e => {
                     // fallback to blank if logo fails
@@ -246,12 +262,14 @@ const PrintReceipt = () => {
               {/* Invoice Title and Company Info */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', gap: '12px' }}>
                 
-                <div style={{ textAlign: 'right', flex: 1 }}>
-                  <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: '#1e293b', margin: '0 0 6px 0' }}>{settings.name}</h2>
-                  <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 2px 0' }}>{settings.address}</p>
-                  <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 2px 0' }}>{settings.email}</p>
-                  <p style={{ fontSize: '13px', color: '#64748b', margin: '0' }}>{settings.phone}</p>
-                </div>
+                {!settings?.headerImageUrl && (
+                  <div style={{ textAlign: 'right', flex: 1 }}>
+                    <h2 style={{ fontSize: '16px', fontWeight: 'bold', color: '#1e293b', margin: '0 0 6px 0' }}>{settings?.name}</h2>
+                    <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 2px 0' }}>{settings?.address}</p>
+                    <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 2px 0' }}>{settings?.email}</p>
+                    <p style={{ fontSize: '13px', color: '#64748b', margin: '0' }}>{settings?.phone}</p>
+                  </div>
+                )}
                 <div style={{ flex: 1 }}>
                   <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: '#1e293b', margin: '0 0 6px 0', lineHeight: '1.2' }}>
                     {saleData.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}
@@ -272,22 +290,20 @@ const PrintReceipt = () => {
                       <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{saleData.customerPhone || ''}</p>
                       {saleData.customerEmail && <p style={{ fontSize: '13px', margin: '0' }}>{saleData.customerEmail}</p>}
                     </div>
-                  ) : saleData.customerId ? (
-                    (() => {
-                      const customer = customers.find(c => c.id === saleData.customerId);
-                      return customer ? (
-                        <div style={{ color: '#1e293b' }}>
-                          <p style={{ fontWeight: 'bold', fontSize: '15px', margin: '0 0 4px 0' }}>{customer.name}</p>
-                          {customer.company && <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.company}</p>}
-                          <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.address}</p>
-                          <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.phone}</p>
-                          {customer.email && <p style={{ fontSize: '13px', margin: '0' }}>{customer.email}</p>}
-                        </div>
-                      ) : <p style={{ color: '#64748b', fontStyle: 'italic', fontSize: '13px', margin: '0' }}>Walk-in Customer</p>;
-                    })()
-                  ) : (
-                    <p style={{ color: '#64748b', fontStyle: 'italic', fontSize: '13px', margin: '0' }}>Walk-in Customer</p>
-                  )}
+                  ) : (() => {
+                    const custId = saleData.customerId || (saleData as any).customer_id;
+                    const customer = custId ? customers.find(c => c.id === custId || String(c.id) === String(custId)) : null;
+                    return customer ? (
+                      <div style={{ color: '#1e293b' }}>
+                        <p style={{ fontWeight: 'bold', fontSize: '15px', margin: '0 0 4px 0' }}>{customer.name}</p>
+                        {customer.company && <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.company}</p>}
+                        <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.address}</p>
+                        <p style={{ fontSize: '13px', margin: '0 0 2px 0' }}>{customer.phone}</p>
+                        {customer.email && <p style={{ fontSize: '13px', margin: '0' }}>{customer.email}</p>}
+                      </div>
+                    ) : <p style={{ color: '#64748b', fontStyle: 'italic', fontSize: '13px', margin: '0' }}>Walk-in Customer</p>;
+                  })()
+                  }
                 </div>
                 <div style={{ flex: 1, textAlign: 'right' }}>
                   <div style={{ marginBottom: '10px' }}>
@@ -300,23 +316,24 @@ const PrintReceipt = () => {
                   </div>
                   <div>
                     <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginRight: '8px' }}>Cashier:</span>
-                    <span style={{ fontSize: '15px', color: '#1e293b', fontWeight: '500' }}>{saleData.cashier}</span>
+                    <span style={{ fontSize: '15px', color: '#1e293b', fontWeight: '500' }}>{getEmployeeName(saleData.cashier)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Itemized Table */}
-              <table style={{ width: '100%', marginBottom: '15px', borderCollapse: 'collapse', fontSize: '13px', boxSizing: 'border-box', tableLayout: 'fixed', overflowX: 'hidden' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #1e293b', backgroundColor: '#f1f5f9' }}>
-                    <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'left', border: '1px solid #cbd5e1' }} width="40%">Description</th>
-                    <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="12%">Qty</th>
-                    <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="12%">Unit</th>
-                    <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="18%">Rate</th>
-                    <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="18%">Amount ({settings.currency})</th>
-                  </tr>
-                </thead>
-                <tbody>
+              {/* Itemized Table with Watermark Background */}
+              <div style={{ position: 'relative', marginBottom: '0px', backgroundImage: settings.watermarkImageUrl ? `url('${getImageUrl(settings.watermarkImageUrl) || settings.watermarkImageUrl}')` : 'none', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundSize: 'cover', backgroundAttachment: 'scroll', minHeight: '0px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', boxSizing: 'border-box', tableLayout: 'fixed', overflowX: 'hidden', position: 'relative', zIndex: 1 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #1e293b', backgroundColor: '#f1f5f9' }}>
+                      <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'left', border: '1px solid #cbd5e1' }} width="40%">Description</th>
+                      <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="12%">Qty</th>
+                      <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="12%">Unit</th>
+                      <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="18%">Rate</th>
+                      <th style={{ padding: '8px', fontWeight: 'bold', color: '#1e293b', fontSize: '13px', textAlign: 'right', border: '1px solid #cbd5e1' }} width="18%">Amount ({settings.currency})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                   {saleData.items.map((item: any, i: number) => {
                     const enriched = enrichItem(item);
                     return (
@@ -332,11 +349,12 @@ const PrintReceipt = () => {
                     );
                   })}
                 </tbody>
-              </table>
+                </table>
+              </div>
 
               {/* Totals Section */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
-                <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px', marginTop: '2px' }}>
+                <div style={{ minWidth: '35%', maxWidth: '45%', float: 'right' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: '13px', marginBottom: '8px' }}>
                     <span>Subtotal: </span>
                     <span>{settings.currency} {fmtCurrency(saleData.subtotal, 2)}</span>
@@ -353,7 +371,7 @@ const PrintReceipt = () => {
                       <span>{fmtCurrency(saleData.deliveryFee, 2)}</span>
                     </div>
                   ) : null}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 'bold', color: '#1e293b', borderTop: '2px solid #1e293b', paddingTop: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 'bold', color: '#1e293b', borderTop: '1px solid #1e293b', paddingTop: '10px' }}>
                     <span>Total: </span>
                     <span>{settings.currency}{fmtCurrency(saleData.total, 2)}</span>
                   </div>
@@ -362,9 +380,13 @@ const PrintReceipt = () => {
 
               {/* Amount in words, notes, and signature */}
               <div style={{ fontSize: '13px', color: '#475569', marginBottom: '15px' }}>
-                <div style={{ fontStyle: 'italic', marginBottom: '8px' }}>Amount in words: <b>{numberToWords(Number(saleData.total))} Naira Only</b></div>
+                {/* <div>
+                  <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase', marginRight: '8px' }}>Cashier:</span>
+                  <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: '600' }}>{getEmployeeName(saleData.cashier)}</span>
+                </div> */}
+                <div style={{ fontStyle: 'italic', marginBottom: '8px', marginTop: '8px' }}>Amount in words: <b>{numberToWords(Number(saleData.total))} Naira Only</b></div>
                 {settings.invoiceNotes && (
-                  <div style={{ marginBottom: '8px' }}><strong>Invoice Notes:</strong> {settings.invoiceNotes}</div>
+                  <div style={{ marginBottom: '8px' }}><strong>Invoice Notes:</strong><br/><div dangerouslySetInnerHTML={{ __html: settings.invoiceNotes }} style={{ display: 'inline' }} /></div>
                 )}
                 {saleData.particulars && (
                   <div style={{ marginBottom: '8px' }}><strong>Notes:</strong> {saleData.particulars}</div>
@@ -374,20 +396,21 @@ const PrintReceipt = () => {
                     <p style={{ margin: '0 0 30px 0', fontSize: '13px', fontWeight: 'bold' }}>Customer</p>
                     <div style={{ borderTop: '1px solid #000', width: '50%', float: 'left', marginTop: '20px' }}></div>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0 }}>
-                    <p style={{ margin: '0 0 30px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right' }}>Signed Manager</p>
-                    <div style={{ borderTop: '1px solid #000', width: '50%', float: 'right', marginTop: '20px' }}></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, position: 'relative', backgroundImage: settings?.signatureUrl ? `url('${getImageUrl(settings.signatureUrl) || settings.signatureUrl}')` : 'none', backgroundPosition: 'right center', backgroundRepeat: 'no-repeat', backgroundSize: 'contain', minHeight: '0px' }}>
+                    <p style={{ margin: '0 0 30px 0', fontSize: '13px', fontWeight: 'bold', textAlign: 'right', position: 'relative', zIndex: 1 }}>Signed Manager</p>
+                    <div style={{ borderTop: '1px solid #000', width: '50%', float: 'right', marginTop: '20px', position: 'relative', zIndex: 1 }}></div>
                   </div>
                 </div>
               </div>
             </div>
-
+            
+            </div>
             {/* Footer Image */}
             {settings.footerImageUrl && (
-              <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full h-auto block" crossOrigin="anonymous" style={{ width: '100%', maxWidth: '100%', height: 'auto', boxSizing: 'border-box', margin: 0, padding: 0 }} />
+              <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full block" crossOrigin="anonymous" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, width: '100%', maxWidth: '100%', height: `${settings.footerImageHeight || 60}px`, maxHeight: `${settings.footerImageHeight || 60}px`, boxSizing: 'border-box', margin: 0, padding: 0, display: 'block', objectFit: 'cover' }} onError={e => { console.error('Footer image failed to load'); e.currentTarget.style.display = 'none'; }} />
             )}
-            </div>
           </div>
+          
         )}
       </div>
 
@@ -415,9 +438,11 @@ const PrintReceipt = () => {
           width: 210mm !important;
           max-width: 210mm !important;
           min-width: 210mm !important;
+          min-height: 297mm !important;
           height: auto !important;
           box-sizing: border-box !important;
-          display: block !important;
+          display: flex !important;
+          flex-direction: column !important;
           margin: 0 auto !important;
           padding: 0 !important;
           page-break-after: avoid;
@@ -427,14 +452,20 @@ const PrintReceipt = () => {
         }
 
         #a4-invoice img {
-          width: auto !important;
+          width: 100% !important;
           max-width: 100% !important;
           height: auto !important;
-          max-height: 90px !important;
           display: block !important;
           margin: 0 !important;
           padding: 0 !important;
           box-sizing: border-box !important;
+        }
+
+        #a4-invoice img[alt="Logo"],
+        #a4-invoice img[alt="Header"] {
+          width: auto !important;
+          max-width: 200px !important;
+          display: inline-block !important;
         }
 
         #a4-invoice > div {
@@ -445,6 +476,17 @@ const PrintReceipt = () => {
           padding: 10px 12px !important;
           overflow-x: hidden !important;
           position: relative !important;
+          display: flex !important;
+          flex-direction: column !important;
+          min-height: 100% !important;
+          padding-bottom: 0 !important;
+        }
+
+        #a4-invoice > img {
+          position: absolute !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
         }
 
         #a4-invoice table {

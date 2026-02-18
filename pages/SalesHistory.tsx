@@ -27,13 +27,19 @@ const SalesHistory = () => {
   const [selectedSaleForReturn, setSelectedSaleForReturn] = useState<SaleRecord | null>(null);
   const [returnReason, setReturnReason] = useState('');
   
+  // Item-level Return State
+  const [showItemReturnModal, setShowItemReturnModal] = useState(false);
+  const [selectedItemForReturn, setSelectedItemForReturn] = useState<any>(null);
+  const [itemReturnQuantity, setItemReturnQuantity] = useState<number>(1);
+  const [itemReturnReason, setItemReturnReason] = useState('');
+  
   // Document menu state
   const [showDocMenu, setShowDocMenu] = useState(false);
   const [selectedSaleForDoc, setSelectedSaleForDoc] = useState<SaleRecord | null>(null);
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -160,6 +166,13 @@ const SalesHistory = () => {
       setShowReturnModal(true);
   };
 
+  const handleReturnItem = (item: any) => {
+      setSelectedItemForReturn(item);
+      setItemReturnQuantity(1);
+      setItemReturnReason('');
+      setShowItemReturnModal(true);
+  };
+
   const handleDeleteSale = async (saleId: string) => {
       if (!window.confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
           return;
@@ -182,13 +195,14 @@ const SalesHistory = () => {
 
   const enrichItems = (sale: SaleRecord) => {
       return (sale.items || []).map((it: any) => {
-          const prod = products.find(p => p.id === (it.id || it.product_id));
+          const prod = products.find(p => p.id === (it.product_id || it.id));
           return {
               ...it,
+              product_id: it.product_id || it.id,  // Ensure product_id is always set
               id: it.id || it.product_id,
               name: it.name || (prod ? prod.name : '') || '',
               description: it.description || prod?.details || prod?.description || '',
-              unit: it.unit || prod?.unit || ''
+              unit: it.unit || prod?.unit || 'N/A'
           };
       });
   };
@@ -243,12 +257,12 @@ const SalesHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
                 @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-                .wrapper { display: flex; flex-direction: column; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
+                .wrapper { display: flex; flex-direction: column; min-height: 297mm; }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; flex: 1; }
                 .header-img { width: 100%; height: auto; display: block; }
                 .footer-img { width: 100%; height: auto; display: block; }
-                .logo-section { width: 100%; text-align: center; padding: 15px 0; display: flex; align-items: center; justify-content: center; }
-                .logo-section img { max-height: 80px; max-width: 150px; width: auto; }
+                .logo-section { width: 100%; padding: 15px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; }
+                .logo-section img { max-height: ${settings.logoHeight || 100}px; max-width: 200px; width: auto; }
                 .content { padding: 20px; display: flex; flex-direction: column; }
                 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
                 .title h1 { font-size: 20px; font-weight: bold; margin-bottom: 3px; }
@@ -262,7 +276,7 @@ const SalesHistory = () => {
                 .bill-to strong { font-weight: 600; }
                 .invoice-details { display: flex; justify-content: space-between; margin-bottom: 15px; font-size: 11px; }
                 .detail-label { font-weight: bold; color: #64748b; }
-                table { width: 100%; margin-bottom: 15px; border-collapse: collapse; }
+                table { width: 100%; margin-bottom: 5px; border-collapse: collapse; }
                 thead { background: #f1f5f9; }
                 th { text-align: left; padding: 7px; font-weight: bold; font-size: 10px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
                 td { padding: 7px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
@@ -270,14 +284,15 @@ const SalesHistory = () => {
                 .totals { display: flex; justify-content: flex-end; margin-top: 15px; }
                 .totals-table { width: 250px; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 10px; color: #475569; }
-                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 5px; font-size: 12px; font-weight: bold; color: #1e293b; }
+                .totals-row.final { border-top: 1px solid #1e293b; padding-top: 5px; font-size: 12px; font-weight: bold; color: #1e293b; }
                 .notes { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #475569; }
+                .totals-table { min-width: 35%; max-width: 45%; }
               </style>
             </head>
             <body>
               <div class="wrapper">
-                ${settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" alt="Company Logo" /></div>` : ''}
-                ${settings.headerImageUrl ? `<img src="${settings.headerImageUrl}" class="header-img" alt="Header" />` : ''}
+                ${settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" alt="Company Logo" style="max-height: ${settings.logoHeight || 100}px;" /></div>` : ''}
+                ${settings.headerImageUrl ? `<img src="${settings.headerImageUrl}" class="header-img" alt="Header" style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: block; object-fit: cover;" />` : ''}
                 <div class="container">
                   <div class="content">
                   <div class="header">
@@ -355,10 +370,12 @@ const SalesHistory = () => {
                   </div>
 
                     ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
-                    ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                    ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
+                    <div style="position: relative; margin-bottom: 0; min-height: 200px; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.15;"></div>
+                    <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" alt="Footer" />` : ''}
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" alt="Footer" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
               </div>
             </body>
             </html>
@@ -421,7 +438,12 @@ const SalesHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; }
                 @page { size: A4; margin: 0; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; }
+                .page-wrapper { width: 210mm; margin: 0 auto; background: white; display: flex; flex-direction: column; min-height: 100vh; }
+                .header-image { width: 100%; height: ${settings.headerImageHeight || 100}px; overflow: hidden; display: block; margin: 0; padding: 0; }
+                .header-image img { width: 100%; height: 100%; display: block; object-fit: cover; margin: 0; padding: 0; }
+                .logo-section { width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0; }
+                .logo-section img { width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block; }
+                .container { width: 100%; margin: 0; background: white; color: #1e293b; padding: 20px; flex: 1; box-sizing: border-box; }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
                 .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 12px; }
@@ -432,26 +454,30 @@ const SalesHistory = () => {
                 .bill-to h3 { font-size: 10px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
                 .bill-to p { font-size: 11px; color: #1e293b; margin-bottom: 2px; }
                 .invoice-details { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 11px; }
-                table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
+                table { width: 100%; margin-bottom: 5px; border-collapse: collapse; }
                 th { text-align: left; padding: 8px; font-weight: bold; font-size: 11px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
                 td { padding: 8px; font-size: 11px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
                 th.right, td.right { text-align: right; }
                 .totals { display: flex; justify-content: flex-end; margin-top: 20px; }
-                .totals-table { width: 200px; }
+                .totals-table { min-width: 35%; max-width: 45%; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
-                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
+                .totals-row.final { border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
+                .footer-image { width: 100%; height: ${settings.footerImageHeight || 60}px; overflow: hidden; display: block; margin: 0; padding: 0; }
+                .footer-image img { width: 100%; height: 100%; display: block; object-fit: cover; margin: 0; padding: 0; }
               </style>
             </head>
             <body>
-              <div class="container">
-                <div class="header">
-                  <div class="title">
-                    <h1>${invoiceTitle}</h1>
-                    <p>#${sale.id.slice(-8)}</p>
-                  </div>
-                  <div class="company">
-                    <h2>${settings.name}</h2>
-                    <p>${settings.address || ''}</p>
+              <div class="page-wrapper">
+                ${settings.headerImageUrl ? `<div class="header-image"><img src="${settings.headerImageUrl}" /></div>` : (settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" /></div>` : '')}
+                <div class="container">
+                  <div class="header">
+                    <div class="title">
+                      <h1>${invoiceTitle}</h1>
+                      <p>#${sale.id.slice(-8)}</p>
+                    </div>
+                    <div class="company">
+                      <h2>${settings.name}</h2>
+                      <p>${settings.address || ''}</p>
                     <p>${settings.phone || ''}</p>
                   </div>
                 </div>
@@ -510,6 +536,8 @@ const SalesHistory = () => {
                     </div>
                   </div>
                 </div>
+                </div>
+                ${settings.footerImageUrl ? `<div class="footer-image"><img src="${settings.footerImageUrl}" /></div>` : ''}
               </div>
             </body>
             </html>
@@ -566,7 +594,7 @@ const SalesHistory = () => {
             try {
                 if (db.sales && db.sales.processReturn) await db.sales.processReturn(selectedSaleForReturn.id, returnReason, products);
                 const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
-                const p = db.products && db.products.getAll ? await db.products.getAll() : [];
+                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
                 setSales(Array.isArray(s) ? s : []);
                 setProducts(Array.isArray(p) ? p : []);
                 setShowReturnModal(false);
@@ -575,6 +603,51 @@ const SalesHistory = () => {
             } catch (e) {
                 console.warn('Failed to process return', e);
             }
+    };
+
+    const processItemReturn = async () => {
+        if (!selectedItemForReturn || !itemReturnReason || itemReturnQuantity <= 0) {
+            alert('Please fill in all fields and ensure quantity is greater than 0');
+            return;
+        }
+        if (itemReturnQuantity > Number(selectedItemForReturn.quantity)) {
+            alert(`Cannot return more than ${selectedItemForReturn.quantity} items`);
+            return;
+        }
+        try {
+            const returnData = {
+                saleId: selectedItemForReturn.saleId,
+                productId: selectedItemForReturn.id || selectedItemForReturn.product_id,
+                quantity: itemReturnQuantity,
+                reason: itemReturnReason,
+                originalQuantity: selectedItemForReturn.quantity
+            };
+            
+            const response = await authFetch('/api/sales/return-item', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(returnData)
+            });
+            
+            const result = await response.json().catch(() => ({}));
+            if (response.ok && (result.success || result.id)) {
+                alert('Item return processed successfully');
+                // Refresh sales and products data
+                const s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
+                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+                setSales(Array.isArray(s) ? s : []);
+                setProducts(Array.isArray(p) ? p : []);
+                setShowItemReturnModal(false);
+                setItemReturnQuantity(1);
+                setItemReturnReason('');
+                setSelectedItemForReturn(null);
+            } else {
+                alert(`Failed to process return: ${result.error || 'Unknown error'}`);
+            }
+        } catch (e) {
+            console.error('Item return error:', e);
+            alert(`Error processing return: ${e instanceof Error ? e.message : String(e)}`);
+        }
     };
 
   const salesColumns: Column<SaleRecord>[] = [
@@ -619,9 +692,10 @@ const SalesHistory = () => {
             <div className="flex gap-2">
                 <button 
                   onClick={() => {
-                    // Enrich sale data with item names and customer info before sending to POS
+                    // Enrich sale data with full customer and product info before sending to POS
                     const enrichedSale = {
                       ...s,
+                      items: enrichItems(s),
                       customer: s.customerId ? customers.find(c => c.id === s.customerId) : null,
                     };
                     window.history.pushState({ usr: enrichedSale }, '', '/#/pos');
@@ -688,6 +762,11 @@ const SalesHistory = () => {
     { header: 'Price', accessor: (i) => `${symbol}${fmt(i.price,2)}`, key: 'price', filterable: true },
     { header: 'Total', accessor: (i) => `${symbol}${fmt(Number(i.price) * Number(i.quantity),2)}`, key: 'itemTotal', filterable: true },
       { header: 'Ref Receipt', accessor: (i) => <span className="font-mono text-xs">{i.saleId.slice(-8)}</span>, key: 'saleId', filterable: true },
+      { header: 'Action', accessor: (i) => (
+          <button onClick={() => handleReturnItem(i)} className="text-orange-600 hover:text-orange-800 flex items-center gap-1 text-xs font-bold border border-orange-200 px-2 py-1 rounded bg-orange-50">
+              <RotateCcw size={14} /> Return
+          </button>
+      ), key: 'action' }
   ];
 
   const stockHistoryColumns: Column<any>[] = [
@@ -723,43 +802,44 @@ const SalesHistory = () => {
               @page { margin: 0; padding: 0; page-break-after: avoid; }
               * { margin: 0; padding: 0; box-sizing: border-box; }
               html { margin: 0; padding: 0; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; width: 100%; }
-              .wrapper { display: flex; flex-direction: column; width: 100%; margin: 0; padding: 0; }
-              .container { width: 210mm; margin: 0; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
-              .content { padding: 40px; display: flex; flex-direction: column; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; width: 100%; overflow-x: hidden; }
+              .wrapper { display: flex; flex-direction: column; max-width: 210mm; min-height: 297mm; margin: 0 auto; padding: 0; }
+              .container { width: 100%; margin: 0; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; flex: 1; }
+              .content { padding: 40px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
               .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
-              .logo-container { width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 80px; }
-              .logo-img { width: auto; height: 80px; max-width: 100%; display: block; }
+              .logo-container { width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; padding-left: ${settings.logoAlign === 'left' ? '20px' : '0'}; padding-right: ${settings.logoAlign === 'right' ? '20px' : '0'}; min-height: ${settings.logoHeight || 100}px; }
+              .logo-img { width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block; }
               .footer-img { width: 100%; height: auto; display: block; }
-              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+              .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 8px; max-width: 100%; box-sizing: border-box; }
+              .title { flex-shrink: 0; }
               .title h1 { font-size: 28px; font-weight: bold; margin-bottom: 4px; }
               .title p { color: #64748b; font-size: 13px; }
-              .company { text-align: right; }
-              .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; }
-              .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
-              .bill-to { margin-bottom: 24px; }
+              .company { text-align: right; position: relative; flex: 0 0 auto; max-width: 50%; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; }
+              .company h2 { font-weight: bold; font-size: 12px; margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.2; }
+              .company p { font-size: 11px; color: #64748b; margin-bottom: 2px; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.15; }
+              .bill-to { margin-bottom: 24px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
-              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to strong { font-weight: 600; }
               .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
               .detail-label { font-weight: bold; color: #64748b; }
-              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              table { width: 100%; margin-bottom: 5px; border-collapse: collapse; table-layout: fixed; box-sizing: border-box; }
               thead { border-bottom: 2px solid #1e293b; }
-              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
-              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; word-break: break-word; overflow-wrap: break-word; }
               th.right, td.right { text-align: right; }
-              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
-              .totals-table { width: 280px; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; max-width: 100%; box-sizing: border-box; }
+              .totals-table { min-width: 35%; max-width: 50%; }
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
-              .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .totals-row.final { border-top: 1px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
               .signature-section { margin-top: 40px; }
               .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
             </style>
           </head>
           <body>
             <div class="wrapper">
-              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : (settings.logoUrl ? `<div class="logo-container"><img src="${settings.logoUrl}" class="logo-img" /></div>` : '')}
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: block; object-fit: cover;" />` : (settings.logoUrl ? `<div class="logo-container"><img src="${settings.logoUrl}" class="logo-img" style="height: ${settings.logoHeight || 100}px; width: auto; max-width: 200px;" /></div>` : '')}
               <div class="container">
                 <div class="content">
                   <div class="header">
@@ -767,12 +847,12 @@ const SalesHistory = () => {
                       <h1>${invoiceTitle}</h1>
                       <p>#${sale.id.slice(-8)}</p>
                     </div>
-                    <div class="company">
+                    ${!hasHeaderFooter ? `<div class="company">
                       <h2>${settings.name}</h2>
                       <p>${settings.address || ''}</p>
                       <p>${settings.phone || ''}</p>
                       <p>${settings.email || ''}</p>
-                    </div>
+                    </div>` : ''}
                   </div>
 
                   <div class="bill-to">
@@ -827,14 +907,16 @@ const SalesHistory = () => {
                   </div>
 
                   ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
-                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
                   
-                  <div class="signature-section">
+                  <div style="position: relative; margin-bottom: 0; min-height: 200px; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.15;"></div>
+                  
+                  <div class="signature-section" style="position: relative; min-height: 80px; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain;">
                     <div class="signature-line">Authorized Manager</div>
                   </div>
                 </div>
               </div>
-              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
             </div>
           </body>
           </html>
@@ -852,43 +934,43 @@ const SalesHistory = () => {
             <style>
               * { margin: 0; padding: 0; box-sizing: border-box; }
               html { margin: 0; padding: 0; }
-              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; }
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; overflow-x: hidden; }
               @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-              .wrapper { display: flex; flex-direction: column; width: 210mm; margin: 0; padding: 0; }
+              .wrapper { display: flex; flex-direction: column; max-width: 210mm; margin: 0 auto; padding: 0; }
               .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
-              .content { padding: 40px; padding-left:0px; display: flex; flex-direction: column; }
+              .content { padding: 40px; padding-left:0px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
               .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
               .footer-img { width: 100%; height: auto; display: block; }
-              .header { text-align: center; margin-bottom: 24px; }
-              .company-header { margin-bottom: 4px; }
-              .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; }
-              .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; }
-              .title { margin-top: 16px; }
+              .header { text-align: center; margin-bottom: 24px; max-width: 100%; box-sizing: border-box; }
+              .company-header { margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
+              .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
+              .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; word-wrap: break-word; overflow-wrap: break-word; }
+              .title { margin-top: 16px; word-wrap: break-word; overflow-wrap: break-word; }
               .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
               .title p { color: #64748b; font-size: 13px; }
-              .bill-to { margin-bottom: 24px; }
+              .bill-to { margin-bottom: 24px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-align: left; }
-              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
+              .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to strong { font-weight: 600; }
-              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; }
+              .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; max-width: 100%; box-sizing: border-box; }
               .detail-label { font-weight: bold; color: #64748b; }
-              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; table-layout: fixed; box-sizing: border-box; }
               thead { border-bottom: 2px solid #1e293b; }
-              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
-              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
+              th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word; }
+              td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; word-break: break-word; overflow-wrap: break-word; }
               th.right, td.right { text-align: right; }
-              .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
-              .totals-table { width: 280px; }
+              .totals { display: flex; justify-content: flex-end; margin-top: 24px; max-width: 100%; box-sizing: border-box; }
+              .totals-table { width: 280px; max-width: 100%; }
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
               .signature-section { margin-top: auto; }
               .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
             </style>
           </head>
           <body>
             <div class="wrapper">
-              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : ''}
+              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: block; object-fit: cover;" />` : ''}
               <div class="container">
                 <div class="content">
                   <div class="header">
@@ -965,14 +1047,14 @@ const SalesHistory = () => {
                   </div>
 
                   ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
-                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+                  ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
                   
                   <div class="signature-section">
                     <div class="signature-line">Authorized Manager</div>
                   </div>
                 </div>
               </div>
-              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
             </div>
           </body>
           </html>
@@ -1067,6 +1149,69 @@ const SalesHistory = () => {
                     </div>
                     <button onClick={processReturn} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 flex justify-center items-center gap-2 mt-4">
                         <Save size={18} /> Confirm Return
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Item Return Modal */}
+      {showItemReturnModal && selectedItemForReturn && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+            <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-slate-800">Return Item</h3>
+                    <button onClick={() => setShowItemReturnModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+                </div>
+                
+                <div className="bg-slate-50 p-4 rounded mb-4 text-sm space-y-2">
+                    <p><strong>Item:</strong> {selectedItemForReturn.name}</p>
+                    <p><strong>Original Quantity:</strong> {selectedItemForReturn.quantity}</p>
+                    <p><strong>Price per Unit:</strong> {symbol}{fmt(selectedItemForReturn.price, 2)}</p>
+                    <p><strong>Receipt:</strong> {selectedItemForReturn.saleId.slice(-8)}</p>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Quantity to Return</label>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setItemReturnQuantity(Math.max(1, itemReturnQuantity - 1))}
+                                className="px-3 py-2 border rounded-lg hover:bg-slate-100"
+                            >
+                                −
+                            </button>
+                            <input 
+                                type="number" 
+                                value={itemReturnQuantity}
+                                onChange={(e) => setItemReturnQuantity(Math.min(Number(selectedItemForReturn.quantity), Math.max(1, parseInt(e.target.value) || 1)))}
+                                min="1"
+                                max={selectedItemForReturn.quantity}
+                                className="flex-1 border rounded-lg p-2 text-center outline-none focus:ring-2 focus:ring-brand-500"
+                            />
+                            <button 
+                                onClick={() => setItemReturnQuantity(Math.min(Number(selectedItemForReturn.quantity), itemReturnQuantity + 1))}
+                                className="px-3 py-2 border rounded-lg hover:bg-slate-100"
+                            >
+                                +
+                            </button>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">Refund: {symbol}{fmt(Number(selectedItemForReturn.price) * itemReturnQuantity, 2)}</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Reason for Return</label>
+                        <textarea 
+                            className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-brand-500" 
+                            rows={3}
+                            value={itemReturnReason} 
+                            onChange={e => setItemReturnReason(e.target.value)} 
+                            placeholder="e.g. Defective item, wrong item, customer changed mind..."
+                        />
+                    </div>
+
+                    <button onClick={processItemReturn} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 flex justify-center items-center gap-2 mt-4">
+                        <RotateCcw size={18} /> Confirm Return
                     </button>
                 </div>
             </div>

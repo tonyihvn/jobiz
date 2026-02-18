@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import db from '../services/apiClient';
 import { CompanySettings, Role } from '../types';
 import { useBusinessContext } from '../services/BusinessContext';
-import { Save, Download, Upload, Image as ImageIcon, Plus, Check, AlertCircle } from 'lucide-react';
+import { Save, Download, Upload, Image as ImageIcon, Plus, Check, AlertCircle, X } from 'lucide-react';
 import { getImageUrl } from '../services/format';
+import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Settings = () => {
     const { selectedBusinessId } = useBusinessContext();
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);
@@ -75,7 +76,7 @@ const handleBackup = async () => {
     }
 };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl') => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl' | 'watermarkImageUrl' | 'signatureUrl') => {
       const file = e.target.files?.[0];
       if (!file) return;
       try {
@@ -86,6 +87,18 @@ const handleBackup = async () => {
               setSettings(prev => ({...prev, [field]: res.url}));
           }
       } catch (e) { console.warn('Upload failed', e); }
+  };
+
+  const handleDeleteImage = (field: 'logoUrl' | 'headerImageUrl' | 'footerImageUrl' | 'watermarkImageUrl' | 'signatureUrl') => {
+      setSettings(prev => ({...prev, [field]: ''}));
+  };
+
+  const handleLogoAlignChange = (align: 'left' | 'center' | 'right') => {
+      setSettings(prev => ({...prev, logoAlign: align}));
+  };
+
+  const handleWatermarkAlignChange = (align: 'left' | 'center' | 'right') => {
+      setSettings(prev => ({...prev, watermarkAlign: align}));
   };
 
   const uploadLandingImage = async (file?: File | null) => {
@@ -157,8 +170,8 @@ const handleBackup = async () => {
                     </div>
                 </div>
                 <div className="mt-4">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Invoice Notes (will appear on A4 invoices)</label>
-                    <textarea className="w-full border rounded p-2" rows={4} value={settings.invoiceNotes || ''} onChange={e => setSettings(prev => ({...prev, invoiceNotes: e.target.value}))} placeholder="e.g. Payment due within 14 days; Thank you for your business" />
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Invoice Notes (will appear on A4 invoices - supports bold, italic, headings, lists)</label>
+                    <RichTextEditor value={settings.invoiceNotes || ''} onChange={(v) => setSettings(prev => ({...prev, invoiceNotes: v}))} placeholder="e.g. Payment due within 14 days; Thank you for your business" className="w-full border rounded" />
                 </div>
                 <div className="mt-4">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Global Default Location (applies to storefront)</label>
@@ -173,7 +186,7 @@ const handleBackup = async () => {
                  {/* Branding Images */}
                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Company Logo (Thermal Receipt)</label>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 mb-3">
                         <div className="w-16 h-16 border rounded-lg bg-slate-50 flex items-center justify-center overflow-hidden">
                             {settings.logoUrl ? <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-contain" /> : <ImageIcon className="text-slate-300"/>}
                         </div>
@@ -181,46 +194,203 @@ const handleBackup = async () => {
                             <Upload size={14} /> Upload Logo
                             <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'logoUrl')} />
                         </label>
+                        {settings.logoUrl && (
+                            <button onClick={() => handleDeleteImage('logoUrl')} className="bg-red-100 text-red-600 px-3 py-1.5 rounded text-sm hover:bg-red-200 flex items-center gap-2">
+                                <X size={14} /> Remove
+                            </button>
+                        )}
                     </div>
+                    {settings.logoUrl && (
+                        <div className="flex gap-4 mb-4 flex-col sm:flex-row sm:items-end">
+                            <div>
+                                <label className="text-sm font-medium text-slate-700 mb-2 block">Logo Alignment:</label>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleLogoAlignChange('left')} className={`px-3 py-1 rounded text-sm ${settings.logoAlign === 'left' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>Left</button>
+                                    <button onClick={() => handleLogoAlignChange('center')} className={`px-3 py-1 rounded text-sm ${settings.logoAlign === 'center' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>Center</button>
+                                    <button onClick={() => handleLogoAlignChange('right')} className={`px-3 py-1 rounded text-sm ${settings.logoAlign === 'right' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-700'}`}>Right</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Logo Height (px):</label>
+                                <input type="number" min="20" max="300" value={settings.logoHeight || 80} onChange={e => setSettings({...settings, logoHeight: parseInt(e.target.value) || 80})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                            </div>
+                        </div>
+                    )}
                  </div>
 
                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Invoice Header Image (A4)</label>
-                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 hover:bg-slate-50 transition-colors">
                          {settings.headerImageUrl ? (
                              <div className="relative group">
-                                <img src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} alt="Header" className="w-full h-24 object-contain bg-white" />
+                                <img 
+                                  src={getImageUrl(settings.headerImageUrl) || settings.headerImageUrl} 
+                                  alt="Header"
+                                  crossOrigin="anonymous"
+                                  className="w-full h-auto object-cover bg-white" 
+                                  style={{ maxHeight: '200px', minHeight: '120px' }}
+                                  onError={(e) => {
+                                    console.error('Header image failed to load:', settings.headerImageUrl);
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
                                 <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
                                     <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'headerImageUrl')} />
                                 </label>
+                                <button onClick={() => handleDeleteImage('headerImageUrl')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>
                              </div>
                          ) : (
-                             <label className="w-full h-24 flex flex-col items-center justify-center text-slate-400 cursor-pointer">
-                                <Upload size={24} className="mb-2"/>
-                                <span className="text-xs">Upload Header Banner</span>
+                             <label className="w-full h-40 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:text-slate-600">
+                                <Upload size={32} className="mb-3"/>
+                                <span className="text-sm font-medium">Upload Header Banner</span>
+                                <span className="text-xs text-slate-400 mt-2">(width: 100%, auto height)</span>
                                 <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'headerImageUrl')} />
                              </label>
                          )}
                     </div>
+                    {settings.headerImageUrl && (
+                        <div className="mt-2">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Header Image Height (px):</label>
+                            <input type="number" min="20" max="300" value={settings.headerImageHeight || 100} onChange={e => setSettings({...settings, headerImageHeight: parseInt(e.target.value) || 100})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                        </div>
+                    )}
                  </div>
 
                  <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Invoice Footer Image (A4)</label>
-                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-4 hover:bg-slate-50 transition-colors">
                          {settings.footerImageUrl ? (
                              <div className="relative group">
-                                <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full h-24 object-contain bg-white" />
+                                <img 
+                                  src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} 
+                                  alt="Footer"
+                                  crossOrigin="anonymous"
+                                  className="w-full h-auto object-cover bg-white"
+                                  style={{ maxHeight: '200px', minHeight: '120px' }}
+                                  onError={(e) => {
+                                    console.error('Footer image failed to load:', settings.footerImageUrl);
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
                                 <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
                                     <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'footerImageUrl')} />
                                 </label>
+                                <button onClick={() => handleDeleteImage('footerImageUrl')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>
                              </div>
                          ) : (
-                             <label className="w-full h-24 flex flex-col items-center justify-center text-slate-400 cursor-pointer">
-                                <Upload size={24} className="mb-2"/>
-                                <span className="text-xs">Upload Footer Banner</span>
+                             <label className="w-full h-40 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:text-slate-600">
+                                <Upload size={32} className="mb-3"/>
+                                <span className="text-sm font-medium">Upload Footer Banner</span>
+                                <span className="text-xs text-slate-400 mt-2">(width: 100%, auto height)</span>
                                 <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'footerImageUrl')} />
+                             </label>
+                         )}
+                    </div>
+                    {settings.footerImageUrl && (
+                        <div className="mt-2">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Footer Image Height (px):</label>
+                            <input type="number" min="20" max="300" value={settings.footerImageHeight || 60} onChange={e => setSettings({...settings, footerImageHeight: parseInt(e.target.value) || 60})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                        </div>
+                    )}
+                 </div>
+
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Invoice Watermark Image</label>
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
+                         {settings.watermarkImageUrl ? (
+                             <div className="relative group">
+                                <img 
+                                  src={getImageUrl(settings.watermarkImageUrl) || settings.watermarkImageUrl} 
+                                  alt="Watermark"
+                                  crossOrigin="anonymous"
+                                  className="w-full h-auto object-cover bg-white opacity-30"
+                                  style={{ maxHeight: '100px', minHeight: '50px' }}
+                                  onError={(e) => {
+                                    console.error('Watermark image failed to load:', settings.watermarkImageUrl);
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                                <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                    <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
+                                    <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'watermarkImageUrl')} />
+                                </label>
+                                <button onClick={() => handleDeleteImage('watermarkImageUrl')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>
+                             </div>
+                         ) : (
+                             <label className="w-full h-24 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:text-slate-600">
+                                <Upload size={24} className="mb-2"/>
+                                <span className="text-xs">Upload Watermark Image</span>
+                                <span className="text-xs text-slate-400 mt-1">(PNG with transparency recommended)</span>
+                                <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'watermarkImageUrl')} />
+                             </label>
+                         )}
+                    </div>
+                    {settings.watermarkImageUrl && (
+                        <div className="mt-2 flex gap-2">
+                            <button 
+                              onClick={() => handleWatermarkAlignChange('left')}
+                              className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+                                settings.watermarkAlign === 'left' 
+                                  ? 'bg-slate-800 text-white' 
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              }`}
+                            >
+                              Left
+                            </button>
+                            <button 
+                              onClick={() => handleWatermarkAlignChange('center')}
+                              className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+                                settings.watermarkAlign === 'center' 
+                                  ? 'bg-slate-800 text-white' 
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              }`}
+                            >
+                              Center
+                            </button>
+                            <button 
+                              onClick={() => handleWatermarkAlignChange('right')}
+                              className={`px-3 py-2 rounded text-sm font-medium transition-colors ${
+                                settings.watermarkAlign === 'right' 
+                                  ? 'bg-slate-800 text-white' 
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              }`}
+                            >
+                              Right
+                            </button>
+                        </div>
+                    )}
+                 </div>
+
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Manager Signature Image</label>
+                    <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition-colors">
+                         {settings.signatureUrl ? (
+                             <div className="relative group">
+                                <img 
+                                  src={getImageUrl(settings.signatureUrl) || settings.signatureUrl} 
+                                  alt="Signature"
+                                  crossOrigin="anonymous"
+                                  className="w-full h-auto object-cover bg-white"
+                                  style={{ maxHeight: '80px', minHeight: '40px' }}
+                                  onError={(e) => {
+                                    console.error('Signature image failed to load:', settings.signatureUrl);
+                                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                  }}
+                                />
+                                <label className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                    <span className="text-white text-sm font-bold flex items-center gap-2"><Upload size={16}/> Change</span>
+                                    <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'signatureUrl')} />
+                                </label>
+                                <button onClick={() => handleDeleteImage('signatureUrl')} className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"><X size={16}/></button>
+                             </div>
+                         ) : (
+                             <label className="w-full h-24 flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:text-slate-600">
+                                <Upload size={24} className="mb-2"/>
+                                <span className="text-xs">Upload Signature Image</span>
+                                <span className="text-xs text-slate-400 mt-1">(PNG with transparency recommended)</span>
+                                <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, 'signatureUrl')} />
                              </label>
                          )}
                     </div>

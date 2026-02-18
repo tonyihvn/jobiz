@@ -21,7 +21,7 @@ const ServiceHistory = () => {
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -111,13 +111,13 @@ const ServiceHistory = () => {
 
   const enrichItems = (sale: SaleRecord) => {
       return (sale.items || []).map((it: any) => {
-          const prod = products.find(p => p.id === (it.id || it.product_id));
+          const prod = products.find(p => p.id === (it.product_id || it.id));
           return {
               ...it,
               id: it.id || it.product_id,
               name: it.name || (prod ? prod.name : '') || '',
               description: it.description || prod?.details || prod?.description || prod?.image_url || '',
-              unit: it.unit || prod?.unit || ''
+              unit: it.unit || prod?.unit || 'N/A'
           };
       });
   };
@@ -162,8 +162,8 @@ const ServiceHistory = () => {
                 @page { size: A4; margin: 0; }
                 .wrapper { display: flex; flex-direction: column; }
                 .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; }
-                .logo-section { width: 100%; text-align: center; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; }
-                .logo-section img { max-height: 80px; max-width: 150px; }
+                .logo-section { width: 100%; margin-bottom: 20px; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; }
+                .logo-section img { max-height: ${settings.logoHeight || 100}px; max-width: 200px; width: auto; }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
                 .title h1 { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 12px; }
@@ -174,14 +174,14 @@ const ServiceHistory = () => {
                 .bill-to h3 { font-size: 10px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
                 .bill-to p { font-size: 11px; color: #1e293b; margin-bottom: 2px; }
                 .invoice-details { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 11px; }
-                table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
+                table { width: 100%; margin-bottom: 5px; border-collapse: collapse; }
                 th { text-align: left; padding: 8px; font-weight: bold; font-size: 11px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
                 td { padding: 8px; font-size: 11px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
                 th.right, td.right { text-align: right; }
                 .totals { display: flex; justify-content: flex-end; margin-top: 20px; }
-                .totals-table { width: 200px; }
+                .totals-table { min-width: 35%; max-width: 45%; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
-                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
+                .totals-row.final { border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
                 .notes { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #475569; }
               </style>
             </head>
@@ -331,14 +331,14 @@ const ServiceHistory = () => {
                 .bill-to h3 { font-size: 10px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
                 .bill-to p { font-size: 11px; color: #1e293b; margin-bottom: 2px; }
                 .invoice-details { display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 11px; }
-                table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
+                table { width: 100%; margin-bottom: 5px; border-collapse: collapse; }
                 th { text-align: left; padding: 8px; font-weight: bold; font-size: 11px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; }
                 td { padding: 8px; font-size: 11px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; }
                 th.right, td.right { text-align: right; }
                 .totals { display: flex; justify-content: flex-end; margin-top: 20px; }
-                .totals-table { width: 200px; }
+                .totals-table { min-width: 35%; max-width: 45%; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
-                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
+                .totals-row.final { border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
               </style>
             </head>
             <body>
@@ -519,20 +519,20 @@ const ServiceHistory = () => {
                 .bill-to { margin-bottom: 24px; }
                 .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; }
                 .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; }
-                table { width: 100%; margin-bottom: 24px; border-collapse: collapse; }
+                table { width: 100%; margin-bottom: 5px; border-collapse: collapse; }
                 thead { border-bottom: 2px solid #1e293b; }
                 th { text-align: left; padding: 10px 0; font-weight: bold; font-size: 12px; color: #1e293b; }
                 td { padding: 12px 0; font-size: 13px; color: #475569; border-bottom: 1px solid #e2e8f0; }
                 .totals { display: flex; justify-content: flex-end; margin-top: 24px; }
-                .totals-table { width: 240px; }
+                .totals-table { min-width: 35%; max-width: 50%; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-                .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; }
+                .totals-row.final { border-top: 1px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; }
                 @media print { body { padding: 0; margin: 0; } .wrapper { min-height: auto; } .container { padding: 0; } .content { padding: 40px; } }
               </style>
             </head>
             <body>
               <div class="wrapper">
-                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" />` : (settings.logoUrl ? `<div style="width: 100%; padding: 20px 0; display: flex; align-items: center; justify-content: center; min-height: 100px;"><img src="${settings.logoUrl}" style="width: auto; height: 100px; display: block;" /></div>` : '')}
+                ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: block; object-fit: cover;" />` : (settings.logoUrl ? `<div style="width: auto; padding: 20px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; padding-left: ${settings.logoAlign === 'left' ? '20px' : '0'}; padding-right: ${settings.logoAlign === 'right' ? '20px' : '0'}; min-height: ${settings.logoHeight || 100}px;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block;" /></div>` : '')}
                 <div class="container">
                   <div class="content">
                     <div class="header">
@@ -601,9 +601,11 @@ const ServiceHistory = () => {
                         </div>
                       </div>
                     </div>
+                    <div style="position: relative; margin-bottom: 0; min-height: 200px; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.15;"></div>
+                    <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" />` : ''}
+                ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
               </div>
               <script>
                 window.onload = () => { window.print(); };
@@ -637,11 +639,12 @@ const ServiceHistory = () => {
                 @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 html { margin: 0; padding: 0; }
-                body { margin: 0; padding: 0; width: 100%; background: white; font-family: Arial, sans-serif; overflow-x: hidden; }                
+                body { margin: 0; padding: 0; width: 100%; font-family: Arial, sans-serif; overflow-x: hidden; }                
               </style>
             </head>
             <body style="margin: 0; padding: 0;">
-            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;">\n ${hasHeaderFooter ? `<div style="margin: 0; padding: 0; width: 100%;"><img src="${settings.headerImageUrl}" style="width: 100%; height: auto; display: block; min-height: 100px;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: flex-start; min-height: 60px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: 50px; display: block;" /></div>` : '')}\n              <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box;">
+            <div style="font-family: Arial, sans-serif; max-width: 210mm; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;\">\n ${hasHeaderFooter ? `<div style="margin: 0; padding: 0; width: 100%; height: ${settings.headerImageHeight || 100}px; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block;" /></div>` : '')}
+              <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.1, z-index:0;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 8px; max-width: 100%; box-sizing: border-box;">
                   <div style="flex-shrink: 0;">
                     <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 4px 0;">INVOICE</h1>
@@ -711,20 +714,21 @@ const ServiceHistory = () => {
                 </div>
               </div>
               ${sale.particulars ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
-              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong> ${settings.invoiceNotes}</div>` : ''}
+              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
+              
               
               <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 100%; box-sizing: border-box;">
                 <div style="display: flex; flex-direction: column; min-width: 0;">
                   <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; word-break: break-word; overflow-wrap: break-word;">Customer</p>
-                  <div style="border-top: 1px solid #000; width: 100%;"></div>
+                  <div style="border-top: 1px solid #000; width: 50%; float: left;"></div>
                 </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0;">
-                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word;">Signed Manager</p>
-                  <div style="border-top: 1px solid #000; width: 100%;"></div>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0; position: relative; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain;">
+                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word; position: relative; z-index: 1;">Signed Manager</p>
+                  <div style="border-top: 1px solid #000; width: 50%; position: relative; z-index: 1; float: right;"></div>
                 </div>
               </div>
               </div>
-              ${hasHeaderFooter ? `<div style="width: 100%; margin: 0; padding: 0;"><img src="${settings.footerImageUrl}" style="width: 100%; height: auto; display: block;" /></div>` : ''}
+              ${hasHeaderFooter ? `<div style="width: 100%; margin: 0; padding: 0; height: ${settings.footerImageHeight || 60}px; overflow: hidden;"><img src="${settings.footerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" /></div>` : ''}
             </div>
             </body>
             </html>
@@ -823,7 +827,7 @@ const ServiceHistory = () => {
     const items: any[] = [];
     for (const s of services) {
         for (const it of enrichItems(s)) {
-            const prod = products.find(p => p.id === (it.id || it.product_id));
+            const prod = products.find(p => p.id === (it.product_id || it.id));
             if (prod && prod.is_service) {
                 items.push({
                     saleDate: s.date,

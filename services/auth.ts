@@ -47,7 +47,13 @@ export async function login(email: string, password: string) {
   } catch (e) {
     throw new Error('Invalid server response format');
   }
-  if (data && data.token) localStorage.setItem(TOKEN_KEY, data.token);
+  if (data && data.token) {
+    localStorage.setItem(TOKEN_KEY, data.token);
+    // Store whether user is super admin
+    const isSuperAdmin = data.is_super_admin || data.isSuperAdmin;
+    localStorage.setItem('omnisales_is_super_admin', String(isSuperAdmin));
+    console.log('[Auth] User logged in, is_super_admin:', isSuperAdmin);
+  }
   return data;
 }
 
@@ -100,6 +106,8 @@ export async function register(companyName: string, adminName: string, email: st
 
 export function logout() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem('omnisales_is_super_admin');
+  localStorage.removeItem('omnisales_last_business_id');
 }
 
 export function getToken() {

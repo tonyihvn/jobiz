@@ -21,14 +21,34 @@ const Services = () => {
 
   useEffect(() => {
         (async () => {
+            console.log('[Services] useEffect triggered, selectedBusinessId:', selectedBusinessId);
+            if (!selectedBusinessId) {
+                console.warn('[Services] selectedBusinessId is not set, waiting for it to be initialized');
+                return;
+            }
             await refreshData();
             try {
                 const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-                setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
                 if (currentUser) {
-                    const roles = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
+                    const roles = db.roles && db.roles.getAll ? await db.roles.getAll(selectedBusinessId) : [];
                     const role = (roles || []).find((r: any) => r.id === currentUser.roleId || r.id === currentUser.role_id);
                     setUserRole(role || null);
+                    
+                    // Check if user has super admin permissions based on their role
+                    // A user is "super" if their role has wildcard permissions (inventory:*) or all permissions (resource:action includes *)
+                    const hasWildcardPermission = role && role.permissions && (
+                        role.permissions.includes('*:*') ||  // All resources and actions
+                        role.permissions.includes('inventory:*') ||  // All inventory actions
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))  // Any wildcard
+                    );
+                    setIsSuper(!!hasWildcardPermission);
+                    console.log('[Services] User role loaded:', { 
+                        roleId: role?.id, 
+                        roleName: role?.name,
+                        hasWildcardPermission,
+                        isSuper: !!hasWildcardPermission,
+                        permissions: role?.permissions 
+                    });
                 }
             } catch (e) {
                 console.warn('Failed to resolve user/roles', e);
@@ -48,51 +68,70 @@ const Services = () => {
 
     const refreshData = async () => {
         try {
-            // Get current user to check if super admin
-            const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
-            const isSuperAdmin = currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin);
+            console.log('[Services] refreshData called with selectedBusinessId:', selectedBusinessId);
             
-            // Services are stored in `services` table — prefer that endpoint if available
-            let svcList: any[] = [];
-            try {
-                svcList = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
-            } catch (e) {
-                // fallback to products table where some services may live
-                let prods = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
-                
-                // Backend already filters by business when appropriate
-                
-                const isSvc = (p: any) => {
-                    if (typeof p.isService !== 'undefined') return !!p.isService;
-                    if (typeof p.is_service !== 'undefined') return !!p.is_service;
-                    return false;
-                };
-                svcList = (prods || []).filter((p: any) => isSvc(p));
+            // Fetch ONLY services from the services table (not from products)
+            const [svcs, cats] = await Promise.all([
+                db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([]),
+                db.categories && db.categories.getAll ? db.categories.getAll(selectedBusinessId) : Promise.resolve([])
+            ]);
+            
+            console.log('[Services] API responses received:', {
+                servicesCount: Array.isArray(svcs) ? svcs.length : 0,
+                categoriesCount: Array.isArray(cats) ? cats.length : 0,
+                services: svcs
+            });
+            
+            // Log each service's details before normalization
+            if (Array.isArray(svcs)) {
+                svcs.forEach((s: any, idx: number) => {
+                    console.log(`[Services] Service ${idx}:`, {
+                        id: s.id,
+                        name: s.name,
+                        categoryGroup: s.categoryGroup,
+                        category_group: s.category_group,
+                        group: s.group,
+                        categoryName: s.categoryName,
+                        category_name: s.category_name,
+                        price: s.price,
+                        unit: s.unit
+                    });
+                });
             }
             
-            // Backend already filters by business when appropriate
+            // Normalize services from services table
+            const normalized = (Array.isArray(svcs) ? svcs : []).map((s: any) => {
+                const normalized = {
+                    ...s,
+                    isService: true,
+                    categoryGroup: s.categoryGroup || s.category_group || s.group || '',
+                    categoryName: s.categoryName || s.category_name || s.name || '',
+                    imageUrl: s.imageUrl || s.image_url || ''
+                };
+                console.log('[Services] Normalized service:', { 
+                    name: normalized.categoryName,
+                    categoryGroup: normalized.categoryGroup,
+                    categoryGroupType: typeof normalized.categoryGroup
+                });
+                return normalized;
+            });
             
-            // load categories for dropdowns (normalize fields)
-            try {
-                const cats = db.categories && db.categories.getAll ? await db.categories.getAll() : [];
-                const normalizedCats = (cats || []).map((c: any) => ({
-                    ...c,
-                    isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false),
-                    group: c.group || c.category_group || '',
-                    name: c.name || c.label || ''
-                }));
-                setCategories(normalizedCats || []);
-            } catch (e) { /* ignore */ }
-
-            // Exclude art school entries here (they are managed in Courses)
-            const norm = (svcList || []).map((p: any) => ({
-                ...p,
-                categoryGroup: p.categoryGroup || p.category_group || p.group || '',
-                categoryName: p.categoryName || p.category_name || p.name || ''
+            console.log('[Services] After normalization - total services:', normalized.length);
+            
+            // Normalize categories
+            const normalizedCats = (cats || []).map((c: any) => ({
+                ...c,
+                isProduct: typeof c.isProduct !== 'undefined' ? !!c.isProduct : (typeof c.is_product !== 'undefined' ? !!c.is_product : false),
+                group: c.group || c.category_group || '',
+                name: c.name || c.label || ''
             }));
-            const filtered = norm.filter((p: any) => (p.categoryGroup || '') !== 'Art School');
-            console.log('[Services] Loaded services:', filtered);
-            setItems(filtered);
+            setCategories(normalizedCats || []);
+            
+            console.log('[Services] Final services to display:', {
+                count: normalized.length,
+                data: normalized
+            });
+            setItems(normalized);
         } catch (e) {
             console.error('[Services] Failed to load services:', e);
             setItems([]);
@@ -107,17 +146,32 @@ const Services = () => {
     const normalizedQueryGroup = normalizeGroup(queryGroup);
     
     const displayedItems = (items || []).filter(i => { 
-        if (!normalizedQueryGroup) return true; 
-        return normalizeGroup(i.categoryGroup || '') === normalizedQueryGroup; 
+        if (!normalizedQueryGroup) {
+            console.log('[Services] No query group - showing all items');
+            return true; 
+        }
+        const itemGroup = normalizeGroup(i.categoryGroup || '');
+        const matches = itemGroup === normalizedQueryGroup;
+        console.log('[Services] Filter comparison:', {
+            itemName: i.categoryName,
+            itemGroup,
+            queryGroup: normalizedQueryGroup,
+            matches
+        });
+        return matches; 
     });
-    if (normalizedQueryGroup) {
-        console.log('[Services] Filtering by queryGroup:', normalizedQueryGroup, '-> displayed items:', displayedItems);
-    }
+    
+    console.log('[Services] Display Summary:', {
+        totalServicesLoaded: items.length,
+        queryGroupParam: normalizedQueryGroup,
+        displayedAfterFilter: displayedItems.length,
+        displayedItems: displayedItems.map(i => ({ name: i.categoryName, group: i.categoryGroup }))
+    });
 
-  const hasPermission = (action: string) => {
+  const hasPermission = (resource: string, action: string) => {
       if (isSuper) return true;
       if (!userRole) return false;
-      return userRole.permissions && userRole.permissions.includes(`inventory:${action}`);
+      return userRole.permissions && userRole.permissions.includes(`${resource}:${action}`);
   };
 
   const handleDelete = async (id: string) => {
@@ -150,7 +204,7 @@ const Services = () => {
       }
       setEditingItem({
           id: Date.now().toString(),
-          businessId: '',
+          businessId: selectedBusinessId || '',
           name: '',
           categoryName: 'General',
           categoryGroup: defaultGroup,
@@ -201,12 +255,12 @@ const Services = () => {
         header: 'Actions', 
         accessor: (item: Product) => (
             <div className="flex gap-2">
-                {hasPermission('update') && (
+                {hasPermission('inventory', 'update') && (
                     <button onClick={() => handleEdit(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded">
                         <Edit2 size={16} />
                     </button>
                 )}
-                {hasPermission('delete') && (
+                {hasPermission('inventory', 'delete') && (
                     <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
                         <Trash2 size={16} />
                     </button>
@@ -229,12 +283,26 @@ const Services = () => {
             </button>
       </div>
       
+      {displayedItems.length === 0 ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+            <p className="text-slate-600 mb-2">No services found.</p>
+            <p className="text-sm text-slate-500 mb-4">Loaded: {items.length} service(s) | Filtered by: {normalizedQueryGroup || 'None'}</p>
+            <p className="text-xs text-slate-400 mb-4">Check the browser console (F12) for detailed filtering information.</p>
+            <button 
+                onClick={async () => { console.log('🔄 Manual refresh triggered'); await refreshData(); }}
+                className="text-blue-600 hover:underline text-sm font-medium"
+            >
+                Try refreshing data
+            </button>
+        </div>
+      ) : (
             <DataTable 
                 data={displayedItems} 
                 columns={columns} 
                 title="Active Services"
                
             />
+      )}
 
       {/* Simplified Edit Modal */}
       {editingItem && (

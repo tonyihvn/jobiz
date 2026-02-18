@@ -194,7 +194,7 @@ const db = {
   // Sales helpers (compat)
   sales: {
     ...api.sales,
-    update: (id: string, sale: any) => authFetch(`/api/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson).catch(() => null),
+    update: (id: string, sale: any) => authFetch(`/api/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson),
     delete: (id: string) => authFetch(`/api/sales/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null),
     processReturn: async (saleId: string, reason: string, products?: any[]) => {
       try {
