@@ -402,13 +402,13 @@ const PrintReceipt = () => {
                   </div>
                 </div>
               </div>
+              {/* Footer Image - positioned at bottom of content */}
+              {settings.footerImageUrl && (
+                <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full block" crossOrigin="anonymous" style={{ width: '100%', maxWidth: '100%', height: `${settings.footerImageHeight || 60}px`, maxHeight: `${settings.footerImageHeight || 60}px`, boxSizing: 'border-box', margin: '0', marginTop: 'auto', padding: 0, display: 'block', objectFit: 'cover', flexShrink: 0 }} onError={e => { console.error('Footer image failed to load'); e.currentTarget.style.display = 'none'; }} />
+              )}
             </div>
             
             </div>
-            {/* Footer Image */}
-            {settings.footerImageUrl && (
-              <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full block" crossOrigin="anonymous" style={{ position: 'absolute', bottom: 0, left: 0, right: 0, width: '100%', maxWidth: '100%', height: `${settings.footerImageHeight || 60}px`, maxHeight: `${settings.footerImageHeight || 60}px`, boxSizing: 'border-box', margin: 0, padding: 0, display: 'block', objectFit: 'cover' }} onError={e => { console.error('Footer image failed to load'); e.currentTarget.style.display = 'none'; }} />
-            )}
           </div>
           
         )}
@@ -478,15 +478,16 @@ const PrintReceipt = () => {
           position: relative !important;
           display: flex !important;
           flex-direction: column !important;
-          min-height: 100% !important;
+          flex: 1 !important;
+          min-height: 0 !important;
           padding-bottom: 0 !important;
         }
 
-        #a4-invoice > img {
-          position: absolute !important;
-          bottom: 0 !important;
-          left: 0 !important;
-          right: 0 !important;
+        #a4-invoice > div > img[alt="Footer"] {
+          margin-top: auto !important;
+          margin-bottom: 0 !important;
+          padding: 0 !important;
+          flex-shrink: 0 !important;
         }
 
         #a4-invoice table {

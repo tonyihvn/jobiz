@@ -183,10 +183,11 @@ const ServiceHistory = () => {
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
                 .totals-row.final { border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
                 .notes { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #475569; }
+                .footer-image { width: 100%; height: auto; margin-top: auto; display: block; margin-bottom: 0; }
               </style>
             </head>
             <body>
-              <div class="wrapper">
+              <div class="wrapper" style="display: flex; flex-direction: column; min-height: 100vh;">
                 ${settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" alt="Company Logo" /></div>` : ''}
                 <div class="container">
                   <div class="header">
@@ -265,6 +266,7 @@ const ServiceHistory = () => {
 
                   ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
                 </div>
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="height: ${settings.footerImageHeight || 60}px; margin-top: auto;" />` : ''}
               </div>
             </body>
             </html>
@@ -320,7 +322,8 @@ const ServiceHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; }
                 @page { size: A4; margin: 0; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; }
+                .wrapper { display: flex; flex-direction: column; min-height: 100vh; }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; flex: 1; }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
                 .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 12px; }
@@ -339,10 +342,12 @@ const ServiceHistory = () => {
                 .totals-table { min-width: 35%; max-width: 45%; }
                 .totals-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 11px; }
                 .totals-row.final { border-top: 1px solid #1e293b; padding-top: 6px; font-size: 13px; font-weight: bold; }
+                .footer-image { width: 100%; height: auto; margin-top: auto; display: block; margin-bottom: 0; }
               </style>
             </head>
             <body>
-              <div class="container">
+              <div class="wrapper">
+                <div class="container">
                 <div class="header">
                   <div class="title">
                     <h1>SERVICE INVOICE</h1>
@@ -411,6 +416,8 @@ const ServiceHistory = () => {
                   </div>
                 </div>
               </div>
+              ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="height: ${settings.footerImageHeight || 60}px;" />` : ''}
+            </div>
             </body>
             </html>
           `;

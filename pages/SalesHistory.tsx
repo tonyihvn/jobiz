@@ -334,7 +334,7 @@ const SalesHistory = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        ${(sale.items && sale.items.length > 0 ? sale.items : []).map((item: any) => `
+                        ${enrichItems(sale).map((item: any) => `
                           <tr>
                             <td>${item.name || item.description || 'Item'}</td>
                             <td class="right">${Number(item.quantity || 0).toFixed(0)}</td>
@@ -507,7 +507,7 @@ const SalesHistory = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    ${(sale.items || []).map((item: any) => `
+                    ${enrichItems(sale).map((item: any) => `
                       <tr>
                         <td>${item.name || ''}</td>
                         <td class="right">${item.quantity || 0}</td>
@@ -831,9 +831,9 @@ const SalesHistory = () => {
               .totals-table { min-width: 35%; max-width: 50%; }
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 1px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
+              .notes { margin-top: 24px; padding-top: 24px; 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
               .signature-section { margin-top: 40px; }
-              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
+              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500;  }
             </style>
           </head>
           <body>
@@ -875,7 +875,7 @@ const SalesHistory = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      ${(sale.items || []).map((item: any) => `
+                      ${enrichItems(sale).map((item: any) => `
                         <tr>
                           <td>${item.name || ''}</td>
                           <td class="right">${item.quantity || 0}</td>
@@ -911,7 +911,8 @@ const SalesHistory = () => {
                   <div style="position: relative; margin-bottom: 0; min-height: 200px; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.15;"></div>
                   
                   <div class="signature-section" style="position: relative; min-height: 80px; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain;">
-                    <div class="signature-line">Authorized Manager</div>
+                    <div class="signature-line" style="float: left;">Client</div>
+                    <div class="signature-line" style="float: right;">Manager</div>
                   </div>
                 </div>
               </div>
@@ -921,7 +922,7 @@ const SalesHistory = () => {
           </html>
         `;
       } else {
-        // Thermal A4 Receipt - Same as handleViewDocument thermal template
+        // PDF FILE: Thermal A4 Receipt - Same as handleViewDocument thermal template
         const invoiceTitle = 'RECEIPT';
         htmlContent = `
           <!DOCTYPE html>
@@ -936,11 +937,15 @@ const SalesHistory = () => {
               body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; overflow-x: hidden; }
               @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
               .wrapper { display: flex; flex-direction: column; max-width: 210mm; margin: 0 auto; padding: 0; }
-              .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '40px'}; box-sizing: border-box; display: flex; flex-direction: column; }
-              .content { padding: 40px; padding-left:0px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
+              .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '5px'}; box-sizing: border-box; display: flex; flex-direction: column; }
+              .content { padding-left:0px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
               .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
+              .header-image { width: 100%; overflow: hidden; }
+              .header-image img { width: 100%; height: auto; display: block; object-fit: cover; }
+              .logo-section { width: 100%; padding: 10px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; padding-left: ${settings.logoAlign === 'left' ? '20px' : '0'}; padding-right: ${settings.logoAlign === 'right' ? '20px' : '0'}; min-height: ${settings.logoHeight || 100}px; }
+              .logo-section img { width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block; }
               .footer-img { width: 100%; height: auto; display: block; }
-              .header { text-align: center; margin-bottom: 24px; max-width: 100%; box-sizing: border-box; }
+              .header { text-align: right; margin-bottom: 24px; max-width: 100%; box-sizing: border-box; }
               .company-header { margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
               .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
               .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; word-wrap: break-word; overflow-wrap: break-word; }
@@ -969,8 +974,8 @@ const SalesHistory = () => {
           </head>
           <body>
             <div class="wrapper">
-              ${hasHeaderFooter ? `<img src="${settings.headerImageUrl}" class="header-img" style="width: 100%; height: ${settings.headerImageHeight || 100}px; display: block; object-fit: cover;" />` : ''}
-              <div class="container">
+                ${settings.headerImageUrl ? `<div class="header-image"><img src="${settings.headerImageUrl}" /></div>` : (settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" /></div>` : '')}
+                <div class="container">
                 <div class="content">
                   <div class="header">
                     <div class="company-header">
@@ -1015,7 +1020,7 @@ const SalesHistory = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      ${(sale.items || []).map((item: any) => `
+                      ${enrichItems(sale).map((item: any) => `
                         <tr>
                           <td>${item.name || ''}</td>
                           <td class="right">${item.quantity || 0}</td>
@@ -1049,7 +1054,8 @@ const SalesHistory = () => {
                   ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
                   
                   <div class="signature-section">
-                    <div class="signature-line">Authorized Manager</div>
+                    <div class="signature-line">Client</div>
+                    <div class="signature-line">Manager</div>
                   </div>
                 </div>
               </div>
