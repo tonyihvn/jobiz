@@ -146,6 +146,10 @@ const PrintReceipt = () => {
     );
   }
 
+  // Calculate available height for content when footer image is present
+  const footerHeightPx = settings.footerImageUrl ? (settings.footerImageHeight || 60) : 0;
+  const maxHeightMm = settings.footerImageUrl ? 297 - (footerHeightPx * 0.26458333) : null;
+
   return (
     <div className="bg-white min-h-screen">
       {/* Receipt Content */}
@@ -220,9 +224,9 @@ const PrintReceipt = () => {
 
         {/* A4 Invoice */}
         {receiptType === 'a4' && (
-          <div id="a4-invoice" style={{ position: 'relative', width: '210mm', maxWidth: '100%', minWidth: '210mm', height: 'auto', boxSizing: 'border-box', margin: '0 auto', padding: 0, overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div id="a4-invoice" style={{ position: 'relative', width: '210mm', maxWidth: '100%', minWidth: '210mm', height: 'auto', boxSizing: 'border-box', margin: '0 auto', padding: 0, overflowX: 'hidden', display: 'flex', flexDirection: 'column', ...(maxHeightMm && { maxHeight: `${maxHeightMm}mm` }) }}>
             {/* A4 Content Wrapper - strict width constraint */}
-            <div style={{ width: '100%', maxWidth: '100%', height: '100%', boxSizing: 'border-box', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', backgroundColor: 'white', flex: 1, minHeight: 0 }}>
+            <div style={{ width: '100%', maxWidth: '100%', height: '100%', boxSizing: 'border-box', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', backgroundColor: 'white', flex: 1, minHeight: 0, ...(maxHeightMm && { maxHeight: `${maxHeightMm}mm`, overflow: 'auto' }) }}>
             {/* Header Image or Logo */}
             {settings.headerImageUrl ? (
               <img
@@ -404,7 +408,7 @@ const PrintReceipt = () => {
               </div>
               {/* Footer Image - positioned at bottom of content */}
               {settings.footerImageUrl && (
-                <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full block" crossOrigin="anonymous" style={{ width: '100%', maxWidth: '100%', height: `${settings.footerImageHeight || 60}px`, maxHeight: `${settings.footerImageHeight || 60}px`, boxSizing: 'border-box', margin: '0', marginTop: 'auto', padding: 0, display: 'block', objectFit: 'cover', flexShrink: 0 }} onError={e => { console.error('Footer image failed to load'); e.currentTarget.style.display = 'none'; }} />
+                <img src={getImageUrl(settings.footerImageUrl) || settings.footerImageUrl} alt="Footer" className="w-full block" crossOrigin="anonymous" style={{ width: '100%', maxWidth: '100%', height: `${settings.footerImageHeight || 60}px`, maxHeight: `${settings.footerImageHeight || 60}px`, boxSizing: 'border-box', margin: '0', marginTop: `${settings.footerImageTopMargin || 0}px`, padding: 0, display: 'block', objectFit: 'contain', flexShrink: 0 }} onError={e => { console.error('Footer image failed to load'); e.currentTarget.style.display = 'none'; }} />
               )}
             </div>
             
@@ -655,6 +659,19 @@ const PrintReceipt = () => {
           #a4-invoice img {
             page-break-inside: avoid !important;
             page-break-after: avoid !important;
+          }
+          
+          /* Reserve space for footer image - prevent page break spillover */
+          #a4-invoice > div {
+            display: flex !important;
+            flex-direction: column !important;
+          }
+          
+          #a4-invoice img[alt="Footer"] {
+            page-break-inside: avoid !important;
+            page-break-before: avoid !important;
+            flex-shrink: 0 !important;
+            margin-top: auto !important;
           }
           }
           

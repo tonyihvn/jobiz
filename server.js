@@ -2934,6 +2934,7 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       headerImageHeight: r.header_image_height || 100,
       footerImageUrl: r.footer_image_url,
       footerImageHeight: r.footer_image_height || 60,
+      footerImageTopMargin: r.footer_image_top_margin || 0,
       watermarkImageUrl: r.watermark_image_url,
       watermarkAlign: r.watermark_align || 'center',
       signatureUrl: r.signature_url,
@@ -2965,12 +2966,13 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
     const logoHeight = data.logoHeight || data.logo_height || 80;
     const headerImageHeight = data.headerImageHeight || data.header_image_height || 100;
     const footerImageHeight = data.footerImageHeight || data.footer_image_height || 60;
+    const footerImageTopMargin = data.footerImageTopMargin || data.footer_image_top_margin || 0;
     const watermarkAlign = data.watermarkAlign || data.watermark_align || 'center';
     
     // Upsert settings row
     await pool.execute(
-      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, logo_align, logo_height, header_image_url, header_image_height, footer_image_url, footer_image_height, watermark_image_url, watermark_align, signature_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), logo_align=VALUES(logo_align), logo_height=VALUES(logo_height), header_image_url=VALUES(header_image_url), header_image_height=VALUES(header_image_height), footer_image_url=VALUES(footer_image_url), footer_image_height=VALUES(footer_image_height), watermark_image_url=VALUES(watermark_image_url), watermark_align=VALUES(watermark_align), signature_url=VALUES(signature_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
-        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, logoAlign, logoHeight, data.headerImageUrl || data.header_image_url || null, headerImageHeight, data.footerImageUrl || data.footer_image_url || null, footerImageHeight, data.watermarkImageUrl || data.watermark_image_url || null, watermarkAlign, data.signatureUrl || data.signature_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
+      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, logo_align, logo_height, header_image_url, header_image_height, footer_image_url, footer_image_height, footer_image_top_margin, watermark_image_url, watermark_align, signature_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), logo_align=VALUES(logo_align), logo_height=VALUES(logo_height), header_image_url=VALUES(header_image_url), header_image_height=VALUES(header_image_height), footer_image_url=VALUES(footer_image_url), footer_image_height=VALUES(footer_image_height), footer_image_top_margin=VALUES(footer_image_top_margin), watermark_image_url=VALUES(watermark_image_url), watermark_align=VALUES(watermark_align), signature_url=VALUES(signature_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
+        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, logoAlign, logoHeight, data.headerImageUrl || data.header_image_url || null, headerImageHeight, data.footerImageUrl || data.footer_image_url || null, footerImageHeight, footerImageTopMargin, data.watermarkImageUrl || data.watermark_image_url || null, watermarkAlign, data.signatureUrl || data.signature_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
     );
     res.json({ success: true });
   } catch (err) {

@@ -186,6 +186,7 @@ export interface CompanySettings {
   headerImageHeight?: number;
   footerImageUrl?: string;
   footerImageHeight?: number;
+  footerImageTopMargin?: number;
   watermarkImageUrl?: string;
   watermarkAlign?: 'left' | 'center' | 'right';
   signatureUrl?: string;

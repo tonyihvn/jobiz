@@ -527,7 +527,6 @@ const Inventory = () => {
                                 }
                                 return (
                                     <select className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-brand-500 outline-none" value={newProduct.categoryName} onChange={e => setNewProduct({...newProduct, categoryName: e.target.value})}>
-                                        <option value="">Select category</option>
                                         {names.map(n => <option key={n} value={n}>{n}</option>)}
                                     </select>
                                 );

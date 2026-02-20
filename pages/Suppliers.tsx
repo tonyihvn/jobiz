@@ -21,8 +21,14 @@ import { Plus, X, Save, Edit2, Trash2, Upload } from 'lucide-react';
             try {
                 const sups = db.suppliers && db.suppliers.getAll ? await db.suppliers.getAll(selectedBusinessId) : [];
                 setSuppliers(sups || []);
-                const roles = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
-                setUserRole((roles || []).find((r: any) => r.id === 'admin') || null);
+                
+                // Get current user to check their role permissions
+                const currentUser = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+                if (currentUser && db.roles && db.roles.getAll) {
+                    const roles = await db.roles.getAll(selectedBusinessId);
+                    const userRole = Array.isArray(roles) ? roles.find(r => r.id === currentUser.roleId) || null : null;
+                    setUserRole(userRole);
+                }
             } catch (e) { console.warn('Failed to load suppliers/roles', e); }
         })();
     }, [selectedBusinessId]);

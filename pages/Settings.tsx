@@ -8,7 +8,7 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Settings = () => {
     const { selectedBusinessId } = useBusinessContext();
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);
@@ -289,9 +289,16 @@ const handleBackup = async () => {
                          )}
                     </div>
                     {settings.footerImageUrl && (
-                        <div className="mt-2">
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Footer Image Height (px):</label>
-                            <input type="number" min="20" max="300" value={settings.footerImageHeight || 60} onChange={e => setSettings({...settings, footerImageHeight: parseInt(e.target.value) || 60})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                        <div className="mt-2 space-y-2">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Footer Image Height (px):</label>
+                                <input type="number" min="20" max="300" value={settings.footerImageHeight || 60} onChange={e => setSettings({...settings, footerImageHeight: parseInt(e.target.value) || 60})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Footer Image Top Margin (px) - First Page Only:</label>
+                                <input type="number" min="0" max="500" value={settings.footerImageTopMargin || 0} onChange={e => setSettings({...settings, footerImageTopMargin: parseInt(e.target.value) || 0})} className="w-24 border border-slate-300 rounded px-2 py-1 text-sm"/>
+                                <p className="text-xs text-slate-500 mt-1">Pushes footer image down on the first page of A4 invoices only</p>
+                            </div>
                         </div>
                     )}
                  </div>

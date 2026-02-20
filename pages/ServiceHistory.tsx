@@ -21,7 +21,7 @@ const ServiceHistory = () => {
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -150,6 +150,8 @@ const ServiceHistory = () => {
           if (!to) return;
 
           // Generate PDF with logo/header and proper item display
+          const footerHeightMm = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
+          const maxHeightForWrapper = 297 - footerHeightMm;
           const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -160,8 +162,8 @@ const ServiceHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; }
                 @page { size: A4; margin: 0; }
-                .wrapper { display: flex; flex-direction: column; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; }
+                .wrapper { display: flex; flex-direction: column; ${`${settings.footerImageUrl ? `max-height: ${maxHeightForWrapper}mm;` : ''}`} }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; ${`${settings.footerImageUrl ? 'overflow: auto;' : ''}`} }
                 .logo-section { width: 100%; margin-bottom: 20px; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; }
                 .logo-section img { max-height: ${settings.logoHeight || 100}px; max-width: 200px; width: auto; }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
@@ -187,10 +189,10 @@ const ServiceHistory = () => {
               </style>
             </head>
             <body>
-              <div class="wrapper" style="display: flex; flex-direction: column; min-height: 100vh;">
+              <div class="wrapper" style="display: flex; flex-direction: column; min-height: 100vh; ${`${settings.footerImageUrl ? `max-height: ${maxHeightForWrapper}mm;` : ''}`}">
                 ${settings.logoUrl ? `<div class="logo-section"><img src="${settings.logoUrl}" alt="Company Logo" /></div>` : ''}
-                <div class="container">
-                  <div class="header">
+                <div class="container" style="display: flex; flex-direction: column; flex: 1;">
+                  <div style="flex: 1;">
                     <div class="title">
                       <h1>SERVICE INVOICE</h1>
                       <p>#${sale.id.slice(-8)}</p>
@@ -266,7 +268,8 @@ const ServiceHistory = () => {
 
                   ${sale.particulars ? `<div class="notes"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="height: ${settings.footerImageHeight || 60}px; margin-top: auto;" />` : ''}
+              </div>
+              ${settings.footerImageUrl ? `<div style="margin-top: ${settings.footerImageTopMargin || 0}px; flex-shrink: 0;"></div><img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain; flex-shrink: 0;" />` : ''}
               </div>
             </body>
             </html>
@@ -312,6 +315,8 @@ const ServiceHistory = () => {
           if (!phone) return;
 
           // Generate PDF and download it
+          const footerHeightMm = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
+          const maxHeightMm = 297 - footerHeightMm;
           const htmlContent = `
             <!DOCTYPE html>
             <html>
@@ -322,8 +327,8 @@ const ServiceHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; }
                 @page { size: A4; margin: 0; }
-                .wrapper { display: flex; flex-direction: column; min-height: 100vh; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; flex: 1; }
+                .wrapper { display: flex; flex-direction: column; max-height: ${maxHeightMm}mm; }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; padding: 20px; flex: 1; overflow: hidden; }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
                 .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 12px; }
@@ -416,7 +421,7 @@ const ServiceHistory = () => {
                   </div>
                 </div>
               </div>
-              ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="height: ${settings.footerImageHeight || 60}px;" />` : ''}
+              ${settings.footerImageUrl ? `<div style="margin-top: ${settings.footerImageTopMargin || 0}px; width: 100%; height: 0;"></div><img src="${settings.footerImageUrl}" alt="Footer" class="footer-image" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain;" />` : ''}
             </div>
             </body>
             </html>
@@ -495,6 +500,8 @@ const ServiceHistory = () => {
           const custId = (sale as any).customerId || (sale as any).customer_id;
           const customer = custId ? customers.find(c => c.id === custId) : null;
           const hasHeaderFooter = settings.headerImageUrl && settings.footerImageUrl;
+          const footerHeightMm = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
+          const maxHeightMm = 297 - footerHeightMm;
           
           const printWindow = window.open('', 'ServiceInvoicePrint', 'width=900,height=800,resizable=yes,scrollbars=no');
           if (!printWindow) {
@@ -512,8 +519,8 @@ const ServiceHistory = () => {
               <style>
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: Arial, sans-serif; background: white; }
-                .wrapper { display: flex; flex-direction: column; }
-                .container { max-width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; }
+                .wrapper { display: flex; flex-direction: column; ${settings.footerImageUrl ? `max-height: ${maxHeightMm}mm;` : ''} }
+                .container { max-width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; ${settings.footerImageUrl ? `max-height: ${maxHeightMm}mm; overflow: hidden;` : ''} }
                 .content { padding: 40px; }
                 .header-img { width: 100%; height: auto; display: block; }
                 .footer-img { width: 100%; height: auto; display: block; }
@@ -612,7 +619,7 @@ const ServiceHistory = () => {
                     <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0; position: absolute; bottom: 0; left: 0; right: 0;" />` : ''}
+                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; margin-top: ${settings.footerImageTopMargin || 0}px; padding: 0; position: absolute; bottom: 0; left: 0; right: 0;" />` : ''}
               </div>
               <script>
                 window.onload = () => { window.print(); };
@@ -726,17 +733,17 @@ const ServiceHistory = () => {
               
               <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 100%; box-sizing: border-box;">
                 <div style="display: flex; flex-direction: column; min-width: 0;">
-                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; word-break: break-word; overflow-wrap: break-word;">Customer</p>
+                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; word-break: break-word; overflow-wrap: break-word;">Client</p>
                   <div style="border-top: 1px solid #000; width: 50%; float: left;"></div>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0; position: relative; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain;">
-                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word; position: relative; z-index: 1;">Signed Manager</p>
+                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word; position: relative; z-index: 1;">Manager</p>
                   <div style="border-top: 1px solid #000; width: 50%; position: relative; z-index: 1; float: right;"></div>
                 </div>
               </div>
               </div>
             </div>
-            ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
+            ${settings.footerImageUrl ? `<div style="margin-top: ${settings.footerImageTopMargin || 0}px; width: 100%; height: 0; flex-shrink: 0;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0; flex-shrink: 0;" />` : ''}
             
             </body>
             </html>
@@ -807,8 +814,8 @@ const ServiceHistory = () => {
                   onClick={() => { setSelectedSaleForDoc(sale); setShowDocMenu(true); }} 
                   title="View Invoice Options" 
                   className="text-blue-600 hover:bg-blue-50 p-1 rounded"
-                >
-                    <FileText size={16} />
+                >                  
+                    <FileText size={16} className="inline-block align-middle mr-1" />View
                 </button>
                 {currentUser && (currentUser.is_super_admin || currentUser.roleId) && (
                     <button onClick={() => handleDeleteSale(sale.id)} title="Delete Service" className="text-red-600 hover:bg-red-50 p-1 rounded">

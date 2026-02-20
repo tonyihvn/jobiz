@@ -317,6 +317,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `logo_height` int(11) DEFAULT 80,
   `header_image_height` int(11) DEFAULT 100,
   `footer_image_height` int(11) DEFAULT 60,
+  `footer_image_top_margin` int(11) DEFAULT 0,
   `signature_url` text DEFAULT NULL,
   `vat_rate` decimal(5,2) DEFAULT 0.00,
   `currency` varchar(8) DEFAULT '$',

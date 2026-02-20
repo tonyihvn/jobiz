@@ -39,7 +39,7 @@ const SalesHistory = () => {
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -246,6 +246,8 @@ const SalesHistory = () => {
           // Generate HTML content for PDF (A4 invoice format) with logo and proper items
           const useA4 = sale.isProforma || (sale as any).is_proforma === 1;
           const invoiceTitle = useA4 && sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE';
+          const footerHeightMm = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
+          const maxHeightMm = 297 - footerHeightMm;
           
           let htmlContent = `
             <!DOCTYPE html>
@@ -257,8 +259,9 @@ const SalesHistory = () => {
                 * { margin: 0; padding: 0; box-sizing: border-box; }
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; padding: 0; }
                 @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-                .wrapper { display: flex; flex-direction: column; }
-                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; }
+                .wrapper { display: flex; flex-direction: column; min-height: 100vh; }
+                .container { width: 210mm; margin: 0 auto; background: white; color: #1e293b; display: flex; flex-direction: column; box-sizing: border-box; flex: 1; }
+                .footer-spacer { flex: 1; }
                 .header-img { width: 100%; height: auto; display: block; }
                 .footer-img { width: 100%; height: auto; display: block; }
                 .logo-section { width: 100%; padding: 15px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; }
@@ -375,7 +378,7 @@ const SalesHistory = () => {
                     <div style="position: relative; margin-bottom: 0; background-image: ${settings.signatureUrl ? `url('${settings.signatureUrl}')` : 'none'}; background-position: right center; background-repeat: no-repeat; background-size: contain; min-height: 0;"></div>
                   </div>
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
+                ${settings.footerImageUrl ? `<div class="footer-spacer" style="margin-top: ${settings.footerImageTopMargin || 0}px;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain; margin: 0; padding: 0;" />` : ''}
               </div>
             </body>
             </html>
@@ -427,6 +430,8 @@ const SalesHistory = () => {
           
           // Generate A4 invoice HTML for PDF
           const invoiceTitle = sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE';
+          const footerHeightMm2 = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
+          const maxHeightMm2 = 297 - footerHeightMm2;
           
           let htmlContent = `
             <!DOCTYPE html>
@@ -443,7 +448,7 @@ const SalesHistory = () => {
                 .header-image img { width: 100%; height: 100%; display: block; object-fit: cover; margin: 0; padding: 0; }
                 .logo-section { width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0; }
                 .logo-section img { width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block; }
-                .container { width: 100%; margin: 0; background: white; color: #1e293b; padding: 20px; flex: 1; box-sizing: border-box; }
+                .container { width: 100%; margin: 0; background: white; color: #1e293b; padding: 20px; flex: 1; box-sizing: border-box; ${settings.footerImageUrl ? 'overflow: auto;' : ''} }
                 .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 20px; }
                 .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
                 .title p { color: #64748b; font-size: 12px; }
@@ -536,7 +541,7 @@ const SalesHistory = () => {
                     </div>
                   </div>
                 </div>
-                ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
+                ${settings.footerImageUrl ? `<div class="footer-spacer" style="margin-top: ${settings.footerImageTopMargin || 0}px;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain; margin: 0; padding: 0;" />` : ''}
               </div>
             </body>
             </html>
@@ -679,7 +684,7 @@ const SalesHistory = () => {
                    title="View Invoice Options" 
                    className="p-1 hover:bg-slate-100 rounded border border-slate-200 text-slate-600"
                  >
-                    <FileText size={14} />
+                    <FileText size={14}  className="inline-block align-middle mr-1" />View Options
                  </button>
             </div>
         ), 
@@ -832,8 +837,8 @@ const SalesHistory = () => {
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 1px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
               .notes { margin-top: 24px; padding-top: 24px; 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
-              .signature-section { margin-top: 40px; }
-              .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500;  }
+              .signature-section { margin-top: 40px; width: 100%}
+              .signature-line { border-top: 1px solid #1e293b; width: 30%; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500;  }
             </style>
           </head>
           <body>
@@ -889,17 +894,17 @@ const SalesHistory = () => {
                   <div class="totals">
                     <div class="totals-table">
                       <div class="totals-row">
-                        <span>Subtotal</span>
+                        <span>Subtotal: </span>
                         <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
                       </div>
                       ${Number(sale.vat) > 0 ? `
                       <div class="totals-row">
-                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>VAT: (${settings.vatRate || 7.5}%)</span>
                         <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                       </div>
                       ` : ''}
                       <div class="totals-row final">
-                        <span>TOTAL</span>
+                        <span>TOTAL: </span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                       </div>
                     </div>
@@ -916,7 +921,7 @@ const SalesHistory = () => {
                   </div>
                 </div>
               </div>
-              ${hasHeaderFooter ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover;" />` : ''}
+              ${hasHeaderFooter ? `<div class="footer-spacer" style="margin-top: ${settings.footerImageTopMargin || 0}px;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain;" />` : ''}
             </div>
           </body>
           </html>
@@ -936,8 +941,8 @@ const SalesHistory = () => {
               html { margin: 0; padding: 0; }
               body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: white; margin: 0; padding: 0; overflow-x: hidden; }
               @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-              .wrapper { display: flex; flex-direction: column; max-width: 210mm; margin: 0 auto; padding: 0; }
-              .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '5px'}; box-sizing: border-box; display: flex; flex-direction: column; }
+              .wrapper { display: flex; flex-direction: column; max-width: 210mm; margin: 0 auto; padding: 0; min-height: 100vh; }
+              .container { width: 100%; background: white; color: #1e293b; padding: ${hasHeaderFooter ? '0' : '5px'}; box-sizing: border-box; display: flex; flex-direction: column; flex: 1; }
               .content { padding-left:0px; display: flex; flex-direction: column; max-width: 100%; box-sizing: border-box; }
               .header-img { width: 100%; height: auto; display: block; min-height: 100px; }
               .header-image { width: 100%; overflow: hidden; }
@@ -945,30 +950,30 @@ const SalesHistory = () => {
               .logo-section { width: 100%; padding: 10px 0; display: flex; align-items: center; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; padding-left: ${settings.logoAlign === 'left' ? '20px' : '0'}; padding-right: ${settings.logoAlign === 'right' ? '20px' : '0'}; min-height: ${settings.logoHeight || 100}px; }
               .logo-section img { width: auto; height: ${settings.logoHeight || 100}px; max-width: 200px; display: block; }
               .footer-img { width: 100%; height: auto; display: block; }
-              .header { text-align: right; margin-bottom: 24px; max-width: 100%; box-sizing: border-box; }
+              .header { text-align: right; margin-bottom: 10px; max-width: 100%; box-sizing: border-box; }
               .company-header { margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
               .company-header h2 { font-weight: bold; font-size: 18px; margin-bottom: 4px; word-wrap: break-word; overflow-wrap: break-word; }
               .company-header p { font-size: 11px; color: #64748b; margin-bottom: 2px; word-wrap: break-word; overflow-wrap: break-word; }
-              .title { margin-top: 16px; word-wrap: break-word; overflow-wrap: break-word; }
+              .title { margin-top: 8px; word-wrap: break-word; overflow-wrap: break-word; }
               .title h1 { font-size: 24px; font-weight: bold; margin-bottom: 4px; }
               .title p { color: #64748b; font-size: 13px; }
-              .bill-to { margin-bottom: 24px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
+              .bill-to { margin-bottom: 8px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to h3 { font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-align: left; }
               .bill-to p { font-size: 13px; color: #1e293b; margin-bottom: 2px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; }
               .bill-to strong { font-weight: 600; }
               .invoice-details { display: flex; justify-content: space-between; margin-bottom: 24px; font-size: 12px; max-width: 100%; box-sizing: border-box; }
               .detail-label { font-weight: bold; color: #64748b; }
-              table { width: 100%; margin-bottom: 24px; border-collapse: collapse; table-layout: fixed; box-sizing: border-box; }
+              table { width: 100%; margin-bottom: 14px; border-collapse: collapse; table-layout: fixed; box-sizing: border-box; }
               thead { border-bottom: 2px solid #1e293b; }
               th { text-align: left; padding: 10px; font-weight: bold; font-size: 12px; color: #1e293b; background: #f1f5f9; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word; }
               td { padding: 10px; font-size: 13px; color: #475569; border: 1px solid #cbd5e1; background: #fafbfc; word-break: break-word; overflow-wrap: break-word; }
               th.right, td.right { text-align: right; }
               .totals { display: flex; justify-content: flex-end; margin-top: 24px; max-width: 100%; box-sizing: border-box; }
               .totals-table { width: 280px; max-width: 100%; }
-              .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
+              .totals-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 2px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
-              .signature-section { margin-top: auto; }
+              .notes { margin-top: 8px; padding-top: 8px; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
+              .signature-section { margin-top: auto; width: 100%; display: flex; justify-content: space-between; }
               .signature-line { border-top: 1px solid #1e293b; width: 200px; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500; }
             </style>
           </head>
@@ -984,9 +989,8 @@ const SalesHistory = () => {
                       ${settings.phone ? `<p>${settings.phone}</p>` : ''}
                       ${settings.email ? `<p>${settings.email}</p>` : ''}
                     </div>
-                    <div class="title">
+                    <div class="title" style="text-align: center;">
                       <h1>${invoiceTitle}</h1>
-                      <p>#${sale.id.slice(-8)}</p>
                     </div>
                   </div>
 
@@ -1034,17 +1038,17 @@ const SalesHistory = () => {
                   <div class="totals">
                     <div class="totals-table">
                       <div class="totals-row">
-                        <span>Subtotal</span>
+                        <span>Subtotal: </span>
                         <span>${symbol}${Number(sale.subtotal).toFixed(2)}</span>
                       </div>
                       ${Number(sale.vat) > 0 ? `
                       <div class="totals-row">
-                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>VAT: (${settings.vatRate || 7.5}%)</span>
                         <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                       </div>
                       ` : ''}
                       <div class="totals-row final">
-                        <span>TOTAL</span>
+                        <span>TOTAL: </span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                       </div>
                     </div>
@@ -1054,12 +1058,12 @@ const SalesHistory = () => {
                   ${settings.invoiceNotes ? `<div class="notes"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
                   
                   <div class="signature-section">
-                    <div class="signature-line">Client</div>
-                    <div class="signature-line">Manager</div>
+                    <div class="signature-line" style="float: left;">Client</div>
+                    <div class="signature-line" style="float: right;">Manager</div>
                   </div>
                 </div>
               </div>
-              ${settings.footerImageUrl ? `<img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: cover; margin: 0; padding: 0;" />` : ''}
+              ${settings.footerImageUrl ? `<div class="footer-spacer" style="margin-top: ${settings.footerImageTopMargin || 0}px;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain; margin: 0; padding: 0;" />` : ''}
             </div>
           </body>
           </html>
