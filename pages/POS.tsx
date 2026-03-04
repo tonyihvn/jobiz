@@ -441,197 +441,37 @@ const POS = () => {
     };
 
     const openReceiptPrintWindow = (sale: SaleRecord, type: 'thermal' | 'a4') => {
-      const receiptWindow = window.open('', 'Receipt', 'width=800,height=600,resizable=yes,scrollbars=yes');
-      if (!receiptWindow) {
-        alert('Please allow pop-ups to view receipts');
-        return;
-      }
-      
       const customer = sale.customerId ? customers.find(c => c.id === sale.customerId) : null;
-      let htmlContent = '';
+      const openInSameWindow = settings.openReceiptsInSameWindow || false;
       
-      if (type === 'thermal') {
-        htmlContent = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Receipt</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: monospace; background: white; padding: 20px; }
-              .receipt { width: 300px; margin: 0 auto; padding: 16px; border: 1px solid #ccc; }
-              .header { text-align: center; margin-bottom: 24px; }
-              .header h1 { font-size: 14px; font-weight: bold; letter-spacing: 2px; margin-bottom: 4px; }
-              .header p { font-size: 10px; color: #666; }
-              .divider { border-bottom: 1px dashed #999; margin: 16px 0; }
-              .info { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
-              table { width: 100%; font-size: 10px; margin-bottom: 16px; }
-              th { border-bottom: 1px solid #ccc; padding: 4px; text-align: left; font-weight: bold; }
-              td { padding: 4px; }
-              .text-right { text-align: right; }
-              .footer { text-align: center; font-size: 10px; color: #999; margin-top: 32px; }
-              @media print { body { padding: 0; } .receipt { border: none; } }
-            </style>
-          </head>
-          <body>
-            <div class="receipt">
-              <div class="header">
-                ${settings.logoUrl ? `<img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; margin-bottom: 8px; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" />` : ''}
-                <h1>${settings.name ? settings.name : 'JOBIZ'}</h1>
-                <p>${settings.address ? settings.address : ''}</p>
-                <p>${settings.phone ? `Phone: ${settings.phone}` : ''}</p>
-                ${settings.motto ? `<p style="font-style: italic; font-size: 9px; margin-top: 4px;">${settings.motto}</p>` : ''}
-              </div>
-              <div class="divider"></div>
-              <div class="info">
-                <span>Date: ${new Date(sale.date).toLocaleDateString()}</span>
-                <span>Time: ${new Date(sale.date).toLocaleTimeString()}</span>
-              </div>
-              <div class="info">
-                <span>Receipt #: ${sale.id.slice(-8)}</span>
-                <span>Cashier: ${(currentUser?.name || sale.cashier || 'Cashier')}</span>
-              </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th class="text-right">Qty</th>
-                    <th class="text-right">Amt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${sale.items.map((item: any) => `
-                    <tr>
-                      <td>${item.name}<br><span style="font-size: 9px; color: #999;">${item.unit}</span></td>
-                      <td class="text-right">${item.quantity}</td>
-                      <td class="text-right">${fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-              <div class="divider"></div>
-              <div class="info"><span>Subtotal</span><span class="text-right">${fmtCurrency(sale.subtotal, 2)}</span></div>
-              ${(settings.vatRate > 0) ? `<div class="info"><span>VAT (${settings.vatRate}%)</span><span class="text-right">${fmtCurrency(sale.vat, 2)}</span></div>` : ''}
-              <div class="info" style="font-weight: bold; margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccc;">
-                <span>TOTAL</span><span class="text-right">${fmtCurrency(Number(sale.total), 2)}</span>
-              </div>
-              <div class="footer">
-                <p>Thank you for your business!</p>
-              </div>
-            </div>
-            <script>
-              window.onload = () => { window.print(); };
-            </script>
-          </body>
-          </html>
-        `;
+      const printData = { sale, type, customer };
+      sessionStorage.setItem('receiptPrintData', JSON.stringify(printData));
+      
+      if (openInSameWindow) {
+        window.location.href = '/#/print-receipt';
       } else {
-        // A4 Invoice
-        htmlContent = `
-          <!DOCTYPE html>
-          <html style="margin: 0; padding: 0;">
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              @page { size: A4; margin: 0; padding: 0; page-break-after: avoid; }
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              html { margin: 0; padding: 0; }
-              body { margin: 0; padding: 0; width: 100%; background: white; font-family: Arial, sans-serif; overflow-x: hidden; }                
-            </style>
-          </head>
-          <body style="margin: 0; padding: 0; height: 297mm; position: relative;">
-          <div style="font-family: Arial, sans-serif; max-width: 210mm; height: 100%; margin: 0 auto; padding: 0; color: #1e293b; position: relative; display: flex; flex-direction: column; box-sizing: border-box;">
-            ${settings.headerImageUrl ? `<div style="margin: 0; padding: 0; width: 100%; flex-shrink: 0; order: -1; height: ${settings.headerImageHeight || 100}px; overflow: hidden;"><img src="${settings.headerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : (settings.logoUrl ? `<div style="width: 100%; padding: 8px 12px; display: flex; align-items: flex-start; justify-content: ${settings.logoAlign === 'center' ? 'center' : settings.logoAlign === 'right' ? 'flex-end' : 'flex-start'}; min-height: 60px; margin: 0;"><img src="${settings.logoUrl}" style="width: auto; height: ${settings.logoHeight || 80}px; max-width: 200px; display: block; object-fit: contain;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : '')}
-            <div style="padding: 10px 12px; display: flex; flex-direction: column; margin: 0; max-width: 100%; box-sizing: border-box; flex: 1;">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 8px; max-width: 100%; box-sizing: border-box;">
-                <div style="flex-shrink: 0;">
-                  <h1 style="font-size: 24px; font-weight: bold; margin: 0 0 4px 0;">${sale.isProforma ? 'PROFORMA INVOICE' : 'INVOICE'}</h1>
-                  <p style="color: #64748b; font-size: 13px; margin: 0;">#${sale.id.toString().slice(-8)}</p>
-                </div>
-              </div>
-            
-              <div style="margin-bottom: 20px; max-width: 100%; box-sizing: border-box; word-wrap: break-word; overflow-wrap: break-word;">
-                <h3 style="font-size: 11px; font-weight: bold; color: #94a3b8; letter-spacing: 1px; margin-bottom: 6px; text-transform: uppercase;">BILL TO</h3>
-                ${customer ? `
-                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;"><strong>${customer.name}</strong></p>
-                  ${customer.company ? `<p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.company}</p>` : ''}
-                  <p style="font-size: 13px; color: #1e293b; margin: 0 0 2px 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.address || ''}</p>
-                  <p style="font-size: 13px; color: #1e293b; margin: 0; word-wrap: break-word; overflow-wrap: break-word;">${customer.phone || ''}</p>
-                ` : '<p style="font-size: 13px; color: #1e293b; margin: 0;">Walk-in Customer</p>'}
-              </div>
-              
-              <table style="width: 100%; margin-bottom: 20px; border-collapse: collapse; font-size: 10px; table-layout: fixed; box-sizing: border-box;">
-                <thead>
-                  <tr style="border-bottom: 2px solid #1e293b; background-color: #f1f5f9;">
-                    <th style="text-align: left; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">Description</th>
-                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 12%; word-break: break-word; overflow-wrap: break-word;">Qty</th>
-                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 12%; word-break: break-word; overflow-wrap: break-word;">Unit</th>
-                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 18%; word-break: break-word; overflow-wrap: break-word;">Price</th>
-                    <th style="text-align: right; padding: 4px 6px; font-weight: bold; font-size: 10px; color: #1e293b; border: 1px solid #cbd5e1; width: 18%; word-break: break-word; overflow-wrap: break-word;">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${sale.items.map((item: any) => `
-                    <tr style="border-bottom: 1px solid #e2e8f0; background-color: #fafbfc;">
-                      <td style="padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.name || ''}</td>
-                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.quantity || 0}</td>
-                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${item.unit || 'N/A'}</td>
-                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;">${settings.currency}${fmtCurrency(Number(item.price), 2)}</td>
-                      <td style="text-align: right; padding: 4px 6px; font-size: 10px; color: #1e293b; font-weight: bold; border: 1px solid #cbd5e1; word-break: break-word; overflow-wrap: break-word;"><strong>${settings.currency}${fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</strong></td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-              
-              <div style="display: flex; justify-content: flex-end; margin-bottom: 15px; max-width: 100%; box-sizing: border-box;">
-                <div style="width: 180px; max-width: 100%;">
-                  <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
-                    <span>Subtotal:</span>
-                    <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.subtotal, 2)}</span>
-                  </div>
-                  ${Number(sale.vat) > 0 ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
-                    <span>VAT (${settings.vatRate || 7.5}%)</span>
-                    <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.vat, 2)}</span>
-                  </div>` : ''}
-                  ${sale.deliveryFee ? `
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 11px; color: #475569;">
-                      <span>Delivery</span>
-                      <span style="text-align: right;">${settings.currency}${fmtCurrency(sale.deliveryFee, 2)}</span>
-                    </div>
-                  ` : ''}
-                  <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 8px; font-size: 13px; font-weight: bold; color: #1e293b;">
-                    <span>Total</span>
-                    <span style="text-align: right;">${settings.currency}${fmtCurrency(Number(sale.total), 2)}</span>
-                  </div>
-                </div>
-              </div>
-              ${settings.invoiceNotes ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Invoice Notes:</strong><br/>${settings.invoiceNotes}</div>` : ''}
-              
-              ${settings.watermarkImageUrl ? `<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.25; pointer-events: none; z-index: 0;"><img src="${settings.watermarkImageUrl}" style="width: 400px; height: auto; display: block; max-width: 90vw;" onError="this.style.display='none'" /></div>` : ''}
-              
-              <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 100%; box-sizing: border-box;">
-                <div style="display: flex; flex-direction: column; min-width: 0;">
-                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; word-break: break-word; overflow-wrap: break-word;">Customer</p>
-                  <div style="border-top: 1px solid #000; width: 50%; float: left; margin-top: 10px"></div>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; min-width: 0;">
-                  ${settings.signatureUrl ? `<div style="margin-bottom: 10px; width: 100%;"><img src="${settings.signatureUrl}" style="width: auto; height: 50px; max-height: 50px; display: block; margin-left: auto;" /></div>` : ''}
-                  <p style="margin: 0 0 30px 0; font-size: 12px; font-weight: bold; text-align: right; word-break: break-word; overflow-wrap: break-word;">Signed Manager</p>
-                  <div style="border-top: 1px solid #000; width: 50%; float: right; margin-top: 10px"></div>
-                </div>
-              </div>
-            </div>
-            ${settings.footerImageUrl ? `<div style="width: 100%; margin: 0; padding: 0; flex-shrink: 0; margin-top: auto; height: ${settings.footerImageHeight || 60}px; overflow: hidden;"><img src="${settings.footerImageUrl}" style="width: 100%; height: 100%; display: block; object-fit: cover;" crossOrigin="anonymous" onError="this.style.display='none'" /></div>` : ''}
-          </div>
-          </body>
-          </html>
-        `;
+        const newWindow = window.open('/#/print-receipt', 'Receipt', 'width=800,height=600,resizable=yes,scrollbars=yes');
+        if (!newWindow) {
+          alert('Please allow pop-ups to view receipts');
+          sessionStorage.removeItem('receiptPrintData');
+          return;
+        }
+        
+        // Send data via postMessage
+        const messageTimer = setInterval(() => {
+          try {
+            newWindow.postMessage({
+              type: 'RECEIPT_PRINT_DATA',
+              payload: printData
+            }, '*');
+            clearInterval(messageTimer);
+          } catch (e) {
+            // Window not ready yet
+          }
+        }, 100);
+        
+        setTimeout(() => clearInterval(messageTimer), 2000);
       }
-      
-      receiptWindow.document.write(htmlContent);
-      receiptWindow.document.close();
     };
 
     const generateReceiptHTML = (sale: SaleRecord, type: 'thermal' | 'a4') => {

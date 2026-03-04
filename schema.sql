@@ -333,6 +333,8 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `login_redirects` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`login_redirects`)),
   `landing_content` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`landing_content`)),
   `invoice_notes` text DEFAULT NULL,
+  `open_receipts_in_same_window` tinyint(1) DEFAULT 0,
+  `thermal_printer_width` varchar(10) DEFAULT '80mm',
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`business_id`),
   KEY `idx_updated_at` (`updated_at`),

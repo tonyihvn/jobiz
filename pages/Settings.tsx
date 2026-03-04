@@ -8,7 +8,7 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Settings = () => {
     const { selectedBusinessId } = useBusinessContext();
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '', openReceiptsInSameWindow: false, thermalPrinterWidth: '80mm' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);
@@ -427,6 +427,44 @@ const handleBackup = async () => {
             >
                 <Save size={18} /> {saveStatus === 'saving' ? 'Saving...' : 'Save System Settings'}
             </button>
+        </div>
+        
+        {/* Print Settings */}
+        <div className="mt-6 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Print Settings</h3>
+            <div className="space-y-6">
+                <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={settings.openReceiptsInSameWindow || false}
+                            onChange={e => setSettings(prev => ({...prev, openReceiptsInSameWindow: e.target.checked}))}
+                            className="w-4 h-4 rounded"
+                        />
+                        <div>
+                            <p className="font-medium text-slate-700">Open Receipts & Invoices in Same Window</p>
+                            <p className="text-xs text-slate-500 mt-1">When enabled, receipts and invoices will open in the same window instead of a new tab</p>
+                        </div>
+                    </label>
+                </div>
+                
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Thermal Printer Width</label>
+                    <select 
+                        value={settings.thermalPrinterWidth || '80mm'} 
+                        onChange={e => setSettings(prev => ({...prev, thermalPrinterWidth: e.target.value as '50mm' | '80mm'}))}
+                        className="w-full border rounded p-2 max-w-xs"
+                    >
+                        <option value="80mm">80mm (Standard - Default)</option>
+                        <option value="50mm">50mm (Compact - Bold text, optimized layout)</option>
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">
+                        {settings.thermalPrinterWidth === '50mm' 
+                            ? 'With 50mm width: Text will be bold, item quantity will appear below item name, and layout will be optimized for narrower receipts.'
+                            : 'With 80mm width: Standard thermal receipt layout with normal text weight.'}
+                    </p>
+                </div>
+            </div>
         </div>
         {/* Login Redirects configuration */}
         <div className="mt-6 bg-white p-6 rounded-xl shadow-sm border border-slate-200">

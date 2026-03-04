@@ -39,6 +39,8 @@ import UserProfile from './pages/UserProfile';
 import db from './services/apiClient';
 import { CurrencyProvider } from './services/CurrencyContext';
 import { BusinessProvider } from './services/BusinessContext';
+import { LoadingProvider } from './services/LoadingContext';
+import LoadingOverlay from './components/Shared/LoadingOverlay';
 import { Business } from './types';
 import { getCurrentUser, logout as apiLogout } from './services/auth';
 
@@ -95,6 +97,26 @@ const App = () => {
   const [lastLocation, setLastLocation] = useState<string | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [hasPendingLogout, setHasPendingLogout] = useState(!!localStorage.getItem('pendingLogoutUrl'));
+
+  // Handle token requests from iframes
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'REQUEST_TOKEN') {
+        console.log('[App] Iframe requested token, sending...');
+        try {
+          const token = localStorage.getItem('omnisales_token');
+          if (token) {
+            event.source?.postMessage({ type: 'TOKEN_RESPONSE', token }, '*');
+          }
+        } catch (e) {
+          console.warn('[App] Failed to send token to iframe:', e);
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // Monitor localStorage for pending logout URL changes
   useEffect(() => {
@@ -327,10 +349,12 @@ const App = () => {
   };
 
   return (
-    <CurrencyProvider>
-      <BusinessProvider>
-        <Router>
-          <LocationTracker />
+    <LoadingProvider>
+      <CurrencyProvider>
+        <BusinessProvider>
+          <LoadingOverlay />
+          <Router>
+            <LocationTracker />
           
           {/* Show loading screen if pending logout redirect is in progress */}
           {hasPendingLogout ? (
@@ -397,8 +421,9 @@ const App = () => {
             </Routes>
           )}
         </Router>
-      </BusinessProvider>
-    </CurrencyProvider>
+        </BusinessProvider>
+      </CurrencyProvider>
+    </LoadingProvider>
   );
 };
 

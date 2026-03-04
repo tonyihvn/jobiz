@@ -18,7 +18,36 @@ const PrintReceipt = () => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
-    // Get sale data from sessionStorage (passed from ServiceHistory/SalesHistory)
+    // Listen for receipt data from POS (when opened from POS page)
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'RECEIPT_PRINT_DATA') {
+        const { sale, type, customer } = event.data.payload;
+        sessionStorage.setItem('invoiceData', JSON.stringify(sale));
+        sessionStorage.setItem('receiptType', type);
+        if (customer) {
+          sessionStorage.setItem('customerId', customer.id);
+        }
+      }
+    };
+    
+    // Listen for invoice data from parent window (when opened from SalesHistory/ServiceHistory)
+    const handleInvoiceMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'INVOICE_DATA') {
+        const { invoiceData, receiptType } = event.data.payload;
+        // Store in sessionStorage for use in this window
+        if (invoiceData) {
+          sessionStorage.setItem('invoiceData', JSON.stringify(invoiceData));
+        }
+        if (receiptType) {
+          sessionStorage.setItem('receiptType', receiptType);
+        }
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    window.addEventListener('message', handleInvoiceMessage);
+    
+    // Get sale data from sessionStorage (passed from POS/SalesHistory/ServiceHistory)
     const invoiceDataStr = sessionStorage.getItem('invoiceData');
     const receiptTypeStr = sessionStorage.getItem('receiptType');
     const customerIdStr = sessionStorage.getItem('customerId');
@@ -40,7 +69,14 @@ const PrintReceipt = () => {
       setReceiptType(receiptTypeStr);
     }
 
-    // Load settings and customers
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('message', handleInvoiceMessage);
+    };
+  }, []);
+
+  // Load settings and customers
+  useEffect(() => {
     (async () => {
       try {
         const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId) : null;
@@ -68,7 +104,7 @@ const PrintReceipt = () => {
     //     window.print();
     //   }
     // }, 500);
-  }, []);
+  }, [selectedBusinessId]);
 
   // Helper to get employee name by email
   const getEmployeeName = (emailOrName: string) => {
@@ -149,74 +185,83 @@ const PrintReceipt = () => {
   // Calculate available height for content when footer image is present
   const footerHeightPx = settings.footerImageUrl ? (settings.footerImageHeight || 60) : 0;
   const maxHeightMm = settings.footerImageUrl ? 297 - (footerHeightPx * 0.26458333) : null;
-
+  
+  // Check thermal printer width setting
+  const printerWidth = settings.thermalPrinterWidth || '80mm';
+  const is50mm = printerWidth === '50mm';
+  const receiptWidth = is50mm ? 'w-[150px]' : 'w-[300px]';
+  
   return (
     <div className="bg-white min-h-screen">
       {/* Receipt Content */}
       <div className="bg-gray-100 p-8 flex justify-center min-h-screen overflow-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {/* Thermal Receipt */}
         {receiptType === 'thermal' && (
-          <div id="thermal-receipt" className="bg-white p-4 w-[300px] printable-receipt">
-            <div className="text-center mb-6">
-              {settings.logoUrl && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" style={{ height: `${settings.logoHeight || 100}px`, maxHeight: `${settings.logoHeight || 100}px`, width: 'auto', maxWidth: '200px' }} crossOrigin="anonymous" /></div>}
-              <h1 className="font-bold text-lg uppercase tracking-wider">{settings.name}</h1>
-              <p className="text-xs text-gray-500">{settings.address}</p>
-              <p className="text-xs text-gray-500">{settings.phone}</p>
-              <p className="text-[10px] italic mt-1 text-gray-400">{settings.motto}</p>
+          <div id="thermal-receipt" className={`bg-white p-4 ${receiptWidth} printable-receipt`}>
+            <div className={`text-center mb-6 ${is50mm ? 'font-bold' : ''}`}>
+              {settings.logoUrl && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" style={{ height: `${is50mm ? '40' : settings.logoHeight || 100}px`, maxHeight: `${is50mm ? 40 : settings.logoHeight || 100}px`, width: 'auto', maxWidth: '200px' }} crossOrigin="anonymous" /></div>}
+              <h1 className={`font-bold uppercase tracking-wider ${is50mm ? 'text-sm font-black' : 'text-lg'}`} style={{fontWeight: is50mm ? 900 : 700}}>{settings.name}</h1>
+              <p className={`text-gray-500 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>{settings.address}</p>
+              <p className={`text-gray-500 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>{settings.phone}</p>
+              <p className={`italic mt-1 text-gray-400 ${is50mm ? 'text-[6px] font-bold' : 'text-[10px]'}`}>{settings.motto}</p>
             </div>
 
             <div className="border-b border-dashed border-gray-300 my-4"></div>
 
-            <div className="flex justify-between text-xs mb-4">
+            <div className={`flex justify-between mb-2 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
               <span>Date: {new Date(saleData.date).toLocaleDateString()}</span>
               <span>Time: {new Date(saleData.date).toLocaleTimeString()}</span>
             </div>
-            <div className="flex justify-between text-xs mb-4">
-              <span>Receipt #: {saleData.id.slice(-8)}</span>
-              <span>Cashier: {saleData.cashier}</span>
+            <div className={`mb-1 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
+              <div>Receipt #: {saleData.id.slice(-8)}</div>
+            </div>
+            <div className={`mb-4 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
+              <div>Cashier: {saleData.cashier}</div>
             </div>
 
-            <table className="w-full text-xs text-left mb-4">
+            <table className={`w-full text-left mb-4 ${is50mm ? 'text-sm font-bold' : 'text-xs'}`}>
               <thead>
                 <tr className="border-b border-gray-200">
-                  <th className="py-1">Item</th>
-                  <th className="py-1 text-right">Qty</th>
-                  <th className="py-1 text-right">Amt</th>
+                  <th className={`py-2 ${is50mm ? 'font-black text-sm' : 'font-bold'}`}>Item</th>
+                  {!is50mm && <th className={`py-2 text-right ${is50mm ? 'font-black' : 'font-bold'}`}>Qty</th>}
+                  <th className={`py-2 text-right ${is50mm ? 'font-black text-sm' : 'font-bold'}`} style={{textAlign: 'right'}}>Amt</th>
                 </tr>
               </thead>
               <tbody>
                 {saleData.items.map((item: any, i: number) => {
                   const enriched = enrichItem(item);
+                  const itemAmount = fmtCurrency(Number(item.price) * Number(item.quantity), 2);
                   return (
-                    <tr key={i}>
-                      <td className="py-1">
-                        {enriched.name}
-                        <div className="text-[9px] text-gray-400">{enriched.unit}</div>
+                    <tr key={i} className={is50mm ? 'border-b border-gray-100' : ''}>
+                      <td className={`py-2 ${is50mm ? 'font-bold text-sm' : 'font-medium'} align-top`} style={{wordWrap: 'break-word', wordBreak: 'break-word'}}>
+                        <div className={`font-bold ${is50mm ? 'text-sm' : 'text-xs'}`}>{enriched.name || item.name}</div>
+                        {is50mm && <div className={`text-sm font-bold mt-1`}>Qty: {item.quantity}</div>}
+                        {!is50mm && <div className={`text-[9px] text-gray-400`}>{enriched.unit}</div>}
                       </td>
-                      <td className="py-1 text-right">{item.quantity}</td>
-                      <td className="py-1 text-right">{fmtCurrency(Number(item.price) * Number(item.quantity), 2)}</td>
+                      {!is50mm && <td className={`py-2 text-right font-medium align-top`}>{item.quantity}</td>}
+                      <td className={`py-2 font-medium align-top`} style={{textAlign: 'right', paddingRight: '0'}}>{itemAmount}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
 
-            <div className="border-t border-dashed border-gray-300 my-2 pt-2 space-y-1">
-              <div className="flex justify-between text-xs font-medium">
+            <div className={`border-t border-dashed border-gray-300 my-2 pt-2 space-y-1 ${is50mm ? 'text-sm' : 'text-xs'}`}>
+              <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
                 <span>Subtotal</span>
                 <span>{fmtCurrency(saleData.subtotal, 2)}</span>
               </div>
-              <div className="flex justify-between text-xs font-medium">
+              <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
                 <span>VAT ({settings.vatRate}%)</span>
                 <span>{fmtCurrency(saleData.vat, 2)}</span>
               </div>
-              <div className="flex justify-between text-sm font-bold mt-2">
+              <div className={`flex justify-between mt-2 ${is50mm ? 'font-black text-base' : 'text-sm font-bold'}`} style={{fontWeight: is50mm ? 900 : 700}}>
                 <span>TOTAL</span>
                 <span>{fmtCurrency(Number(saleData.total), 2)}</span>
               </div>
             </div>
 
-            <div className="mt-8 text-center text-xs text-gray-400">
+            <div className={`mt-8 text-center text-gray-400 ${is50mm ? 'text-[6px] font-bold' : 'text-xs'}`}>
               <p>Thank you for your business!</p>
             </div>
           </div>

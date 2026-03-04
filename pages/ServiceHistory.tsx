@@ -8,6 +8,7 @@ import { useCurrency } from '../services/CurrencyContext';
 import { useBusinessContext } from '../services/BusinessContext';
 import { Printer, X, FileText, Download, Trash2, Mail, MessageCircle, ShoppingBag } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
+import { openWindowWithToken } from '../services/tokenHelper';
 
 const ServiceHistory = () => {
     const { symbol, setSymbol } = useCurrency();
@@ -92,21 +93,42 @@ const ServiceHistory = () => {
     }, [selectedBusinessId]);
 
   const handleViewDocument = (sale: SaleRecord, type?: 'thermal' | 'a4') => {
-      // Store sale data in sessionStorage and open in new tab
-      sessionStorage.setItem('invoiceData', JSON.stringify(sale));
-      if (type) {
-        sessionStorage.setItem('receiptType', type);
-      }
+      // Check settings for same-window preference
+      const openInSameWindow = settings.openReceiptsInSameWindow || false;
       
-      // Open in new tab - HashRouter compatible
-      const newTab = window.open('/#/print-receipt', '_blank');
-      if (!newTab) {
-        alert('Please allow pop-ups to view invoices');
-        sessionStorage.removeItem('invoiceData');
-        sessionStorage.removeItem('receiptType');
-        return;
+      // Store data in sessionStorage
+      sessionStorage.setItem('invoiceData', JSON.stringify(sale));
+      sessionStorage.setItem('receiptType', type || 'thermal');
+      
+      if (openInSameWindow) {
+        // Open in same window
+        window.location.hash = '#/print-receipt';
+      } else {
+        // Open in new tab
+        const newTab = window.open('/#/print-receipt', '_blank');
+        if (!newTab) {
+          alert('Please allow pop-ups to view invoices');
+          return;
+        }
+        
+        // Send invoice data to the new window via postMessage
+        const timer = setInterval(() => {
+          try {
+            newTab.postMessage({
+              type: 'INVOICE_DATA',
+              payload: {
+                invoiceData: sale,
+                receiptType: type || 'thermal'
+              }
+            }, '*');
+            clearInterval(timer);
+          } catch (e) {
+            // Window not ready yet
+          }
+        }, 100);
+        
+        setTimeout(() => clearInterval(timer), 2000);
       }
-      return;
   };
 
   const enrichItems = (sale: SaleRecord) => {
@@ -503,7 +525,7 @@ const ServiceHistory = () => {
           const footerHeightMm = settings.footerImageUrl ? (settings.footerImageHeight || 60) * 0.26458333 : 0;
           const maxHeightMm = 297 - footerHeightMm;
           
-          const printWindow = window.open('', 'ServiceInvoicePrint', 'width=900,height=800,resizable=yes,scrollbars=no');
+          const printWindow = openWindowWithToken('', 'ServiceInvoicePrint', 'width=900,height=800,resizable=yes,scrollbars=no');
           if (!printWindow) {
               alert('Please allow pop-ups to print invoices');
               return;

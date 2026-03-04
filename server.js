@@ -1434,8 +1434,8 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
   const { items, total, customerId, paymentMethod, locationId: providedLocationId } = req.body;
   const connection = await pool.getConnection();
   try {
-    // Determine if there are physical (non-service) items
-    const hasPhysicalItems = Array.isArray(items) ? items.some(it => !it.isService) : true;
+    // Determine if there are physical (non-service) items (check both is_service and isService)
+    const hasPhysicalItems = Array.isArray(items) ? items.some(it => !(it.is_service || it.isService)) : true;
 
     // Determine location: use provided or user's default_location_id
     const [empRows] = await pool.execute('SELECT default_location_id, is_super_admin, role_id FROM employees WHERE id = ?', [req.user.id]);
@@ -1471,7 +1471,7 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     // Check per-location stock availability for physical items only (skip if all are services or this is a proforma)
     if (hasPhysicalItems && saleLocation) {
       for (const item of items) {
-        if (!item.isService) {
+        if (!(item.is_service || item.isService)) {
           const [stockRows] = await connection.execute('SELECT quantity FROM stock_entries WHERE product_id = ? AND location_id = ? FOR UPDATE', [item.id, saleLocation]);
           const available = stockRows[0] ? stockRows[0].quantity : 0;
           if (available < item.quantity) {
@@ -1499,7 +1499,7 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       // If this item is a service (stored in `services` table), ensure a corresponding
       // row exists in `products` so that the `sale_items.product_id` foreign key is satisfied.
       // We mark it as `is_service=1` and upsert basic info (name, price).
-      if (item.isService) {
+      if (item.is_service || item.isService) {
         try {
           const serviceProductId = item.id;
           const svcName = item.name || item.description || 'Service';
@@ -1516,10 +1516,10 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       const itemId = item && item.itemId ? item.itemId : `${saleId}_${Date.now()}_${idx}`;
       await connection.execute(
         'INSERT INTO sale_items (id, sale_id, product_id, quantity, price, is_service) VALUES (?, ?, ?, ?, ?, ?)',
-        [itemId, saleId, item.id, item.quantity, item.price, item.isService ? 1 : 0]
+        [itemId, saleId, item.id, item.quantity, item.price, (item.is_service || item.isService) ? 1 : 0]
       );
 
-      if (!item.isService && saleLocation) {
+      if (!(item.is_service || item.isService) && saleLocation) {
         await connection.execute('UPDATE stock_entries SET quantity = GREATEST(0, quantity - ?) WHERE product_id = ? AND location_id = ?', [item.quantity, item.id, saleLocation]);
         // Recalculate aggregated stock
         const [sumRows] = await connection.execute('SELECT COALESCE(SUM(quantity),0) as total FROM stock_entries WHERE product_id = ?', [item.id]);
@@ -2900,9 +2900,19 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       // Regular user: always get their own company's settings (ignore businessId param for security)
       [settingsRows] = await pool.execute('SELECT * FROM settings WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) LIMIT 1', [req.user.id]);
     }
-    if (!settingsRows || settingsRows.length === 0) return res.json({});
+    if (!settingsRows || settingsRows.length === 0) {
+      console.log('No settings found, returning empty object');
+      return res.json({});
+    }
+    
     // Normalize column names to frontend expectations
     const r = settingsRows[0];
+    console.log('GET /api/settings fetched raw data:', {
+      business_id: r.business_id,
+      open_receipts_in_same_window: r.open_receipts_in_same_window,
+      thermal_printer_width: r.thermal_printer_width
+    });
+    
     let landing = null;
     try { landing = r.landing_content ? JSON.parse(r.landing_content) : null; } catch (e) { landing = r.landing_content || null; }
     let loginRedirects = null;
@@ -2943,10 +2953,17 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       defaultLocationId: r.default_location_id || null,
       landingContent: landing,
       loginRedirects: loginRedirects,
-      invoiceNotes: r.invoice_notes
+      invoiceNotes: r.invoice_notes,
+      openReceiptsInSameWindow: r.open_receipts_in_same_window || 0,
+      thermalPrinterWidth: r.thermal_printer_width || '80mm'
     };
+    console.log('GET /api/settings returning:', {
+      openReceiptsInSameWindow: out.openReceiptsInSameWindow,
+      thermalPrinterWidth: out.thermalPrinterWidth
+    });
     res.json(out);
   } catch (err) {
+    console.error('Error fetching settings:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2954,6 +2971,11 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
 app.post('/api/settings', authMiddleware, async (req, res) => {
   try {
     const data = req.body || {};
+    console.log('POST /api/settings received data:', JSON.stringify({
+      openReceiptsInSameWindow: data.openReceiptsInSameWindow,
+      thermalPrinterWidth: data.thermalPrinterWidth
+    }));
+    
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0] ? bizRows[0].business_id : null;
     if (!businessId) return res.status(400).json({ error: 'Business not found for user' });
@@ -2968,14 +2990,20 @@ app.post('/api/settings', authMiddleware, async (req, res) => {
     const footerImageHeight = data.footerImageHeight || data.footer_image_height || 60;
     const footerImageTopMargin = data.footerImageTopMargin || data.footer_image_top_margin || 0;
     const watermarkAlign = data.watermarkAlign || data.watermark_align || 'center';
+    const openReceiptsInSameWindow = (data.openReceiptsInSameWindow || data.open_receipts_in_same_window) ? 1 : 0;
+    const thermalPrinterWidth = data.thermalPrinterWidth || data.thermal_printer_width || '80mm';
+    
+    console.log('Prepared values:', { openReceiptsInSameWindow, thermalPrinterWidth });
     
     // Upsert settings row
     await pool.execute(
-      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, logo_align, logo_height, header_image_url, header_image_height, footer_image_url, footer_image_height, footer_image_top_margin, watermark_image_url, watermark_align, signature_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), logo_align=VALUES(logo_align), logo_height=VALUES(logo_height), header_image_url=VALUES(header_image_url), header_image_height=VALUES(header_image_height), footer_image_url=VALUES(footer_image_url), footer_image_height=VALUES(footer_image_height), footer_image_top_margin=VALUES(footer_image_top_margin), watermark_image_url=VALUES(watermark_image_url), watermark_align=VALUES(watermark_align), signature_url=VALUES(signature_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes)`,
-        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, logoAlign, logoHeight, data.headerImageUrl || data.header_image_url || null, headerImageHeight, data.footerImageUrl || data.footer_image_url || null, footerImageHeight, footerImageTopMargin, data.watermarkImageUrl || data.watermark_image_url || null, watermarkAlign, data.signatureUrl || data.signature_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes]
+      `INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, logo_align, logo_height, header_image_url, header_image_height, footer_image_url, footer_image_height, footer_image_top_margin, watermark_image_url, watermark_align, signature_url, vat_rate, currency, default_location_id, login_redirects, landing_content, invoice_notes, open_receipts_in_same_window, thermal_printer_width) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), motto=VALUES(motto), address=VALUES(address), phone=VALUES(phone), email=VALUES(email), logo_url=VALUES(logo_url), logo_align=VALUES(logo_align), logo_height=VALUES(logo_height), header_image_url=VALUES(header_image_url), header_image_height=VALUES(header_image_height), footer_image_url=VALUES(footer_image_url), footer_image_height=VALUES(footer_image_height), footer_image_top_margin=VALUES(footer_image_top_margin), watermark_image_url=VALUES(watermark_image_url), watermark_align=VALUES(watermark_align), signature_url=VALUES(signature_url), vat_rate=VALUES(vat_rate), currency=VALUES(currency), default_location_id=VALUES(default_location_id), login_redirects=VALUES(login_redirects), landing_content=VALUES(landing_content), invoice_notes=VALUES(invoice_notes), open_receipts_in_same_window=VALUES(open_receipts_in_same_window), thermal_printer_width=VALUES(thermal_printer_width)`,
+        [businessId, data.name || null, data.motto || null, data.address || null, data.phone || null, data.email || null, data.logoUrl || data.logo_url || null, logoAlign, logoHeight, data.headerImageUrl || data.header_image_url || null, headerImageHeight, data.footerImageUrl || data.footer_image_url || null, footerImageHeight, footerImageTopMargin, data.watermarkImageUrl || data.watermark_image_url || null, watermarkAlign, data.signatureUrl || data.signature_url || null, data.vatRate || data.vat_rate || 0, data.currency || '', data.defaultLocationId || data.default_location_id || null, loginRedirects, landing, invoiceNotes, openReceiptsInSameWindow, thermalPrinterWidth]
     );
+    console.log('✓ Settings saved successfully for business:', businessId);
     res.json({ success: true });
   } catch (err) {
+    console.error('✗ Error saving settings:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

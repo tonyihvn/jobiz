@@ -2,6 +2,19 @@ export const TOKEN_KEY = 'omnisales_token';
 
 const API_BASE = ((import.meta as any).env?.VITE_API_URL as string) || '';
 
+// Import global loading manager for automatic loading state
+import { globalLoadingManager } from './globalLoadingManager';
+
+// Initialize iframe token receiver (one-time setup)
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'TOKEN_RESPONSE' && event.data.token) {
+      console.log('[Auth] Received token from parent window');
+      localStorage.setItem(TOKEN_KEY, event.data.token);
+    }
+  });
+}
+
 function withBase(input: RequestInfo) {
   if (typeof input === 'string') {
     if (input.startsWith('/api')) return `${API_BASE}${input}`;
@@ -111,20 +124,63 @@ export function logout() {
 }
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  // First check localStorage
+  let token = localStorage.getItem(TOKEN_KEY);
+  
+  // For iframe context, also check URL parameters
+  if (!token && typeof window !== 'undefined') {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      token = params.get('token');
+      if (token) {
+        // Store it for future use
+        localStorage.setItem(TOKEN_KEY, token);
+        console.log('[Auth] Token found in URL params, stored in localStorage');
+      }
+    } catch (e) {
+      // URL parsing might fail
+    }
+  }
+  
+  return token;
 }
 
 export async function getCurrentUser() {
   const token = getToken();
-  if (!token) return null;
-  const res = await fetch(withBase('/api/me'), {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (!res.ok) {
-    logout();
+  if (!token) {
+    console.warn('[Auth] No token available for getCurrentUser');
     return null;
   }
-  return res.json();
+  
+  try {
+    const res = await fetch(withBase('/api/me'), {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      console.warn('[Auth] getCurrentUser failed with status:', res.status);
+      if (res.status === 401) {
+        // Unauthorized - clear token
+        logout();
+        
+        // Try asking parent window for token (iframe context)
+        if (typeof window !== 'undefined' && window.parent !== window) {
+          try {
+            console.log('[Auth] Requesting token from parent window...');
+            window.parent.postMessage({ type: 'REQUEST_TOKEN' }, '*');
+          } catch (e) {
+            console.warn('[Auth] Failed to post message to parent:', e);
+          }
+        }
+      }
+      return null;
+    }
+    
+    return res.json();
+  } catch (error) {
+    console.error('[Auth] getCurrentUser error:', error);
+    return null;
+  }
 }
 
 export function authFetch(input: RequestInfo, init: RequestInit = {}) {
@@ -132,5 +188,21 @@ export function authFetch(input: RequestInfo, init: RequestInit = {}) {
   const headers = init.headers ? new Headers(init.headers as any) : new Headers();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const target = withBase(input);
-  return fetch(target, { ...init, headers });
+  
+  // Create unique request ID to ensure start/stop match
+  const requestId = Math.random().toString(36).substring(7) + '_' + Date.now();
+  
+  // Start loading
+  globalLoadingManager.start('Loading data...', requestId);
+  
+  // Execute fetch and handle loading state
+  return fetch(target, { ...init, headers })
+    .then(response => {
+      globalLoadingManager.stop(requestId);
+      return response;
+    })
+    .catch(error => {
+      globalLoadingManager.stop(requestId);
+      throw error;
+    });
 }

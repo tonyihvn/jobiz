@@ -206,6 +206,10 @@ export interface CompanySettings {
   };
   // Notes to appear on invoices
   invoiceNotes?: string;
+  // Receipt/Invoice opening behavior: true = open in same window, false = open in new window (default)
+  openReceiptsInSameWindow?: boolean;
+  // Thermal printer width: '50mm' or '80mm' (default '80mm')
+  thermalPrinterWidth?: '50mm' | '80mm';
 }
 
 export interface Task {

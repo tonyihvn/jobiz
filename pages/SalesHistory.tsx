@@ -8,6 +8,7 @@ import { useCurrency } from '../services/CurrencyContext';
 import { useBusinessContext } from '../services/BusinessContext';
 import { Printer, RotateCcw, X, Save, FileText, ShoppingBag, List, Download, Trash2, Mail, MessageCircle } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
+import { openWindowWithToken } from '../services/tokenHelper';
 
 function appendBusinessIdToUrl(url: string, businessId?: string): string {
   if (!businessId) return url;
@@ -141,24 +142,42 @@ const SalesHistory = () => {
     }, [selectedBusinessId]);
 
   const handleViewDocument = (sale: SaleRecord, type?: 'thermal' | 'a4') => {
-      // Store sale data in sessionStorage and open in new tab
+      // Check settings for same-window preference
+      const openInSameWindow = settings.openReceiptsInSameWindow || false;
+      
+      // Store data in sessionStorage
       sessionStorage.setItem('invoiceData', JSON.stringify(sale));
-      if (type) {
-        sessionStorage.setItem('receiptType', type);
-      }
+      sessionStorage.setItem('receiptType', type || 'thermal');
       
-      // Open in new tab - HashRouter compatible
-      const newTab = window.open('/#/print-receipt', '_blank');
-      if (!newTab) {
-        alert('Please allow pop-ups to view receipts');
-        sessionStorage.removeItem('invoiceData');
-        sessionStorage.removeItem('receiptType');
-        return;
+      if (openInSameWindow) {
+        // Open in same window
+        window.location.hash = '#/print-receipt';
+      } else {
+        // Open in new tab
+        const newTab = window.open('/#/print-receipt', '_blank');
+        if (!newTab) {
+          alert('Please allow pop-ups to view receipts');
+          return;
+        }
+        
+        // Send invoice data to the new window via postMessage
+        const timer = setInterval(() => {
+          try {
+            newTab.postMessage({
+              type: 'INVOICE_DATA',
+              payload: {
+                invoiceData: sale,
+                receiptType: type || 'thermal'
+              }
+            }, '*');
+            clearInterval(timer);
+          } catch (e) {
+            // Window not ready yet
+          }
+        }, 100);
+        
+        setTimeout(() => clearInterval(timer), 2000);
       }
-      return;
-      
-      // Get customer info - ensure we're looking it up correctly
-      const customer = sale.customerId ? customers.find((c: any) => c.id === sale.customerId) : null;
   };
 
   const handleReturn = (sale: SaleRecord) => {
