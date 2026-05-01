@@ -97,7 +97,7 @@ export const api = {
     getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/services', businessId)).then(safeJson).catch(() => []),
     add: (s: any) => {
       const body = toSnake(s, { categoryName: 'category_name', categoryGroup: 'category_group', imageUrl: 'image_url' });
-      return authFetch('/api/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
+      return authFetch('/api/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
     },
     update: (id: string, s: any) => {
       const body = toSnake(s, { categoryName: 'category_name', categoryGroup: 'category_group', imageUrl: 'image_url' });
@@ -196,6 +196,7 @@ const db = {
     ...api.sales,
     update: (id: string, sale: any) => authFetch(`/api/sales/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson),
     delete: (id: string) => authFetch(`/api/sales/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null),
+    pay: (id: string, amount: number, opts?: { paidBy?: string; note?: string }) => authFetch(`/api/sales/${id}/pay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount, paidBy: opts?.paidBy, note: opts?.note }) }).then(safeJson),
     processReturn: async (saleId: string, reason: string, products?: any[]) => {
       try {
         return await authFetch(`/api/sales/${saleId}/return`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, products }) }).then(safeJson).catch(() => null);
@@ -399,7 +400,13 @@ const db = {
         return authFetch(`/api/plans/${plan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan) }).then(safeJson).catch(() => null);
       }
       return authFetch('/api/plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(plan) }).then(safeJson).catch(() => null);
-    }
+    },
+    getSubscriptionLimits: () => authFetch('/api/app-config/subscription-limits').then(safeJson).catch(() => ({ unactivatedProductLimit: 5, unactivatedServiceLimit: 1 })),
+    saveSubscriptionLimits: (cfg: { unactivatedProductLimit: number; unactivatedServiceLimit: number }) =>
+      authFetch('/api/app-config/subscription-limits', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) }).then(safeJson)
+  },
+  publishStatus: {
+    get: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/publish-status', businessId)).then(safeJson).catch(() => null)
   },
   // Settings compatibility: try to fetch /api/settings if exists, otherwise return empty
   settings: {
@@ -420,7 +427,7 @@ const db = {
         const res = await authFetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(_) }).then(safeJson).catch(() => null);
         try {
           if (res && res.currency && typeof window !== 'undefined') {
-            localStorage.setItem('omnisales_currency', res.currency || _.currency || '$');
+            localStorage.setItem('omnisales_currency', res.currency || _.currency || '₦');
           } else if (_ && _.currency && typeof window !== 'undefined') {
             localStorage.setItem('omnisales_currency', _.currency);
           }

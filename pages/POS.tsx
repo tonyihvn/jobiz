@@ -5,7 +5,7 @@ import { fmt, getImageUrl } from '../services/format';
 import useFmtCurrency from '../services/useFmtCurrency';
 import { useCurrency } from '../services/CurrencyContext';
 import { Product, CartItem, SaleRecord, CategoryGroup, Customer, CompanySettings } from '../types';
-import { Plus, Minus, Trash2, Printer, Save, Search, X, User } from 'lucide-react';
+import { Plus, Minus, Trash2, Printer, Save, Search, X, User, Info } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
 import { useBusinessContext } from '../services/BusinessContext';
 
@@ -70,12 +70,19 @@ const POS = () => {
 
   // Order Details
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [customerInput, setCustomerInput] = useState<string>('');
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [isProforma, setIsProforma] = useState(false);
+  const [showProformaInfo, setShowProformaInfo] = useState(false);
   const [proformaTitle, setProformaTitle] = useState('PROFORMA INVOICE');
   const [paymentMethod, setPaymentMethod] = useState('Cash');
   const [particulars, setParticulars] = useState('');
   const [delivery, setDelivery] = useState({ enabled: false, fee: 0, address: '' });
+
+  // Amount paid by customer (defaults to Total). Track whether the user has
+  // manually changed it so we can keep auto-syncing to total until they do.
+  const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [amountPaidEdited, setAmountPaidEdited] = useState<boolean>(false);
 
   // UI State
   const [lastSale, setLastSale] = useState<SaleRecord | null>(null);
@@ -167,6 +174,7 @@ const POS = () => {
             const clonedItems = JSON.parse(JSON.stringify(locationState.items || []));
             setCart(clonedItems);
             setSelectedCustomer(locationState.customerId || '');
+            setCustomerInput((customers.find(c => c.id === (locationState.customerId || ''))?.name) || '');
             setOrderDate(new Date(locationState.date).toISOString().split('T')[0]);
             setIsProforma(locationState.isProforma || false);
             setProformaTitle(locationState.proformaTitle || 'PROFORMA INVOICE');
@@ -174,6 +182,19 @@ const POS = () => {
             setParticulars(locationState.particulars || '');
             if (locationState.deliveryFee && locationState.deliveryFee > 0) {
                 setDelivery({ enabled: true, fee: locationState.deliveryFee, address: '' });
+            }
+            // Restore amount paid from the saved sale; mark as user-edited so the
+            // auto-sync to total doesn't overwrite it.
+            const savedAmtPaid = (locationState as any).amountPaid;
+            const savedAmtPaidSnake = (locationState as any).amount_paid;
+            const restoredPaid = (typeof savedAmtPaid !== 'undefined' && savedAmtPaid !== null)
+                ? Number(savedAmtPaid)
+                : (typeof savedAmtPaidSnake !== 'undefined' && savedAmtPaidSnake !== null)
+                    ? Number(savedAmtPaidSnake)
+                    : null;
+            if (restoredPaid !== null && !Number.isNaN(restoredPaid)) {
+                setAmountPaid(restoredPaid);
+                setAmountPaidEdited(true);
             }
         }
     }, []);
@@ -243,15 +264,16 @@ const POS = () => {
         }, 100);
     };
 
-            const updateQuantity = async (id: string, delta: number) => {
+            const setQuantity = async (id: string, qty: number) => {
                 const productItem = products.find(p => p.id === id);
                 const current = cart.find(i => i.id === id);
                 if (!current || !productItem) return;
-                const newQty = Math.max(1, current.quantity + delta);
+                if (!Number.isFinite(qty)) return;
+                const newQty = Math.max(1, qty);
 
                     // Skip stock checks for services - they don't have inventory
                     const isService = productItem.isService || productItem.is_service;
-                    
+
                     // Only enforce stock limits for configured stock-tracked products (not services)
                     const stockTracked = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[productItem.categoryGroup] : (productItem.categoryGroup === 'Food & Drinks'));
                 if (stockTracked && (currentUser?.defaultLocationId || settings.defaultLocationId) && db.stock && db.stock.getForProduct) {
@@ -269,6 +291,12 @@ const POS = () => {
                 setCart(prev => prev.map(item => item.id === id ? { ...item, quantity: newQty } : item));
             };
 
+            const updateQuantity = async (id: string, delta: number) => {
+                const current = cart.find(i => i.id === id);
+                if (!current) return;
+                await setQuantity(id, current.quantity + delta);
+            };
+
   const removeItem = (id: string) => {
     setCart(prev => prev.filter(item => item.id !== id));
   };
@@ -278,6 +306,17 @@ const POS = () => {
   const vat = subtotal * vatRate;
   const deliveryFee = delivery.enabled ? delivery.fee : 0;
   const total = subtotal + vat + deliveryFee;
+
+  // Auto-sync Amount Paid to Total whenever total changes, until the user
+  // manually edits the value. This makes "fully paid" the default behavior.
+  useEffect(() => {
+    if (!amountPaidEdited) {
+      setAmountPaid(total);
+    }
+  }, [total, amountPaidEdited]);
+
+  // Outstanding balance shown in the order summary and persisted on the sale.
+  const balance = Math.max(0, Number((total - (Number(amountPaid) || 0)).toFixed(2)));
 
     const handleCheckout = async () => {
     if (cart.length === 0) return;
@@ -311,6 +350,41 @@ const POS = () => {
         return;
     }
 
+    // Resolve customer: if user typed a name with no matching record, auto-create it
+    let customerIdToUse = selectedCustomer;
+    const typedName = (customerInput || '').trim();
+    if (typedName) {
+        const existing = customers.find(c => (c.name || '').trim().toLowerCase() === typedName.toLowerCase());
+        if (existing) {
+            customerIdToUse = existing.id;
+        } else if (!customerIdToUse) {
+            try {
+                const newCustomer = {
+                    id: 'cust_' + Date.now().toString(),
+                    businessId: businessId || '',
+                    name: typedName,
+                    company: '',
+                    phone: '',
+                    email: '',
+                    address: '',
+                    category: 'General',
+                    details: ''
+                };
+                const created = await db.customers.add(newCustomer);
+                const newId = (created && (created.id || created.insertId)) ? String(created.id || created.insertId) : newCustomer.id;
+                customerIdToUse = newId;
+                // Refresh local list so it appears in the datalist next time
+                try {
+                    const custs = await db.customers.getAll(businessId || undefined);
+                    setCustomers(custs || []);
+                } catch (e) { /* ignore */ }
+            } catch (e) {
+                console.warn('Failed to auto-create customer:', e);
+                // Fall through with empty customerIdToUse — sale still proceeds
+            }
+        }
+    }
+
                 const sale: SaleRecord = {
             id: editingSale?.id || Date.now().toString(),
             businessId: businessId || '',
@@ -322,10 +396,12 @@ const POS = () => {
             paymentMethod,
                         cashier: currentUser?.name || currentUser?.email || 'Cashier',
                         locationId: currentUser?.defaultLocationId || settings.defaultLocationId,
-            customerId: selectedCustomer,
+            customerId: customerIdToUse,
             isProforma,
             proformaTitle: isProforma ? proformaTitle : undefined,
             deliveryFee: delivery.enabled ? delivery.fee : 0,
+            amountPaid: isProforma ? 0 : (Number(amountPaid) || 0),
+            balance: isProforma ? Number(total) : balance,
             particulars
         };
 
@@ -391,9 +467,12 @@ const POS = () => {
             setParticulars('');
             setDelivery({ enabled: false, fee: 0, address: '' });
             setSelectedCustomer(''); // Reset customer after save
+            setCustomerInput('');
             setOrderDate(new Date().toISOString().split('T')[0]); // Reset to today
             setIsProforma(false); // Reset proforma flag
             setPaymentMethod('Cash'); // Reset payment method
+            setAmountPaid(0);
+            setAmountPaidEdited(false);
             setEditingSale(null); // Clear edit state
             // Show receipt in new window with print theme
             setLastSale(sale);
@@ -536,10 +615,20 @@ const POS = () => {
               <span>VAT</span>
               <span>${fmtCurrency(sale.vat, 2)}</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; margin-bottom: 12px; padding-top: 4px; border-top: 1px solid #ccc;">
+            <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; margin-bottom: 8px; padding-top: 4px; border-top: 1px solid #ccc;">
               <span>TOTAL</span>
               <span>${fmtCurrency(Number(sale.total), 2)}</span>
             </div>
+            ${!sale.isProforma ? `
+              <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 2px;">
+                <span>Amount Paid</span>
+                <span>${fmtCurrency(Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0, 2)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; margin-bottom: 12px;">
+                <span>Balance</span>
+                <span>${fmtCurrency(Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total))) || 0, 2)}</span>
+              </div>
+            ` : '<div style="margin-bottom: 12px;"></div>'}
             <div style="text-align: center; font-size: 10px; color: #999;">
               <p>Thank you for your business!</p>
             </div>
@@ -617,7 +706,7 @@ const POS = () => {
                   </div>
                   ${sale.deliveryFee ? `
                     <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-                      <span>Delivery</span>
+                      <span>Delivery Fee</span>
                       <span>${fmtCurrency(Number(sale.deliveryFee), 2)}</span>
                     </div>
                   ` : ''}
@@ -625,6 +714,16 @@ const POS = () => {
                     <span>Total</span>
                     <span>${fmtCurrency(Number(sale.total), 2)}</span>
                   </div>
+                  ${!sale.isProforma ? `
+                    <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px;">
+                      <span>Amount Paid</span>
+                      <span>${fmtCurrency(Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0, 2)}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 14px; font-weight: bold; color: ${(Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total))) || 0) > 0 ? '#be123c' : '#047857'};">
+                      <span>Balance</span>
+                      <span>${fmtCurrency(Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total))) || 0, 2)}</span>
+                    </div>
+                  ` : ''}
                 </div>
               </div>
               
@@ -852,32 +951,65 @@ const POS = () => {
                 </div>
             </div>
             
-            {/* Customer Dropdown (searchable) */}
+            {/* Customer Dropdown (searchable + auto-create) */}
             <div className="relative mb-2">
                 <User className="absolute left-2 top-2 w-4 h-4 text-slate-400" />
                 <input
                     list="customers-list"
                     className="w-full pl-8 pr-2 py-1.5 text-sm border rounded bg-white"
-                    placeholder="Search or select customer..."
-                    value={selectedCustomer ? (customers.find(c => c.id === selectedCustomer)?.name || '') : ''}
+                    placeholder="Enter or Select Customer name"
+                    value={customerInput}
                     onChange={e => {
                         const val = e.target.value;
-                        // try to resolve by exact name match
-                        const found = customers.find(c => c.name === val);
-                        if (found) setSelectedCustomer(found.id);
-                        else setSelectedCustomer('');
+                        setCustomerInput(val);
+                        const found = customers.find(c => (c.name || '').toLowerCase() === val.toLowerCase());
+                        setSelectedCustomer(found ? found.id : '');
                     }}
                 />
                 <datalist id="customers-list">
-                    <option value="">Walk-in Customer</option>
                     {customers.map(c => <option key={c.id} value={c.name} />)}
                 </datalist>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-slate-700 font-medium cursor-pointer">
-                <input type="checkbox" checked={isProforma} onChange={e => setIsProforma(e.target.checked)} className="rounded text-brand-600" />
-                Proforma Invoice (No Stock Deduct)
-            </label>
+            <div className="flex items-center gap-2 relative">
+                <label className="flex items-center gap-2 text-sm text-slate-700 font-medium cursor-pointer">
+                    <input type="checkbox" checked={isProforma} onChange={e => setIsProforma(e.target.checked)} className="rounded text-brand-600" />
+                    Proforma/Estimate (No Stock Deduction)
+                </label>
+                <button
+                    type="button"
+                    onClick={() => setShowProformaInfo(v => !v)}
+                    onBlur={() => setTimeout(() => setShowProformaInfo(false), 150)}
+                    className="text-slate-400 hover:text-brand-600 p-0.5 rounded-full focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    aria-label="What is a Proforma Invoice?"
+                    aria-expanded={showProformaInfo}
+                >
+                    <Info size={16} />
+                </button>
+                {showProformaInfo && (
+                    <div
+                        role="tooltip"
+                        className="absolute z-30 top-full left-0 mt-2 w-72 bg-white border border-amber-300 rounded-lg shadow-lg p-3 text-xs text-slate-700"
+                    >
+                        <p className="font-semibold text-amber-700 mb-1">Heads up about Proforma Invoices</p>
+                        <p>
+                            A Proforma Invoice is a quote / estimate — it does <strong>not</strong> deduct stock.
+                        </p>
+                        <p className="mt-2">
+                            If the items have already been <strong>used, removed, or handed to the customer</strong>,
+                            do <strong>NOT</strong> tick this box. The stock has already left your inventory and must be
+                            recorded as a normal sale so your stock counts stay accurate.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowProformaInfo(false)}
+                            className="mt-2 text-brand-600 hover:underline text-xs font-medium"
+                        >
+                            Got it
+                        </button>
+                    </div>
+                )}
+            </div>
 
             {isProforma && (
                 <div className="mt-2">
@@ -908,7 +1040,38 @@ const POS = () => {
                         </div>
                         <div className="flex items-center gap-1 mx-2">
                             <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><Minus className="w-3 h-3"/></button>
-                            <span className="text-sm font-semibold w-6 text-center">{item.quantity}</span>
+                            <input
+                                type="number"
+                                min={1}
+                                step="any"
+                                inputMode="decimal"
+                                value={item.quantity}
+                                onChange={e => {
+                                    const raw = e.target.value;
+                                    if (raw === '') {
+                                        // Allow user to clear; keep state as 0 temporarily
+                                        setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: 0 as any } : i));
+                                        return;
+                                    }
+                                    const n = parseFloat(raw);
+                                    if (!Number.isFinite(n)) return;
+                                    setCart(prev => prev.map(i => i.id === item.id ? { ...i, quantity: n } : i));
+                                }}
+                                onBlur={e => {
+                                    const n = parseFloat(e.target.value);
+                                    setQuantity(item.id, Number.isFinite(n) && n > 0 ? n : 1);
+                                }}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                        const n = parseFloat((e.target as HTMLInputElement).value);
+                                        setQuantity(item.id, Number.isFinite(n) && n > 0 ? n : 1);
+                                        (e.target as HTMLInputElement).blur();
+                                    }
+                                }}
+                                onFocus={e => e.currentTarget.select()}
+                                aria-label={`Quantity for ${item.name}`}
+                                className="w-12 text-center text-sm font-semibold border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
                             <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><Plus className="w-3 h-3"/></button>
                         </div>
                         <div className="text-right">
@@ -925,7 +1088,7 @@ const POS = () => {
             <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
                     <input type="checkbox" checked={delivery.enabled} onChange={e => setDelivery({...delivery, enabled: e.target.checked})} />
-                    Add Delivery
+                    Add Delivery Fee
                 </label>
                 {delivery.enabled && (
                     <input 
@@ -966,7 +1129,7 @@ const POS = () => {
             </div>
             {delivery.enabled && (
                  <div className="flex justify-between text-xs text-slate-600">
-                    <span>Delivery</span>
+                    <span>Delivery Fee</span>
                     <span>{fmtCurrency(delivery.fee,2)}</span>
                 </div>
             )}
@@ -974,6 +1137,36 @@ const POS = () => {
                 <span>Total</span>
                 <span>{fmtCurrency(total,2)}</span>
             </div>
+
+            {!isProforma && (
+                <>
+                    <div className="flex justify-between items-center text-sm text-slate-700 pt-2">
+                        <label htmlFor="pos-amount-paid" className="font-medium">Amount Paid</label>
+                        <input
+                            id="pos-amount-paid"
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            inputMode="decimal"
+                            className="w-32 text-right text-sm border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={Number.isFinite(amountPaid) ? amountPaid : 0}
+                            onChange={e => {
+                                const raw = e.target.value;
+                                setAmountPaidEdited(true);
+                                if (raw === '') { setAmountPaid(0); return; }
+                                const n = parseFloat(raw);
+                                setAmountPaid(Number.isFinite(n) ? n : 0);
+                            }}
+                            onFocus={e => e.currentTarget.select()}
+                            aria-label="Amount paid by customer"
+                        />
+                    </div>
+                    <div className={`flex justify-between text-sm font-semibold ${balance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <span>Balance</span>
+                        <span>{fmtCurrency(balance, 2)}</span>
+                    </div>
+                </>
+            )}
             
             <button 
                 onClick={handleCheckout}
@@ -995,6 +1188,8 @@ const POS = () => {
                   setPaymentMethod('Cash');
                   setParticulars('');
                   setDelivery({ enabled: false, fee: 0, address: '' });
+                  setAmountPaid(0);
+                  setAmountPaidEdited(false);
                 }}
                 className="w-full bg-slate-600 hover:bg-slate-700 text-white py-3 rounded-lg font-bold transition-all flex items-center justify-center gap-2"
               >

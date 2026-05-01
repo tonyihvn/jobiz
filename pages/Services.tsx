@@ -239,7 +239,12 @@ const Services = () => {
                       return;
                   }
               }
-            } catch (e) { console.warn('Failed to save service', e); }
+            } catch (e: any) {
+              console.warn('Failed to save service', e);
+              const msg = (e && e.message) ? String(e.message) : 'Failed to save service';
+              alert(msg);
+              return;
+            }
             setEditingItem(null);
             await refreshData();
         }

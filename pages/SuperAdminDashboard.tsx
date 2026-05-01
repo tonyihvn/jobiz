@@ -23,6 +23,10 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Partial<SubscriptionPlan>>({ features: [] });
 
+  // Subscription / publishing limits config (for unactivated accounts)
+  const [limitsCfg, setLimitsCfg] = useState<{ unactivatedProductLimit: number; unactivatedServiceLimit: number }>({ unactivatedProductLimit: 5, unactivatedServiceLimit: 1 });
+  const [savingLimitsCfg, setSavingLimitsCfg] = useState(false);
+
   // Receipt Modal
   const [viewReceipt, setViewReceipt] = useState<string | null>(null);
 
@@ -44,6 +48,42 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
     };
     fetchData();
   }, []);
+
+  // Load subscription/publishing limits config
+  useEffect(() => {
+    (async () => {
+      try {
+        if (db.superAdmin?.getSubscriptionLimits) {
+          const cfg = await db.superAdmin.getSubscriptionLimits();
+          if (cfg && typeof cfg === 'object') {
+            setLimitsCfg({
+              unactivatedProductLimit: Number(cfg.unactivatedProductLimit ?? 5),
+              unactivatedServiceLimit: Number(cfg.unactivatedServiceLimit ?? 1),
+            });
+          }
+        }
+      } catch (e) { console.warn('Failed to load subscription limits config', e); }
+    })();
+  }, []);
+
+  const handleSaveLimitsCfg = async () => {
+    setSavingLimitsCfg(true);
+    try {
+      const res = await db.superAdmin.saveSubscriptionLimits({
+        unactivatedProductLimit: Math.max(0, Number(limitsCfg.unactivatedProductLimit) || 0),
+        unactivatedServiceLimit: Math.max(0, Number(limitsCfg.unactivatedServiceLimit) || 0),
+      });
+      if (res && !res.error) {
+        alert('Unactivated account limits saved successfully.');
+      } else {
+        alert('Failed to save limits.');
+      }
+    } catch (e: any) {
+      alert(`Error saving limits: ${e.message || e}`);
+    } finally {
+      setSavingLimitsCfg(false);
+    }
+  };
 
   const loadFeedbacks = async () => {
     try {
@@ -195,7 +235,9 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
           name: editingPlan.name,
           price: Number(editingPlan.price),
           interval: editingPlan.interval || 'monthly',
-          features: editingPlan.features || []
+          features: editingPlan.features || [],
+          productLimit: (editingPlan.productLimit === null || editingPlan.productLimit === undefined || (editingPlan.productLimit as any) === '') ? null : Number(editingPlan.productLimit),
+          serviceLimit: (editingPlan.serviceLimit === null || editingPlan.serviceLimit === undefined || (editingPlan.serviceLimit as any) === '') ? null : Number(editingPlan.serviceLimit),
       };
       db.superAdmin.savePlan(plan);
       setShowPlanModal(false);
@@ -368,7 +410,48 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
             )}
 
             {activeTab === 'plans' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                        <div className="flex items-center gap-2 mb-1">
+                            <AlertTriangle size={18} className="text-amber-500" />
+                            <h3 className="font-bold text-slate-800">Unactivated Account Publish Limits</h3>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-4">
+                            Caps applied to accounts that have not yet been activated (no approved payment).
+                            When a user hits the cap, the app blocks new entries and emails them to complete activation.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Max Products</label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    className="w-full border rounded p-2"
+                                    value={limitsCfg.unactivatedProductLimit}
+                                    onChange={e => setLimitsCfg({ ...limitsCfg, unactivatedProductLimit: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Max Services</label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    className="w-full border rounded p-2"
+                                    value={limitsCfg.unactivatedServiceLimit}
+                                    onChange={e => setLimitsCfg({ ...limitsCfg, unactivatedServiceLimit: Number(e.target.value) })}
+                                />
+                            </div>
+                            <button
+                                onClick={handleSaveLimitsCfg}
+                                disabled={savingLimitsCfg}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                <Save size={16} /> {savingLimitsCfg ? 'Saving…' : 'Save Limits'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {plans.map(plan => (
                         <div key={plan.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
                             <h3 className="text-lg font-bold text-slate-800">{plan.name}</h3>
@@ -376,12 +459,16 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                                 <span className="text-3xl font-bold">{symbol}{plan.price}</span>
                                 <span className="text-sm text-slate-500">/{plan.interval}</span>
                             </div>
-                            <div className="space-y-2 mb-6 flex-1">
+                            <div className="space-y-2 mb-4 flex-1">
                                 {plan.features.map((f, i) => (
                                     <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
                                         <CheckCircle size={14} className="text-emerald-500"/> {f}
                                     </div>
                                 ))}
+                            </div>
+                            <div className="text-xs text-slate-500 mb-4 space-y-1">
+                                <div className="flex justify-between"><span>Max products:</span><span className="font-bold text-slate-700">{plan.productLimit === null || plan.productLimit === undefined ? 'Unlimited' : plan.productLimit}</span></div>
+                                <div className="flex justify-between"><span>Max services:</span><span className="font-bold text-slate-700">{plan.serviceLimit === null || plan.serviceLimit === undefined ? 'Unlimited' : plan.serviceLimit}</span></div>
                             </div>
                             <button onClick={() => { setEditingPlan(plan); setShowPlanModal(true); }} className="w-full border border-slate-200 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50">
                                 Edit Plan
@@ -391,6 +478,7 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                     <div onClick={() => { setEditingPlan({ features: [] }); setShowPlanModal(true); }} className="border-2 border-dashed border-slate-300 rounded-xl p-6 flex flex-col items-center justify-center text-slate-400 hover:bg-slate-50 cursor-pointer h-full min-h-[250px]">
                         <Settings size={32} className="mb-2"/>
                         <span className="font-bold">Create New Plan</span>
+                    </div>
                     </div>
                 </div>
             )}
@@ -683,6 +771,31 @@ const SuperAdminDashboard = ({ onLogout }: { onLogout: () => void }) => {
                             <label className="block text-sm font-medium mb-1">Features (Comma separated)</label>
                             <textarea className="w-full border rounded p-2" rows={3} value={editingPlan.features?.join(', ')} onChange={e => setEditingPlan({...editingPlan, features: e.target.value.split(',').map(s => s.trim())})} />
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Max Products <span className="text-slate-400 font-normal">(blank = unlimited)</span></label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    placeholder="Unlimited"
+                                    className="w-full border rounded p-2"
+                                    value={editingPlan.productLimit === null || editingPlan.productLimit === undefined ? '' : editingPlan.productLimit}
+                                    onChange={e => setEditingPlan({ ...editingPlan, productLimit: e.target.value === '' ? null : Number(e.target.value) })}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Max Services <span className="text-slate-400 font-normal">(blank = unlimited)</span></label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    placeholder="Unlimited"
+                                    className="w-full border rounded p-2"
+                                    value={editingPlan.serviceLimit === null || editingPlan.serviceLimit === undefined ? '' : editingPlan.serviceLimit}
+                                    onChange={e => setEditingPlan({ ...editingPlan, serviceLimit: e.target.value === '' ? null : Number(e.target.value) })}
+                                />
+                            </div>
+                        </div>
+                        <p className="text-xs text-slate-500">When a user reaches these caps, the app will block new product/service creation and email them to upgrade.</p>
                         <button onClick={handleSavePlan} className="w-full bg-indigo-600 text-white py-2 rounded font-bold hover:bg-indigo-700">Save Plan</button>
                     </div>
                 </div>

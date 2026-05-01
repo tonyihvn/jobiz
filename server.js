@@ -155,6 +155,39 @@ const pool = mysql.createPool({
   }
 })();
 
+// Migration: ensure `plans.product_limit` and `plans.service_limit` columns exist
+(async () => {
+  for (const col of ['product_limit', 'service_limit']) {
+    try {
+      await pool.execute(`ALTER TABLE plans ADD COLUMN ${col} INT NULL DEFAULT NULL`);
+      console.log(`Migration: ensured plans.${col} column exists`);
+    } catch (err) {
+      if (!(err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME'))) {
+        console.warn(`Migration: failed to add ${col} to plans:`, err && err.message ? err.message : err);
+      }
+    }
+  }
+})();
+
+// Migration: ensure `app_config` table exists with default subscription_limits row
+(async () => {
+  try {
+    await pool.execute(`CREATE TABLE IF NOT EXISTS app_config (
+      config_key VARCHAR(128) NOT NULL,
+      config_value LONGTEXT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (config_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+    await pool.execute(
+      "INSERT IGNORE INTO app_config (config_key, config_value) VALUES (?, ?)",
+      ['subscription_limits', JSON.stringify({ unactivatedProductLimit: 5, unactivatedServiceLimit: 1 })]
+    );
+    console.log('Migration: ensured app_config table and default subscription_limits row');
+  } catch (err) {
+    console.warn('Migration: failed to create app_config:', err && err.message ? err.message : err);
+  }
+})();
+
 // Email Configuration
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -713,7 +746,7 @@ app.post('/api/register', async (req, res) => {
     // Create default settings for business
     await pool.execute(
       'INSERT INTO settings (business_id, name, currency) VALUES (?, ?, ?)',
-      [businessId, companyName, '$']
+      [businessId, companyName, '₦']
     );
 
     // Create default location for the business
@@ -1230,6 +1263,48 @@ app.post('/api/verify-otp', async (req, res) => {
 });
 
 // Add payment details endpoint
+// Activate the business with the Free plan — no payment required
+app.post('/api/activate-free-plan', authMiddleware, async (req, res) => {
+  try {
+    const [empRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+    if (!empRows || empRows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+    const businessId = empRows[0].business_id;
+
+    // Mark business as active + paid (free) and approve account
+    await pool.execute(
+      `UPDATE businesses
+       SET status = 'active', paymentStatus = 'paid', planId = ?, account_approved = 1, account_approved_at = NOW()
+       WHERE id = ?`,
+      ['free', businessId]
+    );
+
+    // Approve all employees of this business
+    await pool.execute(
+      `UPDATE employees SET account_approved = 1, account_approved_at = NOW() WHERE business_id = ?`,
+      [businessId]
+    );
+
+    // Record a completed payment row for traceability (amount 0)
+    try {
+      const paymentId = 'payment_free_' + Date.now();
+      await pool.execute(
+        `INSERT INTO business_payments (id, business_id, payment_type, plan_id, amount, status, approved_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [paymentId, businessId, 'subscription', 'free', 0, 'completed']
+      );
+    } catch (e) {
+      console.warn('[activate-free-plan] payment row insert skipped:', e.message);
+    }
+
+    res.json({ success: true, message: 'Free plan activated' });
+  } catch (err) {
+    console.error('Activate free plan error:', err);
+    res.status(500).json({ error: 'Failed to activate free plan' });
+  }
+});
+
 app.post('/api/add-payment', authMiddleware, async (req, res) => {
   const { paymentType, planId, amount, cardLastFour, cardBrand, billingCycleStart, billingCycleEnd } = req.body;
   try {
@@ -1406,6 +1481,33 @@ app.post('/api/products', authMiddleware, async (req, res) => {
       }
     }
 
+    // Enforce publishing limits when creating a NEW product (skip update path & super admins)
+    if (!id && resolvedBusinessId && !req.isSuperAdmin) {
+      try {
+        const limitInfo = await getPublishLimitForBusiness(resolvedBusinessId, 'products');
+        if (limitInfo.limit !== null && typeof limitInfo.limit !== 'undefined') {
+          const current = await countResourceForBusiness(resolvedBusinessId, 'products');
+          if (current >= limitInfo.limit) {
+            // Fire-and-forget upgrade email
+            sendUpgradeEmail({ business: limitInfo.business, resource: 'products', limit: limitInfo.limit, kind: limitInfo.kind, planName: limitInfo.planName, currentCount: current });
+            return res.status(403).json({
+              error: limitInfo.kind === 'unactivated'
+                ? `Your account is not activated. You can publish only ${limitInfo.limit} product${limitInfo.limit === 1 ? '' : 's'} until activation. Please complete payment/activation to publish more.`
+                : `You have reached the ${limitInfo.limit}-product cap of your ${limitInfo.planName} plan. Upgrade to publish more products. An email has been sent with upgrade instructions.`,
+              code: 'PUBLISH_LIMIT_REACHED',
+              resource: 'products',
+              limit: limitInfo.limit,
+              current,
+              kind: limitInfo.kind,
+              planName: limitInfo.planName
+            });
+          }
+        }
+      } catch (limErr) {
+        console.warn('Product limit check failed (allowing create):', limErr && limErr.message ? limErr.message : limErr);
+      }
+    }
+
     const params = [pid, resolvedBusinessId || null, name || null, categoryName || null, categoryGroup || null, price, stock, unit || null, supplierId || null, isService ? 1 : 0, imageUrl || null];
 
     // Upsert to avoid duplicate-key insert errors and to support updates
@@ -1415,6 +1517,75 @@ app.post('/api/products', authMiddleware, async (req, res) => {
     console.log('POST /api/products -> executing SQL:', sql);
     console.log('POST /api/products -> params:', params);
     const [result] = await pool.execute(sql, params);
+
+    // Seed initial stock at the business's Main Location for newly-created physical products.
+    // MySQL upsert returns affectedRows=1 for INSERT and 2 for UPDATE, so we only seed on a fresh insert.
+    try {
+      const isFreshInsert = result && Number(result.affectedRows) === 1;
+      if (isFreshInsert && !isService && resolvedBusinessId) {
+        // Find the business's "Main Location" (created at registration); fall back to any first location;
+        // create one if none exists, so every product is anchored to a default location.
+        let [mainRows] = await pool.execute(
+          "SELECT id FROM locations WHERE business_id = ? AND (name = 'Main Location' OR address = 'Default Location') ORDER BY name LIMIT 1",
+          [resolvedBusinessId]
+        );
+        let mainLocId = (Array.isArray(mainRows) && mainRows[0]) ? mainRows[0].id : null;
+        if (!mainLocId) {
+          const [anyLocRows] = await pool.execute('SELECT id FROM locations WHERE business_id = ? ORDER BY name LIMIT 1', [resolvedBusinessId]);
+          mainLocId = (Array.isArray(anyLocRows) && anyLocRows[0]) ? anyLocRows[0].id : null;
+        }
+        if (!mainLocId) {
+          mainLocId = 'loc_' + resolvedBusinessId + '_main';
+          try {
+            await pool.execute(
+              "INSERT IGNORE INTO locations (id, business_id, name, address) VALUES (?, ?, 'Main Location', 'Default Location')",
+              [mainLocId, resolvedBusinessId]
+            );
+          } catch (locErr) { console.warn('Failed to create default Main Location', locErr && locErr.message ? locErr.message : locErr); }
+        }
+        if (mainLocId) {
+          const seId = 'se_' + pid + '_' + mainLocId;
+          const initialQty = Number(stock) || 0;
+          await pool.execute(
+            'INSERT INTO stock_entries (id, business_id, product_id, location_id, quantity) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)',
+            [seId, resolvedBusinessId, pid, mainLocId, initialQty]
+          );
+          if (initialQty > 0) {
+            // Resolve / create the dedicated "Initial Stock" supplier for this business so the
+            // supply record on the Stock History page shows a meaningful supplier name.
+            let initialSupplierId = null;
+            try {
+              const [supRows] = await pool.execute(
+                "SELECT id FROM suppliers WHERE business_id = ? AND LOWER(name) = 'initial stock' LIMIT 1",
+                [resolvedBusinessId]
+              );
+              if (Array.isArray(supRows) && supRows[0]) {
+                initialSupplierId = supRows[0].id;
+              } else {
+                initialSupplierId = 'sup_initial_' + resolvedBusinessId;
+                await pool.execute(
+                  "INSERT IGNORE INTO suppliers (id, business_id, name, contact_person, phone, email, address) VALUES (?, ?, 'Initial Stock', NULL, NULL, NULL, 'Auto-created for product opening balances')",
+                  [initialSupplierId, resolvedBusinessId]
+                );
+              }
+            } catch (supErr) {
+              console.warn('Failed to resolve/create Initial Stock supplier', supErr && supErr.message ? supErr.message : supErr);
+              initialSupplierId = null;
+            }
+
+            try {
+              const sid = Date.now().toString() + '_seed';
+              await pool.execute(
+                'INSERT INTO stock_history (id, business_id, product_id, location_id, change_amount, type, supplier_id, batch_number, reference_id, user_id, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [sid, resolvedBusinessId, pid, mainLocId, initialQty, 'IN', initialSupplierId, null, null, req.user.id, 'Initial stock at Main Location']
+              );
+            } catch (histErr) { console.warn('Failed to write initial stock history', histErr && histErr.message ? histErr.message : histErr); }
+          }
+        }
+      }
+    } catch (seedErr) {
+      console.warn('Failed to seed default location stock for product', pid, seedErr && seedErr.message ? seedErr.message : seedErr);
+    }
 
     // Audit log (best-effort)
     try {
@@ -1488,9 +1659,35 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     const deliveryFee = req.body.deliveryFee || req.body.delivery_fee || 0;
     const particularsText = req.body.particulars || '';
 
+    // Resolve amount paid + balance. Default amount_paid = total when not provided.
+    const totalNum = Number(total) || 0;
+    let amountPaidVal = req.body.amountPaid;
+    if (typeof amountPaidVal === 'undefined' || amountPaidVal === null || amountPaidVal === '') {
+      amountPaidVal = req.body.amount_paid;
+    }
+    if (typeof amountPaidVal === 'undefined' || amountPaidVal === null || amountPaidVal === '') {
+      amountPaidVal = totalNum;
+    }
+    amountPaidVal = Number(amountPaidVal) || 0;
+    if (amountPaidVal < 0) amountPaidVal = 0;
+    let balanceVal = totalNum - amountPaidVal;
+    if (balanceVal < 0) balanceVal = 0;
+
+    // Resolve cashier display name: prefer name sent by client, then employee.name, then email, then id.
+    let cashierName = (req.body && (req.body.cashier || req.body.cashierName || req.body.cashier_name)) ? String(req.body.cashier || req.body.cashierName || req.body.cashier_name).trim() : '';
+    if (!cashierName) {
+      try {
+        const [empNameRows] = await connection.execute('SELECT name, email FROM employees WHERE id = ?', [req.user.id]);
+        const empRow = (Array.isArray(empNameRows) && empNameRows[0]) ? empNameRows[0] : null;
+        cashierName = (empRow && (empRow.name || empRow.email)) || req.user.email || req.user.id;
+      } catch (e) {
+        cashierName = req.user.email || req.user.id;
+      }
+    }
+
     const [saleResult] = await connection.execute(
-      'INSERT INTO sales (id, business_id, subtotal, vat, total, customer_id, payment_method, cashier, is_proforma, delivery_fee, particulars, location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [saleId, businessId, req.body.subtotal || 0, req.body.vat || 0, total, customerId, paymentMethod, req.user.email || req.user.id, isProformaFlag, deliveryFee, particularsText, saleLocation || null]
+      'INSERT INTO sales (id, business_id, subtotal, vat, total, customer_id, payment_method, cashier, is_proforma, delivery_fee, particulars, location_id, amount_paid, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [saleId, businessId, req.body.subtotal || 0, req.body.vat || 0, total, customerId, paymentMethod, cashierName, isProformaFlag, deliveryFee, particularsText, saleLocation || null, amountPaidVal, balanceVal]
     );
 
     // Insert Items & Update stock_entries and aggregated products.stock
@@ -1529,6 +1726,28 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     }
 
     await connection.commit();
+
+    // After commit: auto-record an Inflow transaction for the amount paid (excluding proforma) so the
+    // balance sheet / debtors logic stays in sync. Failure here is non-fatal.
+    try {
+      if (!isProformaFlag && amountPaidVal > 0 && businessId) {
+        const accHead = 'Payment for Sales/Services';
+        // Make sure the account head exists for this business (idempotent).
+        try {
+          await pool.execute(
+            'INSERT IGNORE INTO account_heads (id, business_id, title, type, description) VALUES (?, ?, ?, ?, ?)',
+            [`ah_payment_sales_${businessId}`, businessId, accHead, 'Inflow', 'Cash/bank received from customers for sales or services rendered.']
+          );
+        } catch (e) { /* ignore */ }
+        const txId = `tx_sale_${saleId}`;
+        const particulars = `Sale #${String(saleId).slice(-8)}${customerId ? ' (customer ' + customerId + ')' : ''}`;
+        await pool.execute(
+          'INSERT INTO transactions (id, business_id, date, account_head, type, amount, particulars, paid_by, received_by, approved_by) VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount = VALUES(amount)',
+          [txId, businessId, accHead, 'Inflow', amountPaidVal, particulars, customerId || 'Walk-in', cashierName || 'System', cashierName || 'System']
+        );
+      }
+    } catch (e) { console.warn('Auto-record sale payment transaction failed:', e && e.message ? e.message : e); }
+
     res.json({ success: true, saleId });
   } catch (err) {
     await connection.rollback();
@@ -1574,11 +1793,25 @@ app.put('/api/sales/:id', authMiddleware, async (req, res) => {
     
     console.log('[PUT-SALES] Update request for sale:', id);
     console.log('[PUT-SALES] Items count:', Array.isArray(items) ? items.length : 0);
-    
+
+    // Resolve amount paid + balance for the update
+    const totalNum2 = Number(total) || 0;
+    let amountPaidVal2 = req.body.amountPaid;
+    if (typeof amountPaidVal2 === 'undefined' || amountPaidVal2 === null || amountPaidVal2 === '') {
+      amountPaidVal2 = req.body.amount_paid;
+    }
+    if (typeof amountPaidVal2 === 'undefined' || amountPaidVal2 === null || amountPaidVal2 === '') {
+      amountPaidVal2 = totalNum2;
+    }
+    amountPaidVal2 = Number(amountPaidVal2) || 0;
+    if (amountPaidVal2 < 0) amountPaidVal2 = 0;
+    let balanceVal2 = totalNum2 - amountPaidVal2;
+    if (balanceVal2 < 0) balanceVal2 = 0;
+
     // Update sale header
     await pool.execute(
-      'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, subtotal = ?, vat = ?, total = ? WHERE id = ?',
-      [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, subtotal || 0, vat || 0, total || 0, id]
+      'UPDATE sales SET customer_id = ?, delivery_fee = ?, is_proforma = ?, subtotal = ?, vat = ?, total = ?, amount_paid = ?, balance = ? WHERE id = ?',
+      [customerId || null, deliveryFee || 0, isProforma ? 1 : 0, subtotal || 0, vat || 0, total || 0, amountPaidVal2, balanceVal2, id]
     );
     
     // Delete old items - this clears all items for this sale
@@ -1659,6 +1892,60 @@ app.put('/api/sales/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[PUT-SALES] Error:', err);
     res.status(500).json({ error: err.message, sqlState: err.sqlState, code: err.code });
+  }
+});
+
+// Record a payment against an outstanding sale balance.
+// Body: { amount: number, paidBy?: string, note?: string }
+app.post('/api/sales/:id/pay', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const amount = Number(req.body && req.body.amount) || 0;
+  if (!(amount > 0)) return res.status(400).json({ error: 'amount must be greater than 0' });
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [saleRows] = await conn.execute('SELECT id, business_id, total, amount_paid, balance, customer_id, is_proforma FROM sales WHERE id = ? FOR UPDATE', [id]);
+    const sale = saleRows && saleRows[0];
+    if (!sale) { await conn.rollback(); return res.status(404).json({ error: 'Sale not found' }); }
+    if (sale.is_proforma) { await conn.rollback(); return res.status(400).json({ error: 'Cannot pay against a proforma' }); }
+    const currentBal = Number(sale.balance || 0);
+    if (currentBal <= 0) { await conn.rollback(); return res.status(400).json({ error: 'No outstanding balance for this sale' }); }
+    const applied = Math.min(amount, currentBal);
+    const newPaid = Number(sale.amount_paid || 0) + applied;
+    const newBalance = Math.max(0, Number(sale.total || 0) - newPaid);
+    await conn.execute('UPDATE sales SET amount_paid = ?, balance = ? WHERE id = ?', [newPaid, newBalance, id]);
+
+    // Resolve cashier/operator name
+    let opName = '';
+    try {
+      const [empRows] = await conn.execute('SELECT name, email FROM employees WHERE id = ?', [req.user.id]);
+      const r = empRows && empRows[0];
+      opName = (r && (r.name || r.email)) || req.user.email || req.user.id;
+    } catch (e) { opName = req.user.email || req.user.id; }
+
+    // Ensure account head
+    try {
+      await conn.execute(
+        'INSERT IGNORE INTO account_heads (id, business_id, title, type, description) VALUES (?, ?, ?, ?, ?)',
+        [`ah_payment_sales_${sale.business_id}`, sale.business_id, 'Payment for Sales/Services', 'Inflow', 'Cash/bank received from customers for sales or services rendered.']
+      );
+    } catch (e) { /* ignore */ }
+
+    const txId = `tx_pay_${id}_${Date.now()}`;
+    const particulars = `Payment on Sale #${String(id).slice(-8)} (${req.body && req.body.note ? String(req.body.note) : 'balance settlement'})`;
+    await conn.execute(
+      'INSERT INTO transactions (id, business_id, date, account_head, type, amount, particulars, paid_by, received_by, approved_by) VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)',
+      [txId, sale.business_id, 'Payment for Sales/Services', 'Inflow', applied, particulars, (req.body && req.body.paidBy) || sale.customer_id || 'Customer', opName, opName]
+    );
+
+    await conn.commit();
+    res.json({ success: true, applied, newAmountPaid: newPaid, newBalance, transactionId: txId });
+  } catch (err) {
+    try { await conn.rollback(); } catch {}
+    console.error('POST /api/sales/:id/pay failed:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 });
 
@@ -2136,7 +2423,36 @@ app.put('/api/categories/:id', authMiddleware, async (req, res) => {
     const description = body.description || null;
     const businessId = await resolveBusinessId(req);
     if (!businessId) return res.status(400).json({ error: 'Business not found for current user' });
+
+    // Fetch existing category so we can cascade renames to denormalized
+    // category fields stored on products / services.
+    let oldName = null;
+    let oldGroup = null;
+    try {
+      const [oldRows] = await pool.execute('SELECT name, `group` FROM categories WHERE id = ? AND business_id = ?', [id, businessId]);
+      if (Array.isArray(oldRows) && oldRows.length > 0) {
+        oldName = oldRows[0].name;
+        oldGroup = oldRows[0].group;
+      }
+    } catch (e) { /* ignore - cascade is best-effort */ }
+
     await pool.execute('UPDATE categories SET name = ?, `group` = ?, is_product = ?, description = ? WHERE id = ? AND business_id = ?', [name, group, is_product, description, id, businessId]);
+
+    // Cascade rename to products & services so the inventory/{group} pages
+    // and any cached views reflect the new category name immediately.
+    try {
+      if (oldName !== null && (oldName !== name || oldGroup !== group)) {
+        await pool.execute(
+          'UPDATE products SET category_name = ?, category_group = ? WHERE business_id = ? AND category_name <=> ? AND category_group <=> ?',
+          [name, group, businessId, oldName, oldGroup]
+        );
+        await pool.execute(
+          'UPDATE services SET category_name = ?, category_group = ? WHERE business_id = ? AND category_name <=> ? AND category_group <=> ?',
+          [name, group, businessId, oldName, oldGroup]
+        );
+      }
+    } catch (e) { console.warn('Category rename cascade failed:', e && e.message); }
+
     try { const aid = Date.now().toString(); await pool.execute('INSERT INTO audit_logs (id, business_id, user_id, user_name, action, resource, details) VALUES (?, ?, ?, ?, ?, ?, ?)', [aid, businessId, req.user.id, req.user.email || req.user.id, 'update', 'category', JSON.stringify({ id, name, group, is_product, description })]); } catch (e) {}
     res.json({ success: true });
   } catch (err) {
@@ -2388,6 +2704,32 @@ app.post('/api/services', authMiddleware, async (req, res) => {
       businessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
     } catch (e) { console.warn('Failed to resolve business for service create', e && e.message ? e.message : e); }
     if (!businessId) return res.status(400).json({ error: 'Business not found for user' });
+
+    // Enforce publishing limits when creating a NEW service (skip update path & super admins)
+    if (!id && !req.isSuperAdmin) {
+      try {
+        const limitInfo = await getPublishLimitForBusiness(businessId, 'services');
+        if (limitInfo.limit !== null && typeof limitInfo.limit !== 'undefined') {
+          const current = await countResourceForBusiness(businessId, 'services');
+          if (current >= limitInfo.limit) {
+            sendUpgradeEmail({ business: limitInfo.business, resource: 'services', limit: limitInfo.limit, kind: limitInfo.kind, planName: limitInfo.planName, currentCount: current });
+            return res.status(403).json({
+              error: limitInfo.kind === 'unactivated'
+                ? `Your account is not activated. You can publish only ${limitInfo.limit} service${limitInfo.limit === 1 ? '' : 's'} until activation. Please complete payment/activation to publish more.`
+                : `You have reached the ${limitInfo.limit}-service cap of your ${limitInfo.planName} plan. Upgrade to publish more services. An email has been sent with upgrade instructions.`,
+              code: 'PUBLISH_LIMIT_REACHED',
+              resource: 'services',
+              limit: limitInfo.limit,
+              current,
+              kind: limitInfo.kind,
+              planName: limitInfo.planName
+            });
+          }
+        }
+      } catch (limErr) {
+        console.warn('Service limit check failed (allowing create):', limErr && limErr.message ? limErr.message : limErr);
+      }
+    }
 
     const params = [sid, businessId, name || null, categoryName || null, categoryGroup || null, description || null, price, unit || null, imageUrl || null];
     const sql = 'INSERT INTO services (id, business_id, name, category_name, category_group, description, price, unit, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), category_name=VALUES(category_name), category_group=VALUES(category_group), description=VALUES(description), price=VALUES(price), unit=VALUES(unit), image_url=VALUES(image_url)';
@@ -3050,8 +3392,28 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
 app.get('/api/account-heads', authMiddleware, async (req, res) => {
   try {
     const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
-    
+
+    // Helper: ensure the standard default account heads exist for a given business.
+    const ensureDefaults = async (bid) => {
+      if (!bid) return;
+      const defaults = [
+        { id: `ah_payment_sales_${bid}`, title: 'Payment for Sales/Services', type: 'Inflow', description: 'Cash/bank received from customers for sales or services rendered.' },
+        { id: `ah_inventory_purchase_${bid}`, title: 'Inventory Purchase', type: 'Expenditure', description: 'Goods purchased from suppliers and added to stock.' },
+        { id: `ah_money_in_bank_${bid}`, title: 'Money in the Bank', type: 'Inflow', description: 'Cash deposits and bank balances.' },
+        { id: `ah_debtors_${bid}`, title: 'Debtors', type: 'Inflow', description: 'Outstanding balances owed by customers.' },
+      ];
+      for (const h of defaults) {
+        try {
+          await pool.execute(
+            'INSERT IGNORE INTO account_heads (id, business_id, title, type, description) VALUES (?, ?, ?, ?, ?)',
+            [h.id, bid, h.title, h.type, h.description]
+          );
+        } catch (e) { /* ignore individual seed errors */ }
+      }
+    };
+
     if (req.isSuperAdmin && businessIdFilter) {
+      await ensureDefaults(businessIdFilter);
       // Super admin with businessId filter
       const [rows] = await pool.execute('SELECT * FROM account_heads WHERE business_id = ? ORDER BY title', [businessIdFilter]);
       res.json(rows);
@@ -3060,7 +3422,10 @@ app.get('/api/account-heads', authMiddleware, async (req, res) => {
       const [rows] = await pool.execute('SELECT * FROM account_heads ORDER BY title');
       res.json(rows);
     } else {
-      // Regular user sees only their company's account heads
+      // Resolve user business and seed defaults if missing, then return
+      const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+      const userBiz = bizRows && bizRows[0] ? bizRows[0].business_id : null;
+      if (userBiz) await ensureDefaults(userBiz);
       const [rows] = await pool.execute('SELECT * FROM account_heads WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY title', [req.user.id]);
       res.json(rows);
     }
@@ -3351,7 +3716,7 @@ app.get('/api/plans', authMiddleware, async (req, res) => {
     // Get plans from plans table
     const [rows] = await pool.execute('SELECT * FROM plans ORDER BY price ASC');
     
-    // Parse features if they're JSON strings
+    // Parse features if they're JSON strings, normalize limits
     const plans = (rows || []).map((plan) => {
       if (typeof plan.features === 'string') {
         try {
@@ -3360,6 +3725,9 @@ app.get('/api/plans', authMiddleware, async (req, res) => {
           plan.features = [];
         }
       }
+      // Normalize camelCase aliases for client convenience
+      plan.productLimit = plan.product_limit === null || typeof plan.product_limit === 'undefined' ? null : Number(plan.product_limit);
+      plan.serviceLimit = plan.service_limit === null || typeof plan.service_limit === 'undefined' ? null : Number(plan.service_limit);
       return plan;
     });
     
@@ -3372,13 +3740,17 @@ app.post('/api/plans', authMiddleware, async (req, res) => {
   try {
     const { name, price, interval, features } = req.body;
     if (!name || price === undefined) return res.status(400).json({ error: 'Missing required fields' });
+    const productLimitRaw = req.body.product_limit ?? req.body.productLimit;
+    const serviceLimitRaw = req.body.service_limit ?? req.body.serviceLimit;
+    const productLimit = (productLimitRaw === null || productLimitRaw === '' || typeof productLimitRaw === 'undefined') ? null : Number(productLimitRaw);
+    const serviceLimit = (serviceLimitRaw === null || serviceLimitRaw === '' || typeof serviceLimitRaw === 'undefined') ? null : Number(serviceLimitRaw);
     
     const id = 'plan_' + Date.now();
     const featuresJson = JSON.stringify(features || []);
     
     await pool.execute(
-      'INSERT INTO plans (id, name, price, billing_interval, features) VALUES (?, ?, ?, ?, ?)',
-      [id, name, price, interval || 'monthly', featuresJson]
+      'INSERT INTO plans (id, name, price, billing_interval, features, product_limit, service_limit) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, name, price, interval || 'monthly', featuresJson, productLimit, serviceLimit]
     );
     
     res.json({ 
@@ -3386,7 +3758,9 @@ app.post('/api/plans', authMiddleware, async (req, res) => {
       name, 
       price, 
       interval: interval || 'monthly', 
-      features: features || []
+      features: features || [],
+      productLimit,
+      serviceLimit
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3402,6 +3776,16 @@ app.put('/api/plans/:id', authMiddleware, async (req, res) => {
     if (price !== undefined) { updates.push('price = ?'); params.push(price); }
     if (interval) { updates.push('billing_interval = ?'); params.push(interval); }
     if (features) { updates.push('features = ?'); params.push(JSON.stringify(features)); }
+    if ('product_limit' in req.body || 'productLimit' in req.body) {
+      const v = req.body.product_limit ?? req.body.productLimit;
+      updates.push('product_limit = ?');
+      params.push((v === null || v === '' || typeof v === 'undefined') ? null : Number(v));
+    }
+    if ('service_limit' in req.body || 'serviceLimit' in req.body) {
+      const v = req.body.service_limit ?? req.body.serviceLimit;
+      updates.push('service_limit = ?');
+      params.push((v === null || v === '' || typeof v === 'undefined') ? null : Number(v));
+    }
     
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
     params.push(req.params.id);
@@ -3412,6 +3796,158 @@ app.put('/api/plans/:id', authMiddleware, async (req, res) => {
     res.json({ 
       success: true,
       message: 'Plan updated successfully'
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ----- Subscription / publish limits config -----
+
+const DEFAULT_SUBSCRIPTION_LIMITS = { unactivatedProductLimit: 5, unactivatedServiceLimit: 1 };
+
+async function readSubscriptionLimitsConfig() {
+  try {
+    const [rows] = await pool.execute('SELECT config_value FROM app_config WHERE config_key = ?', ['subscription_limits']);
+    if (rows && rows[0] && rows[0].config_value) {
+      const parsed = typeof rows[0].config_value === 'string' ? JSON.parse(rows[0].config_value) : rows[0].config_value;
+      return { ...DEFAULT_SUBSCRIPTION_LIMITS, ...parsed };
+    }
+  } catch (e) {
+    console.warn('readSubscriptionLimitsConfig failed:', e && e.message ? e.message : e);
+  }
+  return { ...DEFAULT_SUBSCRIPTION_LIMITS };
+}
+
+// GET current subscription/publishing limits config (any authenticated user can read)
+app.get('/api/app-config/subscription-limits', authMiddleware, async (req, res) => {
+  try {
+    const cfg = await readSubscriptionLimitsConfig();
+    res.json(cfg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT subscription/publishing limits config (super admin only)
+app.put('/api/app-config/subscription-limits', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const current = await readSubscriptionLimitsConfig();
+    const next = {
+      unactivatedProductLimit: body.unactivatedProductLimit ?? current.unactivatedProductLimit,
+      unactivatedServiceLimit: body.unactivatedServiceLimit ?? current.unactivatedServiceLimit,
+    };
+    // Coerce to non-negative integers (or 0 = blocked, null treated as 0)
+    next.unactivatedProductLimit = Math.max(0, Number(next.unactivatedProductLimit) || 0);
+    next.unactivatedServiceLimit = Math.max(0, Number(next.unactivatedServiceLimit) || 0);
+    await pool.execute(
+      'INSERT INTO app_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)',
+      ['subscription_limits', JSON.stringify(next)]
+    );
+    res.json(next);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Resolves the publish limit ({ kind: 'unactivated'|'plan', limit, planName, planId, business })
+// for a given business and resource ('products'|'services').
+// limit === null means unlimited.
+async function getPublishLimitForBusiness(businessId, resource) {
+  if (!businessId) return { limit: null, kind: 'unknown' };
+  const [bizRows] = await pool.execute('SELECT id, name, email, planId, account_approved, paymentStatus FROM businesses WHERE id = ?', [businessId]);
+  const business = bizRows && bizRows[0] ? bizRows[0] : null;
+  if (!business) return { limit: null, kind: 'unknown' };
+
+  const isActivated = business.account_approved === 1 && business.paymentStatus === 'paid';
+  if (!isActivated) {
+    const cfg = await readSubscriptionLimitsConfig();
+    return {
+      kind: 'unactivated',
+      limit: resource === 'services' ? cfg.unactivatedServiceLimit : cfg.unactivatedProductLimit,
+      planName: 'Unactivated account',
+      planId: null,
+      business
+    };
+  }
+
+  // Look up plan
+  if (!business.planId) return { kind: 'plan', limit: null, planName: 'No plan', planId: null, business };
+  const [planRows] = await pool.execute('SELECT id, name, product_limit, service_limit FROM plans WHERE id = ?', [business.planId]);
+  const plan = planRows && planRows[0] ? planRows[0] : null;
+  if (!plan) return { kind: 'plan', limit: null, planName: 'No plan', planId: business.planId, business };
+  const lim = resource === 'services' ? plan.service_limit : plan.product_limit;
+  return {
+    kind: 'plan',
+    limit: (lim === null || typeof lim === 'undefined') ? null : Number(lim),
+    planName: plan.name,
+    planId: plan.id,
+    business
+  };
+}
+
+async function countResourceForBusiness(businessId, resource) {
+  const table = resource === 'services' ? 'services' : 'products';
+  const [rows] = await pool.execute(`SELECT COUNT(*) AS c FROM ${table} WHERE business_id = ?`, [businessId]);
+  return rows && rows[0] ? Number(rows[0].c) : 0;
+}
+
+// Send a best-effort upgrade email when a business hits a publish limit.
+async function sendUpgradeEmail({ business, resource, limit, kind, planName, currentCount }) {
+  try {
+    if (!business || !business.email) return;
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER) return;
+    const resourceLabel = resource === 'services' ? 'services' : 'products';
+    const subject = `Action needed: ${resourceLabel} limit reached on ${planName}`;
+    const intro = kind === 'unactivated'
+      ? `Your account is not yet activated. Activated accounts on a paid plan can publish more ${resourceLabel}.`
+      : `You have reached the ${resourceLabel} cap (${limit}) included in your <strong>${planName}</strong> plan.`;
+    const cta = kind === 'unactivated'
+      ? `Please complete activation/payment to lift this limit.`
+      : `Upgrade to a higher plan to publish more ${resourceLabel}.`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+        <h2 style="color:#4f46e5;margin:0 0 12px;">Publishing limit reached</h2>
+        <p>Hi ${business.name || 'there'},</p>
+        <p>${intro}</p>
+        <p><strong>Current:</strong> ${currentCount} ${resourceLabel}<br/>
+           <strong>Allowed:</strong> ${limit} ${resourceLabel}</p>
+        <p>${cta}</p>
+        <p style="margin-top:24px">
+          <a href="${process.env.APP_BASE_URL || ''}/#/payment" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:bold;">Upgrade / Activate</a>
+        </p>
+        <p style="color:#64748b;font-size:12px;margin-top:32px;">If you've already upgraded, you can ignore this message.</p>
+      </div>`;
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: business.email,
+      subject,
+      html
+    });
+  } catch (e) {
+    console.warn('sendUpgradeEmail failed:', e && e.message ? e.message : e);
+  }
+}
+
+// GET current publish status (counts + limits) for the authenticated user's business
+app.get('/api/publish-status', authMiddleware, async (req, res) => {
+  try {
+    const businessIdQuery = req.query.businessId ? String(req.query.businessId) : null;
+    let businessId = businessIdQuery;
+    if (!businessId) {
+      const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
+      businessId = bizRows && bizRows[0] ? bizRows[0].business_id : null;
+    }
+    if (!businessId) return res.json({ businessId: null, products: null, services: null });
+
+    const [prodInfo, svcInfo, prodCount, svcCount] = await Promise.all([
+      getPublishLimitForBusiness(businessId, 'products'),
+      getPublishLimitForBusiness(businessId, 'services'),
+      countResourceForBusiness(businessId, 'products'),
+      countResourceForBusiness(businessId, 'services'),
+    ]);
+    res.json({
+      businessId,
+      activated: prodInfo.kind !== 'unactivated',
+      kind: prodInfo.kind,
+      planName: prodInfo.planName,
+      products: { current: prodCount, limit: prodInfo.limit },
+      services: { current: svcCount, limit: svcInfo.limit }
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3997,27 +4533,325 @@ app.get('/api/super-admin/all-data', superAdminAuthMiddleware, async (req, res) 
   }
 });
 
-// GET export business data
+// GET full details for a single business (categories, products, services, customers, suppliers, etc.)
+app.get('/api/super-admin/business-details/:id', superAdminAuthMiddleware, async (req, res) => {
+  try {
+    const businessId = req.params.id;
+    const [bizRows] = await pool.execute('SELECT * FROM businesses WHERE id = ?', [businessId]);
+    if (!bizRows || bizRows.length === 0) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    const safeQuery = async (sql, params = []) => {
+      try {
+        const [rows] = await pool.execute(sql, params);
+        return rows || [];
+      } catch (e) {
+        console.error('[business-details] query failed:', sql, e.message);
+        return [];
+      }
+    };
+
+    const [
+      employees,
+      settings,
+      categories,
+      products,
+      services,
+      customers,
+      suppliers,
+      locations,
+      stockEntries,
+      sales,
+      transactions,
+      accountHeads,
+      roles
+    ] = await Promise.all([
+      safeQuery('SELECT id, name, email, phone, role_id, designation, department, account_approved FROM employees WHERE business_id = ?', [businessId]),
+      safeQuery('SELECT * FROM settings WHERE business_id = ?', [businessId]),
+      safeQuery('SELECT * FROM categories WHERE business_id = ? ORDER BY name', [businessId]),
+      safeQuery('SELECT * FROM products WHERE business_id = ? AND (is_service IS NULL OR is_service = 0) ORDER BY name', [businessId]),
+      safeQuery(
+        // Services may live in `services` table OR in `products` with is_service = 1
+        `SELECT id, business_id, name, category_name, category_group, price, unit, image_url, NULL AS description
+         FROM products WHERE business_id = ? AND is_service = 1
+         UNION ALL
+         SELECT id, business_id, name, category_name, category_group, price, unit, image_url, description
+         FROM services WHERE business_id = ?`,
+        [businessId, businessId]
+      ),
+      safeQuery('SELECT * FROM customers WHERE business_id = ? ORDER BY name', [businessId]),
+      safeQuery('SELECT * FROM suppliers WHERE business_id = ? ORDER BY name', [businessId]),
+      safeQuery('SELECT * FROM locations WHERE business_id = ? ORDER BY name', [businessId]),
+      safeQuery('SELECT * FROM stock_entries WHERE business_id = ?', [businessId]),
+      safeQuery('SELECT * FROM sales WHERE business_id = ? ORDER BY date DESC LIMIT 100', [businessId]),
+      safeQuery('SELECT * FROM transactions WHERE business_id = ? ORDER BY date DESC LIMIT 100', [businessId]),
+      safeQuery('SELECT * FROM account_heads WHERE business_id = ? ORDER BY title', [businessId]),
+      safeQuery('SELECT id, name, permissions FROM roles WHERE business_id = ? ORDER BY name', [businessId])
+    ]);
+
+    // Compute revenue + totals from full sales table (not limited to 100)
+    const [revenueAgg] = await pool.execute(
+      'SELECT COUNT(*) AS totalSales, COALESCE(SUM(total),0) AS totalRevenue FROM sales WHERE business_id = ? AND (is_proforma IS NULL OR is_proforma = 0)',
+      [businessId]
+    );
+    const totals = revenueAgg && revenueAgg[0] ? revenueAgg[0] : { totalSales: 0, totalRevenue: 0 };
+
+    res.json({
+      business: bizRows[0],
+      settings: settings[0] || {},
+      employees,
+      roles,
+      categories,
+      products,
+      services,
+      customers,
+      suppliers,
+      locations,
+      stockEntries,
+      sales,
+      transactions,
+      accountHeads,
+      stats: {
+        totalEmployees: employees.length,
+        totalCategories: categories.length,
+        totalProducts: products.length,
+        totalServices: services.length,
+        totalCustomers: customers.length,
+        totalSuppliers: suppliers.length,
+        totalLocations: locations.length,
+        totalTransactions: Number(totals.totalSales) || 0,
+        totalRevenue: Number(totals.totalRevenue) || 0
+      }
+    });
+  } catch (err) {
+    console.error('[business-details] ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/super-admin/export-business/:id', superAdminAuthMiddleware, async (req, res) => {
   try {
     const businessId = req.params.id;
-    const [business] = await pool.execute('SELECT * FROM businesses WHERE id = ?', [businessId]);
-    const [employees] = await pool.execute('SELECT * FROM employees WHERE business_id = ?', [businessId]);
-    const [settings] = await pool.execute('SELECT * FROM settings WHERE business_id = ?', [businessId]);
-    const [products] = await pool.execute('SELECT * FROM products WHERE business_id = ?', [businessId]);
-    const [sales] = await pool.execute('SELECT * FROM sales WHERE business_id = ? LIMIT 100', [businessId]);
-    
-    const data = {
-      business: business && business[0] ? business[0] : {},
-      employees: employees || [],
-      settings: settings || [],
-      products: products || [],
-      sales: sales || []
+    const dbName = process.env.DB_NAME;
+
+    // 1) Verify business exists and grab its row
+    const [bizRows] = await pool.execute('SELECT * FROM businesses WHERE id = ?', [businessId]);
+    if (!bizRows || bizRows.length === 0) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    // 2) Discover all tables that contain a business_id column in this schema
+    const [tableRows] = await pool.execute(
+      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND COLUMN_NAME = 'business_id'
+       ORDER BY TABLE_NAME`,
+      [dbName]
+    );
+
+    const tables = {};
+    for (const row of tableRows || []) {
+      const tableName = row.TABLE_NAME;
+      try {
+        const [data] = await pool.query(
+          `SELECT * FROM \`${tableName}\` WHERE business_id = ?`,
+          [businessId]
+        );
+        tables[tableName] = data || [];
+      } catch (innerErr) {
+        console.error(`[EXPORT] Skipping table ${tableName}:`, innerErr.message);
+        tables[tableName] = [];
+      }
+    }
+
+    // 3) Also export sale_items linked to this business via sales (no direct business_id)
+    try {
+      const [saleItems] = await pool.query(
+        `SELECT si.* FROM sale_items si
+         INNER JOIN sales s ON si.sale_id = s.id
+         WHERE s.business_id = ?`,
+        [businessId]
+      );
+      tables['sale_items'] = saleItems || [];
+    } catch (e) {
+      // ignore if table missing
+    }
+
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      business_id: businessId,
+      business: bizRows[0],
+      tables
     };
-    
-    res.json(data);
+
+    const filename = `${(bizRows[0].name || 'business').toString().replace(/[^a-z0-9_-]+/gi, '_')}-${businessId}-export.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(exportData, null, 2));
   } catch (err) {
+    console.error('[EXPORT-BUSINESS] ERROR:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST import business data — wipes existing rows for the target business_id and reinserts from payload
+app.post('/api/super-admin/import-business/:id', superAdminAuthMiddleware, async (req, res) => {
+  const targetBusinessId = req.params.id;
+  const payload = req.body || {};
+  const incomingTables = payload.tables || {};
+  const incomingSaleItems = incomingTables.sale_items || [];
+  const sourceBusinessId = payload.business_id || (payload.business && payload.business.id) || null;
+
+  if (!targetBusinessId) {
+    return res.status(400).json({ error: 'Target business id is required' });
+  }
+  if (!payload || (!payload.tables && !payload.business)) {
+    return res.status(400).json({ error: 'Invalid import payload' });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    const dbName = process.env.DB_NAME;
+
+    // Verify target business exists
+    const [bizRows] = await conn.execute('SELECT id FROM businesses WHERE id = ?', [targetBusinessId]);
+    if (!bizRows || bizRows.length === 0) {
+      conn.release();
+      return res.status(404).json({ error: 'Target business not found' });
+    }
+
+    // Discover tables with a business_id column
+    const [tableRows] = await conn.execute(
+      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND COLUMN_NAME = 'business_id'
+       ORDER BY TABLE_NAME`,
+      [dbName]
+    );
+    const businessTables = (tableRows || []).map(r => r.TABLE_NAME);
+
+    // Tables to skip during destructive operations
+    const SKIP_TABLES = new Set(['businesses']);
+
+    await conn.beginTransaction();
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+
+    const summary = { deleted: {}, inserted: {}, skipped: [] };
+
+    // 1) Delete existing rows for this business in every business-scoped table
+    for (const tableName of businessTables) {
+      if (SKIP_TABLES.has(tableName)) continue;
+      try {
+        const [delResult] = await conn.query(
+          `DELETE FROM \`${tableName}\` WHERE business_id = ?`,
+          [targetBusinessId]
+        );
+        summary.deleted[tableName] = delResult.affectedRows || 0;
+      } catch (e) {
+        summary.skipped.push({ table: tableName, phase: 'delete', error: e.message });
+      }
+    }
+
+    // Also clear sale_items linked to this business
+    try {
+      const [delSi] = await conn.query(
+        `DELETE si FROM sale_items si
+         INNER JOIN sales s ON si.sale_id = s.id
+         WHERE s.business_id = ?`,
+        [targetBusinessId]
+      );
+      summary.deleted['sale_items'] = delSi.affectedRows || 0;
+    } catch (e) { /* ignore */ }
+
+    // Helper: insert rows into a table
+    const insertRows = async (tableName, rows, mutateBusinessId) => {
+      if (!rows || rows.length === 0) return 0;
+      // Discover columns for this table
+      const [colInfo] = await conn.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
+        [dbName, tableName]
+      );
+      const validCols = new Set((colInfo || []).map(c => c.COLUMN_NAME));
+      let inserted = 0;
+      for (const row of rows) {
+        const cleanRow = {};
+        for (const [k, v] of Object.entries(row)) {
+          if (validCols.has(k)) cleanRow[k] = v;
+        }
+        if (mutateBusinessId && validCols.has('business_id')) {
+          cleanRow.business_id = targetBusinessId;
+        }
+        const cols = Object.keys(cleanRow);
+        if (cols.length === 0) continue;
+        const placeholders = cols.map(() => '?').join(', ');
+        const values = cols.map(c => cleanRow[c]);
+        const sql = `INSERT INTO \`${tableName}\` (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${placeholders})`;
+        try {
+          await conn.query(sql, values);
+          inserted++;
+        } catch (e) {
+          summary.skipped.push({ table: tableName, phase: 'insert', id: row.id, error: e.message });
+        }
+      }
+      return inserted;
+    };
+
+    // Determine the order: prefer parents first. We at least process tables in
+    // a loose dependency-friendly order (foreign key checks are off anyway).
+    const orderedTables = [...businessTables].sort((a, b) => {
+      const priority = (t) => {
+        if (t === 'roles') return 0;
+        if (t === 'employees') return 1;
+        if (t === 'locations') return 2;
+        if (t === 'categories') return 3;
+        if (t === 'suppliers') return 4;
+        if (t === 'products') return 5;
+        if (t === 'services') return 6;
+        if (t === 'customers') return 7;
+        if (t === 'account_heads') return 8;
+        if (t === 'sales') return 9;
+        if (t === 'transactions') return 10;
+        if (t === 'stock_entries') return 11;
+        if (t === 'stock_history') return 12;
+        return 50;
+      };
+      return priority(a) - priority(b);
+    });
+
+    // 2) Insert rows for every business-scoped table from payload
+    for (const tableName of orderedTables) {
+      if (SKIP_TABLES.has(tableName)) continue;
+      const rows = incomingTables[tableName] || [];
+      try {
+        const inserted = await insertRows(tableName, rows, true);
+        summary.inserted[tableName] = inserted;
+      } catch (e) {
+        summary.skipped.push({ table: tableName, phase: 'insert-batch', error: e.message });
+      }
+    }
+
+    // 3) Insert sale_items (no business_id column) — only for sales we just imported
+    if (incomingSaleItems.length > 0) {
+      try {
+        const inserted = await insertRows('sale_items', incomingSaleItems, false);
+        summary.inserted['sale_items'] = inserted;
+      } catch (e) {
+        summary.skipped.push({ table: 'sale_items', phase: 'insert-batch', error: e.message });
+      }
+    }
+
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+    await conn.commit();
+    conn.release();
+
+    console.log(`[IMPORT-BUSINESS] Imported into ${targetBusinessId} from source ${sourceBusinessId}`);
+    res.json({ success: true, target_business_id: targetBusinessId, source_business_id: sourceBusinessId, summary });
+  } catch (err) {
+    try { await conn.query('SET FOREIGN_KEY_CHECKS = 1'); } catch {}
+    try { await conn.rollback(); } catch {}
+    try { conn.release(); } catch {}
+    console.error('[IMPORT-BUSINESS] ERROR:', err);
+    res.status(500).json({ error: err.message || 'Import failed' });
   }
 });
 
@@ -4156,6 +4990,37 @@ async function runMigrations() {
       }
     } catch (eee) {
       console.warn('Error while checking/adding phone to employees:', eee && eee.message ? eee.message : eee);
+    }
+    // Ensure `amount_paid` and `balance` columns exist on `sales`
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        const checks = [
+          { col: 'amount_paid', ddl: 'ALTER TABLE sales ADD COLUMN amount_paid DECIMAL(12,2) DEFAULT NULL' },
+          { col: 'balance', ddl: 'ALTER TABLE sales ADD COLUMN balance DECIMAL(12,2) DEFAULT 0.00' }
+        ];
+        for (const c of checks) {
+          try {
+            const [r] = await pool.execute(
+              "SELECT COUNT(*) as cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales' AND COLUMN_NAME = ?",
+              [dbName, c.col]
+            );
+            const has = r && r[0] ? (r[0].cnt || 0) : 0;
+            if (!has) {
+              try {
+                await pool.execute(c.ddl);
+                console.log(`ALTER TABLE: added \`${c.col}\` column to sales`);
+              } catch (alterErr) {
+                console.warn(`Failed to ALTER sales add ${c.col}:`, alterErr && alterErr.message ? alterErr.message : alterErr);
+              }
+            }
+          } catch (innerErr) {
+            console.warn(`Error checking sales.${c.col}:`, innerErr && innerErr.message ? innerErr.message : innerErr);
+          }
+        }
+      }
+    } catch (e4) {
+      console.warn('Error while checking/adding amount_paid/balance to sales:', e4 && e4.message ? e4.message : e4);
     }
   } catch (err) {
     console.error('Failed to apply schema.sql:', err.message || err);

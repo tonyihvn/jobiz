@@ -304,8 +304,12 @@ const Inventory = () => {
           if (db.products && db.products.add) await db.products.add(product);
           console.log('✨ Product created:', product.id, 'with business_id:', product.businessId);
       }
-    } catch (e) { 
-      console.error('❌ Failed to save product', e); 
+    } catch (e: any) { 
+      console.error('❌ Failed to save product', e);
+      const msg = (e && e.message) ? String(e.message) : 'Failed to save product';
+      // Surface limit / upgrade messages to the user with a clear alert
+      alert(msg);
+      return;
     }
     
         setShowProductModal(false);

@@ -41,6 +41,7 @@ import { CurrencyProvider } from './services/CurrencyContext';
 import { BusinessProvider } from './services/BusinessContext';
 import { LoadingProvider } from './services/LoadingContext';
 import LoadingOverlay from './components/Shared/LoadingOverlay';
+import QuickCreateItemModal from './components/Shared/QuickCreateItemModal';
 import { Business } from './types';
 import { getCurrentUser, logout as apiLogout } from './services/auth';
 
@@ -71,6 +72,7 @@ const LocationTracker = () => {
 
 const Layout = ({ onLogout, lastLocation }: { onLogout: () => void; lastLocation: string | null }) => {
   const [collapsed, setCollapsed] = React.useState<boolean>(() => (typeof window !== 'undefined' && window.innerWidth < 768));
+  const [quickCreate, setQuickCreate] = React.useState<null | 'product' | 'service'>(null);
 
   React.useEffect(() => {
     const onResize = () => setCollapsed(window.innerWidth < 768);
@@ -81,11 +83,22 @@ const Layout = ({ onLogout, lastLocation }: { onLogout: () => void; lastLocation
   return (
     <>
       <div className="flex bg-slate-50 min-h-screen font-sans">
-        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} onLogout={onLogout} />
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(c => !c)}
+          onLogout={onLogout}
+          onCreateProduct={() => setQuickCreate('product')}
+          onCreateService={() => setQuickCreate('service')}
+        />
         <main className={`flex-1 transition-all ${collapsed ? 'ml-16' : 'ml-64'} p-8 overflow-y-auto max-h-screen`}>
           <Outlet />
         </main>
       </div>
+      <QuickCreateItemModal
+        open={quickCreate !== null}
+        mode={quickCreate || 'product'}
+        onClose={() => setQuickCreate(null)}
+      />
     </>
   );
 };

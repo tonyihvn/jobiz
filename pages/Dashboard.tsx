@@ -4,8 +4,9 @@ import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { useBusinessContext } from '../services/BusinessContext';
 import { SaleRecord, Transaction, TransactionType } from '../types';
-import { DollarSign, TrendingUp, TrendingDown, ShoppingBag } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, ShoppingBag, BookOpen } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import UserGuideModal from '../components/Shared/UserGuideModal';
 
 const StatCard = ({ title, value, subtext, icon: Icon, color }: any) => (
   <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
@@ -32,6 +33,17 @@ const Dashboard = () => {
   const [settings, setSettings] = useState<any>(null);
   const [statsRange, setStatsRange] = useState<'week'|'month'|'year'>('week');
   const [isSuper, setIsSuper] = useState(false);
+  const [showUserGuide, setShowUserGuide] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [guideDismissed, setGuideDismissed] = useState<boolean>(true);
+
+  const refreshGuideDismissed = (uid?: string | null) => {
+    try {
+      const id = uid ?? currentUserId;
+      const dismissedKey = id ? `omnisales_user_guide_dismissed_${id}` : 'omnisales_user_guide_dismissed';
+      setGuideDismissed(localStorage.getItem(dismissedKey) === '1');
+    } catch { setGuideDismissed(false); }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -47,7 +59,27 @@ const Dashboard = () => {
         setTransactions(Array.isArray(t) ? t : []);
         setServicesList(Array.isArray(sv) ? sv : []);
         if (sett) { setSettings(sett); if ((sett.statsRange as any)) setStatsRange(sett.statsRange); }
-        setIsSuper(!!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin)));
+        const superFlag = !!(currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin));
+        setIsSuper(superFlag);
+        const uid = currentUser?.id || currentUser?.email || null;
+        setCurrentUserId(uid);
+        refreshGuideDismissed(uid);
+
+        // Auto-show user guide for new users (no products + no sales) on first login.
+        if (!superFlag) {
+          try {
+            const dismissedKey = uid ? `omnisales_user_guide_dismissed_${uid}` : 'omnisales_user_guide_dismissed';
+            const dismissed = (() => { try { return localStorage.getItem(dismissedKey) === '1'; } catch { return false; } })();
+            if (!dismissed) {
+              const products = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+              const noProducts = !Array.isArray(products) || products.length === 0;
+              const noSales = !Array.isArray(s) || s.length === 0;
+              if (mounted && noProducts && noSales) setShowUserGuide(true);
+            }
+          } catch (gErr) {
+            console.warn('User guide check failed:', gErr);
+          }
+        }
       } catch (e) {
         console.warn('Failed to load dashboard data:', e);
         if (mounted) {
@@ -148,9 +180,17 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      <UserGuideModal open={showUserGuide} onClose={() => { setShowUserGuide(false); refreshGuideDismissed(); }} userId={currentUserId} />
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Executive Overview</h2>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowUserGuide(true)}
+            className={`hidden sm:flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 px-3 py-2 rounded-lg ${!guideDismissed ? 'animate-pulse ring-2 ring-indigo-400 bg-indigo-50 shadow-md shadow-indigo-200' : ''}`}
+            title="Open the new user guide"
+          >
+            <BookOpen size={16} /> User Guide
+          </button>
           {isSuper && (
             <select value={statsRange} onChange={async e => {
               const v = e.target.value as any;

@@ -22,7 +22,7 @@ const ServiceHistory = () => {
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '₦' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -160,7 +160,16 @@ const ServiceHistory = () => {
       lines.push('');
       lines.push(`Subtotal: ${symbol}${fmt(sale.subtotal || 0,2)}`);
       lines.push(`VAT: ${symbol}${fmt(sale.vat || 0,2)}`);
+      if (Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0) {
+        lines.push(`Delivery Fee: ${symbol}${fmt(Number((sale as any).deliveryFee || (sale as any).delivery_fee),2)}`);
+      }
       lines.push(`Total: ${symbol}${fmt(sale.total || 0,2)}`);
+      if (!(sale.isProforma || (sale as any).is_proforma)) {
+        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+        lines.push(`Amount Paid: ${symbol}${fmt(paid,2)}`);
+        lines.push(`Balance: ${symbol}${fmt(bal,2)}`);
+      }
       return lines.join('\n');
   };
 
@@ -281,10 +290,24 @@ const ServiceHistory = () => {
                         <span>${symbol}${Number(sale.vat || 0).toFixed(2)}</span>
                       </div>
                       ` : ''}
+                      ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
+                      <div class="totals-row">
+                        <span>Delivery Fee</span>
+                        <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
                       <div class="totals-row final">
                         <span>TOTAL</span>
                         <span>${symbol}${Number(sale.total || 0).toFixed(2)}</span>
                       </div>
+                      ${(() => {
+                        if (sale.isProforma || (sale as any).is_proforma) return '';
+                        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                        return `
+                      <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                      <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                      })()}
                     </div>
                   </div>
 
@@ -436,10 +459,24 @@ const ServiceHistory = () => {
                       <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                     </div>
                     ` : ''}
+                    ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
+                    <div class="totals-row">
+                      <span>Delivery Fee</span>
+                      <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
+                    </div>
+                    ` : ''}
                     <div class="totals-row final">
                       <span>TOTAL</span>
                       <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                     </div>
+                    ${(() => {
+                      if (sale.isProforma || (sale as any).is_proforma) return '';
+                      const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                      const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                      return `
+                    <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                    <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                    })()}
                   </div>
                 </div>
               </div>
@@ -625,16 +662,24 @@ const ServiceHistory = () => {
                           <span>VAT (${settings.vatRate || 7.5}%)</span>
                           <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                         </div>
-                        ${sale.deliveryFee ? `
+                        ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
                           <div class="totals-row">
-                            <span>Delivery</span>
-                            <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
+                            <span>Delivery Fee</span>
+                            <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
                           </div>
                         ` : ''}
                         <div class="totals-row final">
                           <span>TOTAL</span>
                           <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                         </div>
+                        ${(() => {
+                          if (sale.isProforma || (sale as any).is_proforma) return '';
+                          const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                          const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                          return `
+                        <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                        <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                        })()}
                       </div>
                     </div>
                     <div style="position: relative; margin-bottom: 0; min-height: 200px; background-image: ${settings.watermarkImageUrl ? `url('${settings.watermarkImageUrl}')` : 'none'}; background-position: center; background-repeat: no-repeat; background-size: cover; background-attachment: scroll; opacity: 0.15;"></div>
@@ -737,16 +782,24 @@ const ServiceHistory = () => {
                     <span>VAT (${settings.vatRate || 7.5}%)</span>
                     <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                   </div>
-                  ${sale.deliveryFee ? `
+                  ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
                     <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: #475569;">
-                      <span>Delivery</span>
-                      <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
+                      <span>Delivery Fee</span>
+                      <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
                     </div>
                   ` : ''}
                   <div style="display: flex; justify-content: space-between; border-top: 2px solid #1e293b; padding-top: 6px; font-size: 12px; font-weight: bold; color: #1e293b;">
                     <span>Total</span>
                     <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                   </div>
+                  ${(() => {
+                    if (sale.isProforma || (sale as any).is_proforma) return '';
+                    const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                    const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                    return `
+                  <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: #475569;"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                  <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; font-weight: bold; color: ${bal>0?'#be123c':'#047857'};"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                  })()}
                 </div>
               </div>
               ${sale.particulars ? `<div style="margin-bottom: 8px; font-size: 10px; color: #475569; word-break: break-word; overflow-wrap: break-word;"><strong>Notes:</strong> ${sale.particulars}</div>` : ''}

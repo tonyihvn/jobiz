@@ -19,6 +19,7 @@ const Register = () => {
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState('');
   const [formattedPhone, setFormattedPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   // Format phone number: remove leading 0 and add 234 prefix (no + sign for API)
@@ -37,6 +38,7 @@ const Register = () => {
 
   const handleRegister = (e: React.FormEvent) => {
         e.preventDefault();
+        if (submitting) return;
         setError('');
 
         if (formData.password !== formData.confirmPassword) {
@@ -65,6 +67,7 @@ const Register = () => {
             return;
         }
 
+        setSubmitting(true);
         (async () => {
             try {
                 if (db.auth && db.auth.register) {
@@ -85,6 +88,8 @@ const Register = () => {
             } catch (err: any) {
                 setError(err?.message || 'Registration failed');
                 console.error('Registration error:', err);
+            } finally {
+                setSubmitting(false);
             }
         })();
   };
@@ -315,8 +320,19 @@ const Register = () => {
                         </div>
                     </div>
 
-                    <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg shadow-lg shadow-brand-500/30 transition-all mt-4">
-                        Register Business
+                    <button
+                        type="submit"
+                        disabled={submitting}
+                        aria-busy={submitting}
+                        className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-brand-400 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg shadow-lg shadow-brand-500/30 transition-all mt-4 flex items-center justify-center gap-2"
+                    >
+                        {submitting && (
+                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                        )}
+                        {submitting ? 'Registering...' : 'Register Business'}
                     </button>
                 </form>
              </div>

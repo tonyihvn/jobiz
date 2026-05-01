@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Download, RefreshCw, Edit2, X, Save } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Database, Download, Upload, RefreshCw, Edit2, X, Save } from 'lucide-react';
 import { getToken } from '../services/auth';
 import { useBusinessContext } from '../services/BusinessContext';
 
@@ -17,11 +17,41 @@ interface BusinessData {
   };
 }
 
+interface BusinessDetails {
+  business: any;
+  settings: any;
+  employees: any[];
+  roles: any[];
+  categories: any[];
+  products: any[];
+  services: any[];
+  customers: any[];
+  suppliers: any[];
+  locations: any[];
+  stockEntries: any[];
+  sales: any[];
+  transactions: any[];
+  accountHeads: any[];
+  stats: {
+    totalEmployees: number;
+    totalCategories: number;
+    totalProducts: number;
+    totalServices: number;
+    totalCustomers: number;
+    totalSuppliers: number;
+    totalLocations: number;
+    totalTransactions: number;
+    totalRevenue: number;
+  };
+}
+
 const SuperAdminData = () => {
   const { selectedBusinessId } = useBusinessContext();
   const [businesses, setBusinesses] = useState<BusinessData[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessData | null>(null);
+  const [details, setDetails] = useState<BusinessDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   
   // Edit Employee States
@@ -34,6 +64,8 @@ const SuperAdminData = () => {
     role_id: '',
   });
   const [editLoading, setEditLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     console.log('[SuperAdminData] useEffect triggered, selectedBusinessId:', selectedBusinessId);
@@ -45,6 +77,36 @@ const SuperAdminData = () => {
       fetchAllBusinessesData();
     }
   }, [selectedBusinessId]);
+
+  // Whenever the selected business changes, load its full details
+  useEffect(() => {
+    if (selectedBusiness?.business?.id) {
+      fetchBusinessDetails(selectedBusiness.business.id);
+    } else {
+      setDetails(null);
+    }
+  }, [selectedBusiness?.business?.id]);
+
+  const fetchBusinessDetails = async (businessId: string) => {
+    setDetailsLoading(true);
+    try {
+      const response = await fetch(`/api/super-admin/business-details/${businessId}`, {
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDetails(data);
+      } else {
+        console.error('[SuperAdminData] business-details failed:', response.status);
+        setDetails(null);
+      }
+    } catch (err) {
+      console.error('[SuperAdminData] business-details error:', err);
+      setDetails(null);
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
 
   const fetchAllBusinessesData = async () => {
     setLoading(true);
@@ -134,6 +196,63 @@ const SuperAdminData = () => {
       console.error('Failed to export data:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const triggerImport = () => {
+    importFileRef.current?.click();
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !selectedBusiness) return;
+    if (!window.confirm(
+      `This will REPLACE all existing data for "${selectedBusiness.business.name}" with the contents of "${file.name}". This cannot be undone. Continue?`
+    )) {
+      return;
+    }
+    setImporting(true);
+    try {
+      const text = await file.text();
+      let payload: any;
+      try {
+        payload = JSON.parse(text);
+      } catch (parseErr) {
+        alert('Invalid JSON file');
+        return;
+      }
+      const response = await fetch(
+        `/api/super-admin/import-business/${selectedBusiness.business.id}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${getToken()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+      if (response.ok) {
+        const result = await response.json();
+        const inserted = result.summary?.inserted || {};
+        const totalRows = Object.values(inserted).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+        alert(`Import successful. ${totalRows} rows inserted across ${Object.keys(inserted).length} tables.`);
+        await fetchSelectedBusinessData(selectedBusiness.business.id);
+        await fetchBusinessDetails(selectedBusiness.business.id);
+      } else {
+        let errMsg = response.statusText;
+        try {
+          const err = await response.json();
+          errMsg = err.error || err.message || errMsg;
+        } catch {}
+        alert('Import failed: ' + errMsg);
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      alert('Import error: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -245,18 +364,40 @@ return (
           {selectedBusiness ? (
             <>
               {/* Stats Cards */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 md:grid-cols-4 gap-4">
                 <div className="bg-white rounded-lg shadow p-4">
                   <p className="text-sm text-slate-600 mb-1">Employees</p>
-                  <p className="text-2xl font-bold text-slate-900">{selectedBusiness.stats.totalEmployees}</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalEmployees ?? selectedBusiness.stats.totalEmployees}</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-sm text-slate-600 mb-1">Transactions</p>
-                  <p className="text-2xl font-bold text-slate-900">{selectedBusiness.stats.totalTransactions}</p>
+                  <p className="text-sm text-slate-600 mb-1">Categories</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalCategories ?? '—'}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-slate-600 mb-1">Products</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalProducts ?? '—'}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-slate-600 mb-1">Services</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalServices ?? '—'}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-slate-600 mb-1">Customers</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalCustomers ?? '—'}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-slate-600 mb-1">Suppliers</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalSuppliers ?? '—'}</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-slate-600 mb-1">Sales</p>
+                  <p className="text-2xl font-bold text-slate-900">{details?.stats.totalTransactions ?? selectedBusiness.stats.totalTransactions}</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
                   <p className="text-sm text-slate-600 mb-1">Total Revenue</p>
-                  <p className="text-2xl font-bold text-slate-900">${selectedBusiness.stats.totalRevenue.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {details?.settings?.currency || ''}{(details?.stats.totalRevenue ?? selectedBusiness.stats.totalRevenue ?? 0).toFixed(2)}
+                  </p>
                 </div>
               </div>
 
@@ -264,14 +405,33 @@ return (
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="font-semibold text-slate-900">Company Information</h3>
-                  <button
-                    onClick={exportBusinessData}
-                    disabled={refreshing}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-                  >
-                    <Download className="w-5 h-5" />
-                    Export Data
-                  </button>
+                  <div className="flex gap-2">
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={handleImportFile}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={triggerImport}
+                      disabled={importing || refreshing}
+                      className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 disabled:opacity-50"
+                      title="Import all business data from a JSON file (replaces existing data)"
+                    >
+                      <Upload className="w-5 h-5" />
+                      {importing ? 'Importing...' : 'Import Data'}
+                    </button>
+                    <button
+                      onClick={exportBusinessData}
+                      disabled={refreshing || importing}
+                      className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                      title="Export all business data to a JSON file"
+                    >
+                      <Download className="w-5 h-5" />
+                      Export Data
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -352,6 +512,306 @@ return (
                   </div>
                 </div>
               </div>
+
+              {detailsLoading && (
+                <div className="bg-white rounded-lg shadow p-4 text-sm text-slate-500">Loading business data...</div>
+              )}
+
+              {details && (
+                <>
+                  {/* Categories */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Categories ({details.categories.length})</h3>
+                    {details.categories.length === 0 ? (
+                      <p className="text-sm text-slate-500">No categories</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Name</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Group</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Type</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.categories.map((c: any) => (
+                              <tr key={c.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{c.name}</td>
+                                <td className="px-4 py-2">{c.group || '-'}</td>
+                                <td className="px-4 py-2">{c.is_product ? 'Product' : 'Service'}</td>
+                                <td className="px-4 py-2 text-slate-600">{c.description || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Products */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Products ({details.products.length})</h3>
+                    {details.products.length === 0 ? (
+                      <p className="text-sm text-slate-500">No products</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Name</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Category</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Price</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Stock</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Unit</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.products.map((p: any) => (
+                              <tr key={p.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{p.name}</td>
+                                <td className="px-4 py-2">{p.category_name || '-'}</td>
+                                <td className="px-4 py-2 text-right">{Number(p.price || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right">{p.stock ?? 0}</td>
+                                <td className="px-4 py-2">{p.unit || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Services */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Services ({details.services.length})</h3>
+                    {details.services.length === 0 ? (
+                      <p className="text-sm text-slate-500">No services</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Name</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Category</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Price</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Unit</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.services.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{s.name}</td>
+                                <td className="px-4 py-2">{s.category_name || '-'}</td>
+                                <td className="px-4 py-2 text-right">{Number(s.price || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{s.unit || '-'}</td>
+                                <td className="px-4 py-2 text-slate-600">{s.description || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Customers */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Customers ({details.customers.length})</h3>
+                    {details.customers.length === 0 ? (
+                      <p className="text-sm text-slate-500">No customers</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Name</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Company</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Phone</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Email</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Category</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.customers.map((c: any) => (
+                              <tr key={c.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{c.name || '-'}</td>
+                                <td className="px-4 py-2">{c.company || '-'}</td>
+                                <td className="px-4 py-2">{c.phone || '-'}</td>
+                                <td className="px-4 py-2">{c.email || '-'}</td>
+                                <td className="px-4 py-2">{c.category || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Suppliers */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Suppliers ({details.suppliers.length})</h3>
+                    {details.suppliers.length === 0 ? (
+                      <p className="text-sm text-slate-500">No suppliers</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Name</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Contact</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Phone</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Email</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.suppliers.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{s.name || '-'}</td>
+                                <td className="px-4 py-2">{s.contact_person || '-'}</td>
+                                <td className="px-4 py-2">{s.phone || '-'}</td>
+                                <td className="px-4 py-2">{s.email || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Locations */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Locations ({details.locations.length})</h3>
+                    {details.locations.length === 0 ? (
+                      <p className="text-sm text-slate-500">No locations</p>
+                    ) : (
+                      <ul className="text-sm divide-y divide-slate-200">
+                        {details.locations.map((l: any) => (
+                          <li key={l.id} className="py-2">
+                            <span className="font-medium text-slate-900">{l.name}</span>
+                            {l.address && <span className="text-slate-600"> — {l.address}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Recent Sales */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Recent Sales ({details.sales.length})</h3>
+                    {details.sales.length === 0 ? (
+                      <p className="text-sm text-slate-500">No sales</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Date</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Subtotal</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">VAT</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Total</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Payment</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Cashier</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.sales.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{s.date ? new Date(s.date).toLocaleString() : '-'}</td>
+                                <td className="px-4 py-2 text-right">{Number(s.subtotal || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right">{Number(s.vat || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2 text-right font-medium">{Number(s.total || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{s.payment_method || '-'}</td>
+                                <td className="px-4 py-2">{s.cashier || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Transactions */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Recent Transactions ({details.transactions.length})</h3>
+                    {details.transactions.length === 0 ? (
+                      <p className="text-sm text-slate-500">No transactions</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Date</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Account Head</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Type</th>
+                              <th className="px-4 py-2 text-right text-slate-700 font-medium">Amount</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Particulars</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.transactions.map((t: any) => (
+                              <tr key={t.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{t.date ? new Date(t.date).toLocaleString() : '-'}</td>
+                                <td className="px-4 py-2">{t.account_head || '-'}</td>
+                                <td className="px-4 py-2">{t.type || '-'}</td>
+                                <td className="px-4 py-2 text-right">{Number(t.amount || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2 text-slate-600">{t.particulars || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Account Heads */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Account Heads ({details.accountHeads.length})</h3>
+                    {details.accountHeads.length === 0 ? (
+                      <p className="text-sm text-slate-500">No account heads</p>
+                    ) : (
+                      <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Title</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Type</th>
+                              <th className="px-4 py-2 text-left text-slate-700 font-medium">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {details.accountHeads.map((a: any) => (
+                              <tr key={a.id} className="hover:bg-slate-50">
+                                <td className="px-4 py-2">{a.title}</td>
+                                <td className="px-4 py-2">{a.type || '-'}</td>
+                                <td className="px-4 py-2 text-slate-600">{a.description || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Roles */}
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="font-semibold text-slate-900 mb-4">Roles ({details.roles.length})</h3>
+                    {details.roles.length === 0 ? (
+                      <p className="text-sm text-slate-500">No roles</p>
+                    ) : (
+                      <ul className="text-sm divide-y divide-slate-200">
+                        {details.roles.map((r: any) => (
+                          <li key={r.id} className="py-2">
+                            <span className="font-medium text-slate-900">{r.name}</span>
+                            <span className="text-slate-500 ml-2 text-xs">({r.id})</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           ) : (
             <div className="bg-white rounded-lg shadow p-8 text-center text-slate-500">

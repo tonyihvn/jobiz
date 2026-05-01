@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   Store, LayoutDashboard, Package, Users, GraduationCap, 
   CreditCard, Settings, Shield, MessageSquare, Truck, 
   History, Layers, Settings2, UserCheck, ClipboardList, FileText, Activity, LogOut,
-  ChevronDown, ChevronRight, Bell, CheckCircle, XCircle, AlertTriangle, CreditCardIcon
+  ChevronDown, ChevronRight, Bell, CheckCircle, XCircle, AlertTriangle, CreditCardIcon,
+  Plus
 } from 'lucide-react';
 import db from '../../services/apiClient';
 import { Role, CompanySettings, TaskStatus, Employee } from '../../types';
@@ -15,16 +16,21 @@ interface SidebarProps {
   onLogout: () => void;
   collapsed?: boolean;
   onToggle?: () => void;
+  onCreateProduct?: () => void;
+  onCreateService?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle, onCreateProduct, onCreateService }) => {
   const { selectedBusiness, selectedBusinessId } = useBusinessContext();
-  const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+  const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', headerImageUrl: '', footerImageUrl: '', vatRate: 0, currency: '₦' } as CompanySettings;
   const [settings, setSettings] = useState<CompanySettings>(emptySettings);
   const [userRole, setUserRole] = useState<Role | undefined>({ id: 'user', businessId: '', name: 'User', permissions: [] });
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [notifications, setNotifications] = useState(0);
+  const [actionReason, setActionReason] = useState<{ kind: 'unpaid'|'pending_verification'|'unapproved'|'tasks'|null; message: string }>({ kind: null, message: '' });
+  const [showActionTip, setShowActionTip] = useState(false);
+  const actionTipRef = useRef<HTMLDivElement | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [roleLoaded, setRoleLoaded] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
@@ -115,7 +121,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           if (db.superAdmin && db.superAdmin.getBusinesses) {
             const bizs: any[] = await db.superAdmin.getBusinesses();
             const biz = bizs.find(b => b.id === (detailedUser?.businessId || user?.businessId));
-            if (biz && biz.paymentStatus === 'unpaid') setNotifications(1);
+            if (biz) {
+              if (biz.paymentStatus === 'unpaid') {
+                setNotifications(1);
+                setActionReason({ kind: 'unpaid', message: 'Your account is not activated yet. Please complete your subscription payment to unlock the full app and remove publishing limits.' });
+              } else if (biz.paymentStatus === 'pending_verification') {
+                setNotifications(1);
+                setActionReason({ kind: 'pending_verification', message: 'We received your payment receipt and it is awaiting verification by our team. You will be notified once activation is complete.' });
+              } else if (biz.account_approved === 0 || biz.account_approved === false) {
+                setNotifications(1);
+                setActionReason({ kind: 'unapproved', message: 'Your business account has not been approved yet. Please wait for activation, or contact support if this is taking too long.' });
+              }
+            }
           }
         } catch (e) { /* ignore */ }
 
@@ -165,6 +182,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
     setOpenGroups(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // Close the "Action Required" tooltip only when the user clicks outside of it.
+  useEffect(() => {
+    if (!showActionTip) return;
+    const onDocPointerDown = (e: MouseEvent) => {
+      const node = actionTipRef.current;
+      if (node && !node.contains(e.target as Node)) {
+        setShowActionTip(false);
+      }
+    };
+    // Use capture-phase listener to reliably observe clicks before any handler stops propagation
+    document.addEventListener('mousedown', onDocPointerDown, true);
+    document.addEventListener('touchstart', onDocPointerDown, true);
+    return () => {
+      document.removeEventListener('mousedown', onDocPointerDown, true);
+      document.removeEventListener('touchstart', onDocPointerDown, true);
+    };
+  }, [showActionTip]);
+
   // Build dynamic menu groups, injecting category groups into Inventory or Services
   const dynamicInventoryItems = categoryGroups.filter(g => g.isProduct).map(g => ({ id: `inv_group_${g.group}`, to: `/inventory/${encodeURIComponent(g.group)}`, icon: Layers, label: g.group }));
   const dynamicServicesItems = categoryGroups.filter(g => !g.isProduct).map(g => ({ id: `svc_group_${g.group}`, to: `/services/${encodeURIComponent(g.group)}`, icon: Users, label: g.group }));
@@ -191,6 +226,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
       key: 'inventory',
       label: 'Inventory & Stock',
       items: [
+        { id: 'create_product_quick', icon: Plus, label: 'Create New Product', action: 'create_product' as const },
         { id: 'stock', to: '/stock', icon: Package, label: 'Stock Management' },
         { id: 'suppliers', to: '/suppliers', icon: Truck, label: 'Suppliers' },
         // dynamic product groups (each group is a distinct page)
@@ -201,6 +237,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
       key: 'services',
       label: 'Services',
       items: [
+        { id: 'create_service_quick', icon: Plus, label: 'Create New Service', action: 'create_service' as const },
         // dynamic service groups (each group is a distinct page)
         ...dynamicServicesItems,
       ]
@@ -325,7 +362,29 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
 
               {(group.key === 'main' || openGroups[group.key]) && (
                 <div className="mt-1 space-y-1">
-                  {visibleItems.map((item) => (
+                  {visibleItems.map((item: any) => {
+                    if (item.action) {
+                      const handler = item.action === 'create_product'
+                        ? onCreateProduct
+                        : item.action === 'create_service'
+                          ? onCreateService
+                          : undefined;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handler && handler()}
+                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg transition-all text-emerald-300 hover:bg-emerald-500/10 hover:text-emerald-200"
+                          title={item.label}
+                        >
+                          <div className="flex items-center gap-3">
+                            <item.icon className="w-4 h-4 shrink-0" />
+                            {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+                          </div>
+                        </button>
+                      );
+                    }
+                    return (
                     <NavLink
                       key={item.id}
                       to={item.to}
@@ -347,7 +406,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
                         </span>
                       ) : null}
                     </NavLink>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -359,9 +419,56 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
 
       <div className="p-3 border-t border-slate-800 shrink-0">
         {notifications > 0 && !collapsed && (
-            <div className="mb-3 bg-rose-500/20 text-rose-300 p-2 rounded flex items-center gap-2 text-xs">
-                <Bell size={14} className="animate-pulse" />
-                <span>{notifications} Action Required</span>
+            <div
+                ref={actionTipRef}
+                className="mb-3 relative"
+            >
+                <button
+                    type="button"
+                    onClick={() => setShowActionTip(v => !v)}
+                    className="w-full bg-rose-500/20 text-rose-300 p-2 rounded flex items-center gap-2 text-xs hover:bg-rose-500/30 focus:outline-none"
+                    aria-haspopup="dialog"
+                    aria-expanded={showActionTip}
+                    title={actionReason.message || 'Action required on your account'}
+                >
+                    <Bell size={14} className="animate-pulse" />
+                    <span className="flex-1 text-left">{notifications} Action Required</span>
+                    <AlertTriangle size={14} />
+                </button>
+                {showActionTip && (
+                    <div
+                        role="tooltip"
+                        // No gap between the trigger and the popover so pointer movement
+                        // never crosses empty space; popover stays open until an outside click.
+                        className="absolute left-0 right-0 bottom-full z-50 bg-slate-900 border border-rose-500/40 text-slate-100 text-xs p-3 rounded-lg shadow-xl"
+                    >
+                        <div className="flex items-start gap-2">
+                            <AlertTriangle size={14} className="text-rose-400 mt-0.5 shrink-0" />
+                            <div className="flex-1 leading-relaxed">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                    <p className="font-bold text-rose-300">Account action required</p>
+                                    <button
+                                        type="button"
+                                        aria-label="Close"
+                                        onClick={(e) => { e.stopPropagation(); setShowActionTip(false); }}
+                                        className="text-slate-400 hover:text-white"
+                                    >
+                                        <XCircle size={14} />
+                                    </button>
+                                </div>
+                                <p className="text-slate-200">{actionReason.message || 'Your account has a pending action. Please review and complete the required step.'}</p>
+                                {(actionReason.kind === 'unpaid' || actionReason.kind === 'pending_verification') && (
+                                    <a
+                                        href="#/payment"
+                                        className="mt-2 inline-block bg-rose-500 hover:bg-rose-400 text-white px-3 py-1 rounded font-bold"
+                                    >
+                                        {actionReason.kind === 'unpaid' ? 'Make Payment' : 'View Payment Status'}
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         )}
         <div className="flex items-center gap-3 px-2 py-1">

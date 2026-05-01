@@ -216,47 +216,43 @@ return (
                   <td className="px-6 py-4 text-sm text-slate-600">
                     {new Date(business.registeredAt).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 text-sm space-x-2">
-                    {business.status === 'pending' && (
-                      <>
-                        <button
-                          onClick={() => approveBusiness(business.id)}
-                          className="text-green-600 hover:text-green-700 font-medium"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectBusiness(business.id)}
-                          className="text-red-600 hover:text-red-700 font-medium"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
-                    {business.status === 'approved' && (
-                      <>
-                        <button
-                          onClick={() => disapproveBusiness(business.id)}
-                          className="text-orange-600 hover:text-orange-700 font-medium"
-                        >
-                          Disapprove
-                        </button>
-                        <button
-                          onClick={() => deactivateBusiness(business.id)}
-                          className="text-slate-600 hover:text-slate-700 font-medium"
-                        >
-                          Deactivate
-                        </button>
-                      </>
-                    )}
-                    {business.status === 'rejected' && (
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => approveBusiness(business.id)}
-                        className="text-green-600 hover:text-green-700 font-medium"
+                        disabled={business.status === 'approved'}
+                        className="px-3 py-1 rounded bg-green-600 text-white text-xs font-medium hover:bg-green-700 disabled:bg-green-200 disabled:cursor-not-allowed"
+                        title="Approve business"
                       >
                         Approve
                       </button>
-                    )}
+                      <button
+                        onClick={() => rejectBusiness(business.id)}
+                        disabled={business.status === 'rejected'}
+                        className="px-3 py-1 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:bg-red-200 disabled:cursor-not-allowed"
+                        title="Reject business"
+                      >
+                        Reject
+                      </button>
+                      {business.status === 'approved' && (
+                        <>
+                          <button
+                            onClick={() => disapproveBusiness(business.id)}
+                            className="px-3 py-1 rounded bg-orange-500 text-white text-xs font-medium hover:bg-orange-600"
+                            title="Revoke approval"
+                          >
+                            Disapprove
+                          </button>
+                          <button
+                            onClick={() => deactivateBusiness(business.id)}
+                            className="px-3 py-1 rounded bg-slate-500 text-white text-xs font-medium hover:bg-slate-600"
+                            title="Deactivate business"
+                          >
+                            Deactivate
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

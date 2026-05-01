@@ -21,7 +21,7 @@ const SalesHistory = () => {
     const { selectedBusinessId } = useBusinessContext();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [stockHistory, setStockHistory] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'sales' | 'items' | 'stock'>('sales');
+  const [activeTab, setActiveTab] = useState<'sales' | 'items'>('sales');
   
   // Return State
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -40,7 +40,7 @@ const SalesHistory = () => {
   
   // Data
   const [products, setProducts] = useState<Product[]>([]);
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '₦' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [customers, setCustomers] = useState<any[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
@@ -242,7 +242,16 @@ const SalesHistory = () => {
       lines.push('');
       lines.push(`Subtotal: ${symbol}${fmt(sale.subtotal || 0,2)}`);
       lines.push(`VAT: ${symbol}${fmt(sale.vat || 0,2)}`);
+      if (Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0) {
+        lines.push(`Delivery Fee: ${symbol}${fmt(Number((sale as any).deliveryFee || (sale as any).delivery_fee),2)}`);
+      }
       lines.push(`Total: ${symbol}${fmt(sale.total || 0,2)}`);
+      if (!(sale.isProforma || (sale as any).is_proforma)) {
+        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+        lines.push(`Amount Paid: ${symbol}${fmt(paid,2)}`);
+        lines.push(`Balance: ${symbol}${fmt(bal,2)}`);
+      }
       return lines.join('\n');
   };
 
@@ -380,7 +389,7 @@ const SalesHistory = () => {
                       ` : ''}
                       ${Number(sale.deliveryFee) > 0 ? `
                       <div class="totals-row">
-                        <span>Delivery</span>
+                        <span>Delivery Fee</span>
                         <span>${symbol}${Number(sale.deliveryFee).toFixed(2)}</span>
                       </div>
                       ` : ''}
@@ -388,6 +397,14 @@ const SalesHistory = () => {
                         <span>TOTAL</span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                       </div>
+                      ${(() => {
+                        if (sale.isProforma || (sale as any).is_proforma) return '';
+                        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                        return `
+                      <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                      <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                      })()}
                     </div>
                   </div>
 
@@ -554,10 +571,24 @@ const SalesHistory = () => {
                       <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                     </div>
                     ` : ''}
+                    ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
+                    <div class="totals-row">
+                      <span>Delivery Fee</span>
+                      <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
+                    </div>
+                    ` : ''}
                     <div class="totals-row final">
                       <span>TOTAL</span>
                       <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                     </div>
+                    ${(() => {
+                      if (sale.isProforma || (sale as any).is_proforma) return '';
+                      const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                      const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                      return `
+                    <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                    <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                    })()}
                   </div>
                 </div>
                 ${settings.footerImageUrl ? `<div class="footer-spacer" style="margin-top: ${settings.footerImageTopMargin || 0}px;"></div><img src="${settings.footerImageUrl}" class="footer-img" style="width: 100%; height: ${settings.footerImageHeight || 60}px; display: block; object-fit: contain; margin: 0; padding: 0;" />` : ''}
@@ -604,7 +635,7 @@ const SalesHistory = () => {
               const whatsappLink = `https://wa.me/${cleanPhone}?text=${message}`;
               
               window.open(whatsappLink, '_blank');
-              alert('PDF downloaded! WhatsApp will open on your device. Send the invoice to the customer.');
+              alert('PDF downloaded! WhatsApp will open on your device. Send the invoice to the customer. Ensure that that your browser is not preventing the popup action');
           } catch (e) {
               console.warn('PDF generation failed', e);
               alert('Failed to generate PDF for WhatsApp');
@@ -922,10 +953,24 @@ const SalesHistory = () => {
                         <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                       </div>
                       ` : ''}
+                      ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
+                      <div class="totals-row">
+                        <span>Delivery Fee</span>
+                        <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
                       <div class="totals-row final">
                         <span>TOTAL: </span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                       </div>
+                      ${(() => {
+                        if (sale.isProforma || (sale as any).is_proforma) return '';
+                        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                        return `
+                      <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                      <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                      })()}
                     </div>
                   </div>
 
@@ -1066,10 +1111,24 @@ const SalesHistory = () => {
                         <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                       </div>
                       ` : ''}
+                      ${Number((sale as any).deliveryFee || (sale as any).delivery_fee) > 0 ? `
+                      <div class="totals-row">
+                        <span>Delivery Fee</span>
+                        <span>${symbol}${Number((sale as any).deliveryFee || (sale as any).delivery_fee).toFixed(2)}</span>
+                      </div>
+                      ` : ''}
                       <div class="totals-row final">
                         <span>TOTAL: </span>
                         <span>${symbol}${Number(sale.total).toFixed(2)}</span>
                       </div>
+                      ${(() => {
+                        if (sale.isProforma || (sale as any).is_proforma) return '';
+                        const paid = Number((sale as any).amountPaid ?? (sale as any).amount_paid ?? sale.total) || 0;
+                        const bal = Number((sale as any).balance ?? Math.max(0, Number(sale.total || 0) - paid));
+                        return `
+                      <div class="totals-row"><span>Amount Paid</span><span>${symbol}${paid.toFixed(2)}</span></div>
+                      <div class="totals-row" style="font-weight:bold;color:${bal>0?'#be123c':'#047857'}"><span>Balance</span><span>${symbol}${bal.toFixed(2)}</span></div>`;
+                      })()}
                     </div>
                   </div>
 
@@ -1126,27 +1185,12 @@ const SalesHistory = () => {
         >
           <ShoppingBag size={18} /> Product Sales History
         </button>
-        <button 
-          onClick={() => setActiveTab('stock')}
-          className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'stock' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
-        >
-          <ShoppingBag size={18} /> Supply History
-        </button>
       </div>
 
       {activeTab === 'sales' ? (
         <DataTable data={salesWithProducts} columns={salesColumns} title="Completed Transactions" />
-      ) : activeTab === 'items' ? (
-        <DataTable data={itemHistory} columns={itemColumns} title="Itemized Sales Record" />
       ) : (
-        <>
-          <DataTable data={stockHistory} columns={stockHistoryColumns} title="Stock Movement History" />
-          {stockHistory.length === 0 && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
-              <p className="text-slate-600">No supply history yet. Supply history will appear as stock is received through inventory management.</p>
-            </div>
-          )}
-        </>
+        <DataTable data={itemHistory} columns={itemColumns} title="Itemized Sales Record" />
       )}
 
        {/* Return Modal */}

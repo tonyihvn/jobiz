@@ -23,6 +23,10 @@ export interface SubscriptionPlan {
   price: number;
   interval: 'monthly' | 'yearly';
   features: string[];
+  /** Maximum number of products this plan allows. null = unlimited */
+  productLimit?: number | null;
+  /** Maximum number of services this plan allows. null = unlimited */
+  serviceLimit?: number | null;
 }
 
 export interface Business {
@@ -152,6 +156,10 @@ export interface SaleRecord {
   isProforma?: boolean;
   proformaTitle?: string;
   deliveryFee?: number;
+  /** Amount actually paid by the customer (defaults to total). */
+  amountPaid?: number;
+  /** Outstanding balance = total - amountPaid (>= 0). */
+  balance?: number;
   particulars?: string;
   isReturn?: boolean;
   returnReason?: string;

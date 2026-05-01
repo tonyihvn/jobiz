@@ -18,55 +18,72 @@ const PrintReceipt = () => {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   useEffect(() => {
-    // Listen for receipt data from POS (when opened from POS page)
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data && event.data.type === 'RECEIPT_PRINT_DATA') {
-        const { sale, type, customer } = event.data.payload;
-        sessionStorage.setItem('invoiceData', JSON.stringify(sale));
-        sessionStorage.setItem('receiptType', type);
-        if (customer) {
-          sessionStorage.setItem('customerId', customer.id);
-        }
+    // Apply a unified payload {sale, type, customer} to state + sessionStorage so refreshes still work.
+    const applyPrintPayload = (payload: any) => {
+      if (!payload) return;
+      const sale = payload.sale || payload.invoiceData;
+      const type = payload.type || payload.receiptType;
+      const customer = payload.customer;
+      if (sale) {
+        try { sessionStorage.setItem('invoiceData', JSON.stringify(sale)); } catch {}
+        // Carry customerId onto the sale object if missing.
+        if (!sale.customerId && customer && customer.id) sale.customerId = customer.id;
+        setSaleData(sale);
+      }
+      if (type === 'thermal' || type === 'a4') {
+        try { sessionStorage.setItem('receiptType', type); } catch {}
+        setReceiptType(type);
+      }
+      if (customer && customer.id) {
+        try { sessionStorage.setItem('customerId', String(customer.id)); } catch {}
       }
     };
-    
+
+    // Listen for receipt data from POS (popup mode)
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'RECEIPT_PRINT_DATA') {
+        applyPrintPayload(event.data.payload);
+      }
+    };
+
     // Listen for invoice data from parent window (when opened from SalesHistory/ServiceHistory)
     const handleInvoiceMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'INVOICE_DATA') {
-        const { invoiceData, receiptType } = event.data.payload;
-        // Store in sessionStorage for use in this window
-        if (invoiceData) {
-          sessionStorage.setItem('invoiceData', JSON.stringify(invoiceData));
-        }
-        if (receiptType) {
-          sessionStorage.setItem('receiptType', receiptType);
-        }
+        const { invoiceData, receiptType } = event.data.payload || {};
+        applyPrintPayload({ sale: invoiceData, type: receiptType });
       }
     };
-    
+
     window.addEventListener('message', handleMessage);
     window.addEventListener('message', handleInvoiceMessage);
-    
-    // Get sale data from sessionStorage (passed from POS/SalesHistory/ServiceHistory)
-    const invoiceDataStr = sessionStorage.getItem('invoiceData');
-    const receiptTypeStr = sessionStorage.getItem('receiptType');
-    const customerIdStr = sessionStorage.getItem('customerId');
-    
-    if (invoiceDataStr) {
-      try {
-        const parsedData = JSON.parse(invoiceDataStr);
-        // Ensure customerId is included from sessionStorage if not in data
-        if (!parsedData.customerId && customerIdStr) {
-          parsedData.customerId = customerIdStr;
-        }
-        setSaleData(parsedData);
-      } catch (e) {
-        console.error('Failed to parse sale data from sessionStorage', e);
-      }
-    }
 
-    if (receiptTypeStr && (receiptTypeStr === 'thermal' || receiptTypeStr === 'a4')) {
-      setReceiptType(receiptTypeStr);
+    // Get sale data from sessionStorage (passed from POS/SalesHistory/ServiceHistory)
+    // POS writes a unified key `receiptPrintData`; older paths use separate keys.
+    const printDataStr = sessionStorage.getItem('receiptPrintData');
+    if (printDataStr) {
+      try {
+        applyPrintPayload(JSON.parse(printDataStr));
+      } catch (e) {
+        console.error('Failed to parse receiptPrintData from sessionStorage', e);
+      }
+    } else {
+      const invoiceDataStr = sessionStorage.getItem('invoiceData');
+      const receiptTypeStr = sessionStorage.getItem('receiptType');
+      const customerIdStr = sessionStorage.getItem('customerId');
+      if (invoiceDataStr) {
+        try {
+          const parsedData = JSON.parse(invoiceDataStr);
+          if (!parsedData.customerId && customerIdStr) {
+            parsedData.customerId = customerIdStr;
+          }
+          setSaleData(parsedData);
+        } catch (e) {
+          console.error('Failed to parse sale data from sessionStorage', e);
+        }
+      }
+      if (receiptTypeStr === 'thermal' || receiptTypeStr === 'a4') {
+        setReceiptType(receiptTypeStr);
+      }
     }
 
     return () => {
@@ -251,14 +268,38 @@ const PrintReceipt = () => {
                 <span>Subtotal</span>
                 <span>{fmtCurrency(saleData.subtotal, 2)}</span>
               </div>
-              <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
-                <span>VAT ({settings.vatRate}%)</span>
-                <span>{fmtCurrency(saleData.vat, 2)}</span>
-              </div>
+              {Number(saleData.vat) > 0 && (
+                <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                  <span>VAT ({settings.vatRate}%)</span>
+                  <span>{fmtCurrency(saleData.vat, 2)}</span>
+                </div>
+              )}
+              {Number(saleData.deliveryFee || saleData.delivery_fee) > 0 && (
+                <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                  <span>Delivery Fee</span>
+                  <span>{fmtCurrency(Number(saleData.deliveryFee || saleData.delivery_fee), 2)}</span>
+                </div>
+              )}
               <div className={`flex justify-between mt-2 ${is50mm ? 'font-black text-base' : 'text-sm font-bold'}`} style={{fontWeight: is50mm ? 900 : 700}}>
                 <span>TOTAL</span>
                 <span>{fmtCurrency(Number(saleData.total), 2)}</span>
               </div>
+              {!(saleData.isProforma || saleData.is_proforma) && (() => {
+                const paid = Number((saleData as any).amountPaid ?? (saleData as any).amount_paid ?? saleData.total) || 0;
+                const bal = Number((saleData as any).balance ?? Math.max(0, Number(saleData.total || 0) - paid)) || 0;
+                return (
+                  <>
+                    <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                      <span>Amount Paid</span>
+                      <span>{fmtCurrency(paid, 2)}</span>
+                    </div>
+                    <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-bold'}`} style={{ color: bal > 0 ? '#be123c' : '#047857' }}>
+                      <span>Balance</span>
+                      <span>{fmtCurrency(bal, 2)}</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className={`mt-8 text-center text-gray-400 ${is50mm ? 'text-[6px] font-bold' : 'text-xs'}`}>
@@ -414,16 +455,32 @@ const PrintReceipt = () => {
                       <span>{fmtCurrency(saleData.vat, 2)}</span>
                     </div>
                   )}
-                  {saleData.deliveryFee ? (
+                  {Number(saleData.deliveryFee || saleData.delivery_fee) > 0 ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: '13px', marginBottom: '8px' }}>
-                      <span>Delivery</span>
-                      <span>{fmtCurrency(saleData.deliveryFee, 2)}</span>
+                      <span>Delivery Fee</span>
+                      <span>{fmtCurrency(Number(saleData.deliveryFee || saleData.delivery_fee), 2)}</span>
                     </div>
                   ) : null}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: 'bold', color: '#1e293b', borderTop: '1px solid #1e293b', paddingTop: '10px' }}>
                     <span>Total: </span>
                     <span>{settings.currency}{fmtCurrency(saleData.total, 2)}</span>
                   </div>
+                  {!(saleData.isProforma || saleData.is_proforma) && (() => {
+                    const paid = Number((saleData as any).amountPaid ?? (saleData as any).amount_paid ?? saleData.total) || 0;
+                    const bal = Number((saleData as any).balance ?? Math.max(0, Number(saleData.total || 0) - paid)) || 0;
+                    return (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: '13px', marginTop: '8px' }}>
+                          <span>Amount Paid</span>
+                          <span>{settings.currency}{fmtCurrency(paid, 2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 'bold', color: bal > 0 ? '#be123c' : '#047857', marginTop: '4px' }}>
+                          <span>Balance</span>
+                          <span>{settings.currency}{fmtCurrency(bal, 2)}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 

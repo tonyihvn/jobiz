@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import DataTable, { Column } from '../components/Shared/DataTable';
 import db from '../services/apiClient';
 import { Product, Supplier, TransactionType, Transaction, Location } from '../types';
-import { PackagePlus, AlertTriangle, Save, X, Plus, Trash2, Package, History, Edit2 } from 'lucide-react';
+import { PackagePlus, AlertTriangle, Save, X, Plus, Trash2, Package, History, Edit2, Info } from 'lucide-react';
 import { useCurrency } from '../services/CurrencyContext';
 import { useContextBusinessId } from '../services/useContextBusinessId';
 import { useBusinessContext } from '../services/BusinessContext';
@@ -34,6 +34,11 @@ const Stock: React.FC = () => {
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [editStockValue, setEditStockValue] = useState<number>(0);
     const [editUnitValue, setEditUnitValue] = useState<string>('');
+    // Move stock between locations (within Edit modal)
+    const [moveFromLoc, setMoveFromLoc] = useState<string>('');
+    const [moveToLoc, setMoveToLoc] = useState<string>('');
+    const [moveQty, setMoveQty] = useState<number>(0);
+    const [movingStock, setMovingStock] = useState<boolean>(false);
 
     const { symbol } = useCurrency();
 
@@ -172,7 +177,42 @@ const Stock: React.FC = () => {
     const removeItemRow = (idx: number) => setItems(items.filter((_, i) => i !== idx));
     const updateItemRow = (idx: number, field: string, value: any) => { const newItems = [...items]; (newItems[idx] as any)[field] = value; setItems(newItems); };
 
-    const openEditProduct = (p: Product) => { setEditingProduct(p); setEditStockValue(p.stock || 0); setEditUnitValue(p.unit || 'pcs'); };
+    const openEditProduct = (p: Product) => {
+        setEditingProduct(p);
+        setEditStockValue(p.stock || 0);
+        setEditUnitValue(p.unit || 'pcs');
+        // Default move source to the first location that holds stock for this product, fall back to first location
+        const entries = stockByProduct[p.id] || [];
+        const firstWithStock = entries.find(e => Number(e.quantity) > 0);
+        const fallbackFrom = firstWithStock ? firstWithStock.locationId : (entries[0]?.locationId || (locations[0]?.id || ''));
+        setMoveFromLoc(fallbackFrom);
+        const firstOther = (locations.find(l => l.id !== fallbackFrom)?.id) || '';
+        setMoveToLoc(firstOther);
+        setMoveQty(0);
+    };
+
+    const handleMoveStock = async () => {
+        if (!editingProduct) return;
+        if (!moveFromLoc || !moveToLoc) { alert('Please select both source and destination locations.'); return; }
+        if (moveFromLoc === moveToLoc) { alert('Source and destination must be different.'); return; }
+        const qty = Number(moveQty);
+        if (!qty || qty <= 0) { alert('Enter a valid quantity to move.'); return; }
+        const available = (stockByProduct[editingProduct.id] || []).find(e => e.locationId === moveFromLoc)?.quantity || 0;
+        if (qty > Number(available)) { alert(`Only ${available} available at the source location.`); return; }
+        setMovingStock(true);
+        try {
+            if (db.stock && db.stock.move) {
+                await db.stock.move(editingProduct.id, moveFromLoc, moveToLoc, qty);
+            }
+            await refreshData();
+            setMoveQty(0);
+        } catch (e: any) {
+            console.error('Failed to move stock', e);
+            alert('Failed to move stock' + (e && e.message ? `: ${e.message}` : ''));
+        } finally {
+            setMovingStock(false);
+        }
+    };
 
     const handleSaveEditProduct = async () => {
         if (!editingProduct) return;
@@ -191,14 +231,54 @@ const Stock: React.FC = () => {
     };
 
     const handleRestock = async () => {
-        if (!selectedSupplier || items.length === 0 || items.some(i => !i.productId || i.qty <= 0)) { alert("Please fill in all fields correctly."); return; }
+        const supplierInput = (selectedSupplier || '').trim();
+        if (!supplierInput || items.length === 0 || items.some(i => !i.productId || i.qty <= 0)) { alert("Please fill in all fields correctly."); return; }
         if (!selectedLocation) { alert('Please select a location to receive stock'); return; }
+
+        // Resolve supplier: existing by id, existing by name (case-insensitive), or create new
+        let supplierId = '';
+        let supplierName = supplierInput;
+        const byId = suppliers.find(s => s.id === supplierInput);
+        if (byId) {
+            supplierId = byId.id;
+            supplierName = byId.name;
+        } else {
+            const byName = suppliers.find(s => (s.name || '').trim().toLowerCase() === supplierInput.toLowerCase());
+            if (byName) {
+                supplierId = byName.id;
+                supplierName = byName.name;
+            } else {
+                try {
+                    const created = await db.suppliers.add({
+                        businessId: businessId || '',
+                        name: supplierInput,
+                        contactPerson: '',
+                        phone: '',
+                        email: '',
+                        address: ''
+                    });
+                    if (created && (created.id || created.insertId)) {
+                        supplierId = created.id || String(created.insertId);
+                        supplierName = supplierInput;
+                        // Refresh local supplier list so the new entry shows on next open
+                        try {
+                            const sups = await db.suppliers.getAll(businessId || undefined);
+                            setSuppliers(sups || []);
+                        } catch (e) { /* ignore */ }
+                    }
+                } catch (e) {
+                    console.error('Failed to create new supplier', e);
+                    alert('Could not create supplier. Please try again.');
+                    return;
+                }
+            }
+        }
 
         let totalCost = 0;
         const particulars: string[] = [];
 
         for (const item of items) {
-            try { await db.stock.increase(item.productId, selectedLocation, item.qty, selectedSupplier || undefined, invoiceNo || undefined, invoiceNo || undefined, restockNotes || undefined); } catch (e) { console.error('Failed to increase stock', e); }
+            try { await db.stock.increase(item.productId, selectedLocation, item.qty, supplierId || undefined, invoiceNo || undefined, invoiceNo || undefined, restockNotes || undefined); } catch (e) { console.error('Failed to increase stock', e); }
             const pName = products.find(p => p.id === item.productId)?.name;
             particulars.push(`${pName} (x${item.qty})`);
             totalCost += Number(item.cost);
@@ -214,7 +294,7 @@ const Stock: React.FC = () => {
             amount: totalCost,
             particulars: `Inv#${invoiceNo}: ${particulars.join(', ')}`,
             paidBy: 'Company Account',
-            receivedBy: suppliers.find(s=>s.id===selectedSupplier)?.name || 'Supplier',
+            receivedBy: supplierName || 'Supplier',
             approvedBy: 'Admin'
         };
         try { await db.transactions.add(tx); } catch (e) { console.error('Failed to add transaction', e); }
@@ -228,7 +308,8 @@ const Stock: React.FC = () => {
 
     const columns: Column<Product>[] = [
         { header: 'Product', accessor: 'name', key: 'name', sortable: true, filterable: true },
-        { header: 'Category', accessor: 'categoryGroup', key: 'categoryGroup', filterable: true },
+        { header: 'Category', accessor: (p: Product) => (p as any).categoryName || (p as any).category_name || '-', key: 'categoryName', sortable: true, filterable: true },
+        { header: 'Group', accessor: 'categoryGroup', key: 'categoryGroup', filterable: true },
         { header: 'Locations', accessor: (p: Product) => (
                 <div className="text-sm">
                     {(stockByProduct[p.id] || []).length === 0 ? (
@@ -318,13 +399,30 @@ const Stock: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Supplier</label>
-                                    <select className="w-full border rounded p-2" value={selectedSupplier} onChange={e => setSelectedSupplier(e.target.value)}>
-                                        <option value="">Select Supplier...</option>
-                                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </select>
+                                    <input
+                                        type="text"
+                                        list="restock-supplier-options"
+                                        className="w-full border rounded p-2"
+                                        placeholder="Type or select supplier..."
+                                        value={selectedSupplier}
+                                        onChange={e => setSelectedSupplier(e.target.value)}
+                                    />
+                                    <datalist id="restock-supplier-options">
+                                        {suppliers.map(s => <option key={s.id} value={s.name} />)}
+                                    </datalist>
+                                    <p className="text-[11px] text-slate-500 mt-1">Type a new name and we'll create the supplier automatically.</p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+                                    <label className="flex items-center gap-1 text-sm font-medium text-slate-700 mb-1">
+                                        Location
+                                        <span
+                                            className="inline-flex items-center text-slate-400 hover:text-slate-600 cursor-help"
+                                            title="A product can be stocked in multiple locations. Select the location where this supply is being received / stored."
+                                            aria-label="Location info"
+                                        >
+                                            <Info size={14} />
+                                        </span>
+                                    </label>
                                     <select className="w-full border rounded p-2" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}>
                                         <option value="">Select Location...</option>
                                         {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -395,6 +493,57 @@ const Stock: React.FC = () => {
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
                                 <input type="text" className="w-full border rounded p-2" value={editUnitValue} onChange={e => setEditUnitValue(e.target.value)} />
                             </div>
+
+                            {/* Per-location breakdown + move stock between locations */}
+                            <div className="border-t pt-3 mt-2">
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-sm font-medium text-slate-700">Stock by Location</label>
+                                    <span className="text-xs text-slate-500">Move quantity across locations</span>
+                                </div>
+                                {(stockByProduct[editingProduct.id] || []).length === 0 ? (
+                                    <div className="text-xs text-slate-500 mb-2">No location entries yet.</div>
+                                ) : (
+                                    <div className="text-xs text-slate-600 space-y-1 mb-2">
+                                        {(stockByProduct[editingProduct.id] || []).map(s => {
+                                            const loc = locations.find(l => l.id === s.locationId);
+                                            return (
+                                                <div key={s.locationId} className="flex justify-between">
+                                                    <span>{loc ? loc.name : s.locationId}</span>
+                                                    <span className="font-medium">{s.quantity}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 mb-1">From</label>
+                                        <select className="w-full border rounded p-2 text-sm" value={moveFromLoc} onChange={e => setMoveFromLoc(e.target.value)}>
+                                            <option value="">Select...</option>
+                                            {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 mb-1">To</label>
+                                        <select className="w-full border rounded p-2 text-sm" value={moveToLoc} onChange={e => setMoveToLoc(e.target.value)}>
+                                            <option value="">Select...</option>
+                                            {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-slate-600 mb-1">Qty</label>
+                                        <input type="number" min={0} className="w-full border rounded p-2 text-sm" value={moveQty} onChange={e => setMoveQty(Number(e.target.value))} />
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={handleMoveStock}
+                                    disabled={movingStock || !moveFromLoc || !moveToLoc || moveFromLoc === moveToLoc || !moveQty}
+                                    className="mt-2 w-full bg-amber-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {movingStock ? 'Moving...' : 'Move Stock'}
+                                </button>
+                            </div>
+
                             <div className="flex justify-end gap-2 mt-4">
                                 <button onClick={() => setEditingProduct(null)} className="px-4 py-2 border rounded">Cancel</button>
                                 <button onClick={handleSaveEditProduct} className="px-4 py-2 bg-brand-600 text-white rounded">Save</button>

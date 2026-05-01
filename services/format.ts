@@ -5,7 +5,7 @@ export function fmt(value: any, decimals = 2) {
 }
 
 export function fmtCurrency(value: any, decimals = 2) {
-  const symbol = (typeof window !== 'undefined' && localStorage.getItem('omnisales_currency')) || '$';
+  const symbol = (typeof window !== 'undefined' && localStorage.getItem('omnisales_currency')) || '₦';
   return `${symbol}${fmt(value, decimals)}`;
 }
 

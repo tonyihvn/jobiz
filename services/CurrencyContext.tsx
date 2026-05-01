@@ -5,16 +5,16 @@ type CurrencyContextValue = {
   setSymbol: (s: string) => void;
 };
 
-const CurrencyContext = createContext<CurrencyContextValue>({ symbol: '$', setSymbol: () => {} });
+const CurrencyContext = createContext<CurrencyContextValue>({ symbol: '₦', setSymbol: () => {} });
 
 export const CurrencyProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
   const [symbol, setSymbolState] = useState<string>(() => {
     try {
       if (typeof window !== 'undefined') {
-        return localStorage.getItem('omnisales_currency') || '$';
+        return localStorage.getItem('omnisales_currency') || '₦';
       }
     } catch (e) {}
-    return '$';
+    return '₦';
   });
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export const CurrencyProvider: React.FC<React.PropsWithChildren<{}>> = ({ childr
     } catch (e) {}
   }, [symbol]);
 
-  const setSymbol = (s: string) => setSymbolState(s || '$');
+  const setSymbol = (s: string) => setSymbolState(s || '₦');
 
   return (
     <CurrencyContext.Provider value={{ symbol, setSymbol }}>

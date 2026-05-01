@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getToken } from '../services/auth';
 
 interface LandingPlan {
   name: string;
@@ -13,6 +14,25 @@ interface PaymentPlan extends LandingPlan {
   id: string;
   description: string;
 }
+
+const FREE_PLAN: PaymentPlan = {
+  id: 'free',
+  name: 'Free',
+  price: 0,
+  period: 'forever',
+  features: [
+    '1 User',
+    'Basic POS',
+    'Up to 25 Products',
+    'Community Support'
+  ],
+  description: 'Get started at no cost'
+};
+
+const ensureFreePlan = (list: PaymentPlan[]): PaymentPlan[] => {
+  const hasFree = list.some(p => (p.id || '').toLowerCase() === 'free' || String(p.name || '').toLowerCase() === 'free');
+  return hasFree ? list : [FREE_PLAN, ...list];
+};
 
 export default function PaymentRegistration() {
   const navigate = useNavigate();
@@ -47,17 +67,21 @@ export default function PaymentRegistration() {
             recommended: plan.recommended || false,
             description: plan.features?.[0] || 'Business plan'
           }));
-          setPlans(transformedPlans);
+          setPlans(ensureFreePlan(transformedPlans));
+        } else {
+          setPlans([FREE_PLAN]);
         }
+      } else {
+        setPlans([FREE_PLAN]);
       }
     } catch (err) {
       console.error('Failed to fetch plans:', err);
       // Fallback to default plans if API fails
-      setPlans([
+      setPlans(ensureFreePlan([
         { id: 'starter', name: 'Starter', price: 29, period: '/mo', features: ['1 User Admin', 'Basic POS', 'Inventory Mgmt', '100 Products', 'Email Support'], description: 'Perfect for small businesses' },
         { id: 'professional', name: 'Professional', price: 79, period: '/mo', features: ['5 Users', 'Advanced POS & Returns', 'Finance Module', 'Unlimited Products', 'Priority Support', 'Membership System'], recommended: true, description: 'For growing businesses' },
         { id: 'enterprise', name: 'Enterprise', price: 'Custom', period: '', features: ['Unlimited Users', 'Multi-Branch Support', 'Dedicated Manager', 'API Access', 'White Labeling'], description: 'For large organizations' }
-      ]);
+      ]));
     } finally {
       setPlansLoading(false);
     }
@@ -70,7 +94,49 @@ export default function PaymentRegistration() {
       ? 0 
       : Number(plan.price);
     setAmount(planPrice);
+
+    // If this is the free plan, activate immediately and skip payment
+    const isFree = plan.id === 'free' || String(plan.name || '').toLowerCase() === 'free' || planPrice === 0;
+    if (isFree) {
+      activateFreePlan();
+      return;
+    }
+
     setStep('payment');
+  };
+
+  const activateFreePlan = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/activate-free-plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      if (response.ok) {
+        setStep('success');
+        setTimeout(() => {
+          navigate('/');
+        }, 2000);
+      } else {
+        let msg = 'Failed to activate free plan';
+        try {
+          const data = await response.json();
+          msg = data.error || msg;
+        } catch {}
+        setError(msg);
+        setStep('plan');
+      }
+    } catch (err) {
+      console.error('Activate free plan error:', err);
+      setError('An error occurred while activating the free plan.');
+      setStep('plan');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePaymentSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -140,49 +206,76 @@ export default function PaymentRegistration() {
         {/* Plan Selection Step */}
         {step === 'plan' && (
           <div>
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+                {error}
+              </div>
+            )}
             {plansLoading ? (
               <div className="text-center py-12">
                 <p className="text-gray-600">Loading plans...</p>
               </div>
             ) : (
               <div className="grid md:grid-cols-3 gap-6 mb-8">
-                {plans.map((plan) => (
-                  <button
-                    key={plan.id}
-                    onClick={() => handlePlanSelect(plan)}
-                    className={`p-6 rounded-lg transition transform hover:scale-105 ${
-                      selectedPlan === plan.id
-                        ? 'bg-indigo-600 text-white shadow-lg'
-                        : 'bg-white text-gray-900 shadow-md hover:shadow-lg'
-                    }`}
-                  >
-                    {plan.recommended && (
-                      <div className="mb-2 inline-block px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full">
-                        RECOMMENDED
-                      </div>
-                    )}
-                    <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
-                    <p className="text-3xl font-bold mb-2">
-                      {typeof plan.price === 'string' && plan.price.toLowerCase() === 'custom' 
-                        ? 'Custom' 
-                        : `₦${Number(plan.price).toFixed(2)}`}
-                    </p>
-                    {plan.period && <p className="text-sm text-gray-500 mb-2">{plan.period}</p>}
-                    <p className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600 text-sm'}>{plan.description}</p>
-                    {plan.features && plan.features.length > 0 && (
-                      <ul className="text-sm mt-4 space-y-1">
-                        {plan.features.slice(0, 3).map((feature, idx) => (
-                          <li key={idx} className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600'}>
-                            • {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <button className="mt-4 w-full py-2 rounded bg-opacity-20 hover:bg-opacity-30 transition">
-                      Select
+                {plans.map((plan) => {
+                  const isFree = plan.id === 'free' || String(plan.name || '').toLowerCase() === 'free' || Number(plan.price) === 0;
+                  const priceLabel = typeof plan.price === 'string' && plan.price.toLowerCase() === 'custom'
+                    ? 'Custom'
+                    : isFree
+                      ? 'Free'
+                      : `₦${Number(plan.price).toFixed(2)}`;
+                  return (
+                    <button
+                      key={plan.id}
+                      onClick={() => handlePlanSelect(plan)}
+                      disabled={loading}
+                      className={`p-6 rounded-lg transition transform hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed text-left ${
+                        selectedPlan === plan.id
+                          ? 'bg-indigo-600 text-white shadow-lg'
+                          : isFree
+                            ? 'bg-white text-gray-900 shadow-md hover:shadow-lg ring-2 ring-emerald-400'
+                            : 'bg-white text-gray-900 shadow-md hover:shadow-lg'
+                      }`}
+                    >
+                      {plan.recommended && (
+                        <div className="mb-2 inline-block px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full">
+                          RECOMMENDED
+                        </div>
+                      )}
+                      {isFree && !plan.recommended && (
+                        <div className="mb-2 inline-block px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+                          FREE FOREVER
+                        </div>
+                      )}
+                      <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
+                      <p className="text-3xl font-bold mb-2">{priceLabel}</p>
+                      {plan.period && <p className="text-sm text-gray-500 mb-2">{plan.period}</p>}
+                      <p className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600 text-sm'}>{plan.description}</p>
+                      {plan.features && plan.features.length > 0 && (
+                        <ul className="text-sm mt-4 space-y-1">
+                          {plan.features.slice(0, 5).map((feature, idx) => (
+                            <li key={idx} className={selectedPlan === plan.id ? 'text-indigo-100' : 'text-gray-600'}>
+                              • {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <span className={`mt-4 inline-block w-full text-center py-2 rounded font-semibold ${
+                        isFree
+                          ? 'bg-emerald-500 text-white'
+                          : selectedPlan === plan.id
+                            ? 'bg-white/20 text-white'
+                            : 'bg-indigo-50 text-indigo-700'
+                      }`}>
+                        {loading && selectedPlan === plan.id
+                          ? 'Activating...'
+                          : isFree
+                            ? 'Start Free'
+                            : 'Select'}
+                      </span>
                     </button>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

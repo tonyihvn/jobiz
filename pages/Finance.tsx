@@ -5,7 +5,7 @@ import db from '../services/apiClient';
 import { Transaction, TransactionType, AccountHead, Employee, Role, Customer, Supplier } from '../types';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
-import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2 } from 'lucide-react';
+import { PlusCircle, MinusCircle, Users, Wallet, FileText, Plus, X, Save, Upload, Edit2, Trash2, DollarSign, Scale } from 'lucide-react';
 import RichTextEditor from '../components/Shared/RichTextEditor';
 import { useContextBusinessId } from '../services/useContextBusinessId';
 import { useBusinessContext } from '../services/BusinessContext';
@@ -15,7 +15,7 @@ const Finance = () => {
     const { businessId } = useContextBusinessId();
     const { selectedBusinessId } = useBusinessContext();
     const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'transactions' | 'heads' | 'personnel'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'heads' | 'personnel' | 'debtors' | 'balance-sheet'>('transactions');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accountHeads, setAccountHeads] = useState<AccountHead[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -32,6 +32,11 @@ const Finance = () => {
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showHeadModal, setShowHeadModal] = useState(false);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  // Debtor payment modal
+  const [payingSale, setPayingSale] = useState<any>(null);
+  const [payAmount, setPayAmount] = useState<string>('');
+  const [payNote, setPayNote] = useState<string>('');
+  const [paySaving, setPaySaving] = useState(false);
 
   // Form State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -377,7 +382,7 @@ const Finance = () => {
                     <option value="year">This Year</option>
                 </select>
             )}
-            {(activeTab !== 'personnel' || canManagePersonnel()) && (
+            {(activeTab !== 'personnel' || canManagePersonnel()) && activeTab !== 'debtors' && activeTab !== 'balance-sheet' && (
               <button 
               onClick={() => {
                   setEditingId(null);
@@ -409,7 +414,7 @@ const Finance = () => {
         </div>
       </div>
 
-      <div className="flex gap-4 border-b border-slate-200">
+      <div className="flex gap-4 border-b border-slate-200 flex-wrap">
         <button 
           onClick={() => setActiveTab('transactions')}
           className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'transactions' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
@@ -421,6 +426,18 @@ const Finance = () => {
           className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'heads' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
         >
           <FileText size={18} /> Account Heads
+        </button>
+        <button 
+          onClick={() => setActiveTab('debtors')}
+          className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'debtors' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          <DollarSign size={18} /> Debtors
+        </button>
+        <button 
+          onClick={() => setActiveTab('balance-sheet')}
+          className={`pb-3 px-1 flex items-center gap-2 font-medium text-sm transition-colors ${activeTab === 'balance-sheet' ? 'border-b-2 border-brand-600 text-brand-600' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          <Scale size={18} /> Balance Sheet
         </button>
         {canAccessPersonnelTab() && (
           <button 
@@ -434,11 +451,174 @@ const Finance = () => {
 
       {activeTab === 'transactions' && <DataTable data={transactions} columns={transactionColumns} title="General Ledger" />}
       {activeTab === 'heads' && <DataTable data={accountHeads} columns={headColumns} title="Chart of Accounts" />}
+      {activeTab === 'debtors' && (() => {
+          const debtors = (sales || []).filter((s: any) => !(s.isProforma || s.is_proforma) && Number(s.balance ?? Math.max(0, Number(s.total||0) - Number(s.amountPaid ?? s.amount_paid ?? s.total))) > 0);
+          const debtorRows = debtors.map((s: any) => {
+              const cust = customers.find((c: Customer) => c.id === (s.customerId || s.customer_id));
+              const total = Number(s.total || 0);
+              const paid = Number(s.amountPaid ?? s.amount_paid ?? 0);
+              const balance = Number(s.balance ?? Math.max(0, total - paid));
+              return { ...s, _customerName: cust ? (cust.name || 'Unnamed') : 'Walk-in Customer', _total: total, _paid: paid, _balance: balance };
+          });
+          const totalOwed = debtorRows.reduce((a: number, b: any) => a + Number(b._balance || 0), 0);
+          const debtorColumns: Column<any>[] = [
+              { header: 'Date', accessor: (r: any) => new Date(r.date).toLocaleDateString(), key: 'date', sortable: true, filterable: true },
+              { header: 'Invoice No.', accessor: (r: any) => <span className="font-mono text-xs">{String(r.id).slice(-8)}</span>, key: 'id', filterable: true },
+              { header: 'Customer', accessor: (r: any) => r._customerName, key: '_customerName', sortable: true, filterable: true },
+              { header: 'Total', accessor: (r: any) => <span className="font-mono">{symbol}{fmt(r._total, 2)}</span>, key: '_total', sortable: true },
+              { header: 'Amount Paid', accessor: (r: any) => <span className="font-mono text-emerald-600">{symbol}{fmt(r._paid, 2)}</span>, key: '_paid', sortable: true },
+              { header: 'Balance', accessor: (r: any) => <span className="font-mono font-bold text-rose-600">{symbol}{fmt(r._balance, 2)}</span>, key: '_balance', sortable: true },
+              { header: 'Action', accessor: (r: any) => (
+                  <button onClick={() => { setPayingSale(r); setPayAmount(String(r._balance)); setPayNote(''); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded inline-flex items-center gap-1">
+                      <DollarSign size={14}/> Pay
+                  </button>
+              ), key: 'pay' }
+          ];
+          return (
+              <div className="space-y-3">
+                  <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 flex justify-between items-center">
+                      <div>
+                          <div className="text-xs uppercase tracking-wide text-rose-600 font-semibold">Total Outstanding Balance</div>
+                          <div className="text-3xl font-bold text-rose-700 mt-1">{symbol}{fmt(totalOwed, 2)}</div>
+                      </div>
+                      <div className="text-sm text-rose-700">{debtorRows.length} debtor{debtorRows.length === 1 ? '' : 's'}</div>
+                  </div>
+                  <DataTable data={debtorRows} columns={debtorColumns} title="Debtors (Outstanding Sales/Services)" />
+              </div>
+          );
+      })()}
+      {activeTab === 'balance-sheet' && (() => {
+          const _norm = (v: any) => String(v || '').toLowerCase();
+          const allTx = transactions || [];
+          const totalInflow = allTx.filter(t => _norm(t.type) === String(TransactionType.INFLOW).toLowerCase()).reduce((a, b) => a + (Number(b.amount) || 0), 0);
+          const totalExpenditure = allTx.filter(t => _norm(t.type) === String(TransactionType.EXPENDITURE).toLowerCase()).reduce((a, b) => a + (Number(b.amount) || 0), 0);
+          const realSales = (sales || []).filter((s: any) => !(s.isProforma || s.is_proforma));
+          const totalSales = realSales.reduce((a: number, s: any) => a + Number(s.total || 0), 0);
+          const accountsReceivable = realSales.reduce((a: number, s: any) => {
+              const total = Number(s.total || 0);
+              const paid = Number(s.amountPaid ?? s.amount_paid ?? total);
+              const bal = Number(s.balance ?? Math.max(0, total - paid));
+              return a + bal;
+          }, 0);
+          const cashAndBank = totalInflow - totalExpenditure; // net cash position from transactions
+          const totalAssets = cashAndBank + accountsReceivable;
+          const retainedEarnings = totalSales - totalExpenditure;
+          const liabilities = 0;
+          const totalEquityAndLiab = liabilities + retainedEarnings;
+          // Reconciliation row makes the statement balance to the kobo when single-entry data is incomplete.
+          const reconcile = totalAssets - totalEquityAndLiab;
+          const grandEquity = totalEquityAndLiab + reconcile;
+          const today = new Date().toLocaleDateString();
+          return (
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-6">
+                  <div className="text-center border-b border-slate-200 pb-3 mb-4">
+                      <h2 className="text-xl font-bold text-slate-800">{settings?.name || 'Balance Sheet'}</h2>
+                      <p className="text-sm text-slate-500">Statement of Financial Position — as of {today}</p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Assets */}
+                      <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600 border-b border-slate-300 pb-1 mb-2">Assets</h3>
+                          <div className="space-y-1 text-sm">
+                              <div className="flex justify-between"><span>Cash & Bank</span><span className="font-mono">{symbol}{fmt(cashAndBank, 2)}</span></div>
+                              <div className="flex justify-between"><span>Accounts Receivable (Debtors)</span><span className="font-mono">{symbol}{fmt(accountsReceivable, 2)}</span></div>
+                          </div>
+                          <div className="flex justify-between border-t-2 border-slate-700 mt-3 pt-2 font-bold">
+                              <span>Total Assets</span>
+                              <span className="font-mono text-emerald-700">{symbol}{fmt(totalAssets, 2)}</span>
+                          </div>
+                      </div>
+                      {/* Liabilities + Equity */}
+                      <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600 border-b border-slate-300 pb-1 mb-2">Liabilities &amp; Equity</h3>
+                          <div className="space-y-1 text-sm">
+                              <div className="flex justify-between"><span>Total Liabilities</span><span className="font-mono">{symbol}{fmt(liabilities, 2)}</span></div>
+                              <div className="flex justify-between"><span>Retained Earnings (Sales − Expenditures)</span><span className="font-mono">{symbol}{fmt(retainedEarnings, 2)}</span></div>
+                              {Math.abs(reconcile) > 0.005 && (
+                                  <div className="flex justify-between text-slate-500 italic">
+                                      <span>Owner Capital / Reconciliation</span>
+                                      <span className="font-mono">{symbol}{fmt(reconcile, 2)}</span>
+                                  </div>
+                              )}
+                          </div>
+                          <div className="flex justify-between border-t-2 border-slate-700 mt-3 pt-2 font-bold">
+                              <span>Total Liabilities &amp; Equity</span>
+                              <span className="font-mono text-emerald-700">{symbol}{fmt(grandEquity, 2)}</span>
+                          </div>
+                      </div>
+                  </div>
+                  <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      <div className="bg-slate-50 p-3 rounded border"><div className="text-slate-500">Gross Sales</div><div className="font-bold text-slate-800">{symbol}{fmt(totalSales, 2)}</div></div>
+                      <div className="bg-slate-50 p-3 rounded border"><div className="text-slate-500">Cash Inflow (Tx)</div><div className="font-bold text-emerald-700">{symbol}{fmt(totalInflow, 2)}</div></div>
+                      <div className="bg-slate-50 p-3 rounded border"><div className="text-slate-500">Expenditure (Tx)</div><div className="font-bold text-rose-700">{symbol}{fmt(totalExpenditure, 2)}</div></div>
+                      <div className="bg-slate-50 p-3 rounded border"><div className="text-slate-500">Outstanding Receivable</div><div className="font-bold text-amber-700">{symbol}{fmt(accountsReceivable, 2)}</div></div>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-4">Note: Cash & Bank = recorded Inflow transactions − Expenditure transactions. Receivables = sum of unpaid sale balances. Statement is generated live from your transactions, sales and balances.</p>
+              </div>
+          );
+      })()}
       {canAccessPersonnelTab() && activeTab === 'personnel' && <DataTable data={employees} columns={employeeColumns} title="Employee Directory" />}
       {canAccessPersonnelTab() === false && activeTab === 'personnel' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
           <p className="text-yellow-800 font-medium">You don't have permission to access Personnel & Payroll</p>
           <p className="text-yellow-700 text-sm mt-2">Contact your administrator to grant you the necessary permissions.</p>
+        </div>
+      )}
+
+      {/* Debtor Pay Modal */}
+      {payingSale && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-slate-800">Receive Payment</h3>
+              <button onClick={() => setPayingSale(null)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+            <div className="bg-slate-50 border rounded p-3 mb-4 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-slate-500">Customer</span><span className="font-medium">{payingSale._customerName}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Invoice</span><span className="font-mono">#{String(payingSale.id).slice(-8)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Total</span><span className="font-mono">{symbol}{fmt(payingSale._total, 2)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Already Paid</span><span className="font-mono text-emerald-600">{symbol}{fmt(payingSale._paid, 2)}</span></div>
+              <div className="flex justify-between font-bold"><span>Outstanding Balance</span><span className="font-mono text-rose-600">{symbol}{fmt(payingSale._balance, 2)}</span></div>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Amount being paid ({symbol})</label>
+                <input type="number" min="0" step="0.01" max={payingSale._balance} className="w-full border rounded-lg p-2.5" value={payAmount} onChange={e => setPayAmount(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Note (optional)</label>
+                <input type="text" className="w-full border rounded-lg p-2.5" value={payNote} onChange={e => setPayNote(e.target.value)} placeholder="e.g. Paid in cash" />
+              </div>
+              <button
+                disabled={paySaving || !(Number(payAmount) > 0)}
+                onClick={async () => {
+                    const amt = Number(payAmount) || 0;
+                    if (!(amt > 0)) return;
+                    if (amt > Number(payingSale._balance) + 0.001) {
+                        alert('Amount exceeds outstanding balance.');
+                        return;
+                    }
+                    setPaySaving(true);
+                    try {
+                        const res: any = await (db as any).sales.pay(payingSale.id, amt, { note: payNote });
+                        if (res && res.error) {
+                            alert('Payment failed: ' + res.error);
+                        } else {
+                            setPayingSale(null);
+                            setPayAmount('');
+                            setPayNote('');
+                            await refreshData();
+                        }
+                    } catch (e: any) {
+                        alert('Payment failed: ' + (e?.message || String(e)));
+                    } finally {
+                        setPaySaving(false);
+                    }
+                }}
+                className="w-full bg-emerald-600 disabled:bg-slate-300 text-white py-3 rounded-lg font-bold hover:bg-emerald-700"
+              >{paySaving ? 'Processing...' : `Receive ${symbol}${fmt(Number(payAmount)||0, 2)}`}</button>
+            </div>
+          </div>
         </div>
       )}
 

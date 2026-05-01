@@ -8,7 +8,7 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 
 const Settings = () => {
     const { selectedBusinessId } = useBusinessContext();
-    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '$', loginRedirects: {}, landingContent: {}, invoiceNotes: '', openReceiptsInSameWindow: false, thermalPrinterWidth: '80mm' } as CompanySettings;
+    const emptySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', logoAlign: 'left', logoHeight: 80, headerImageUrl: '', headerImageHeight: 100, footerImageUrl: '', footerImageHeight: 60, footerImageTopMargin: 0, watermarkImageUrl: '', watermarkAlign: 'center', signatureUrl: '', vatRate: 0, currency: '₦', loginRedirects: {}, landingContent: {}, invoiceNotes: '', openReceiptsInSameWindow: false, thermalPrinterWidth: '80mm' } as CompanySettings;
     const [settings, setSettings] = useState<CompanySettings>(emptySettings);
     const [roles, setRoles] = useState<Role[]>([]);
     const [locations, setLocations] = useState<any[]>([]);

@@ -177,6 +177,8 @@ CREATE TABLE IF NOT EXISTS `sales` (
   `location_id` varchar(64) DEFAULT NULL,
   `is_return` tinyint(1) DEFAULT 0,
   `return_reason` text DEFAULT NULL,
+  `amount_paid` decimal(12,2) DEFAULT NULL,
+  `balance` decimal(12,2) DEFAULT 0.00,
   PRIMARY KEY (`id`),
   KEY `business_id` (`business_id`),
   CONSTRAINT `sales_ibfk_1` FOREIGN KEY (`business_id`) REFERENCES `businesses` (`id`) ON DELETE CASCADE
@@ -279,9 +281,18 @@ CREATE TABLE IF NOT EXISTS `plans` (
   `price` decimal(12,2) NOT NULL,
   `billing_interval` enum('monthly','yearly') DEFAULT 'monthly',
   `features` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`features`)),
+  `product_limit` int(11) DEFAULT NULL,
+  `service_limit` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `price` (`price`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS `app_config` (
+  `config_key` varchar(128) NOT NULL,
+  `config_value` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`config_value`)),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`config_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS `feedbacks` (
@@ -320,7 +331,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
   `footer_image_top_margin` int(11) DEFAULT 0,
   `signature_url` text DEFAULT NULL,
   `vat_rate` decimal(5,2) DEFAULT 0.00,
-  `currency` varchar(8) DEFAULT '$',
+  `currency` varchar(8) DEFAULT '₦',
   `default_location_id` varchar(64) DEFAULT NULL,
   `smtp_host` varchar(255) DEFAULT NULL,
   `smtp_port` int(11) DEFAULT NULL,
