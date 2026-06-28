@@ -109,7 +109,7 @@ const fileArg = process.argv[2] || path.join(__dirname, 'local_backup.json');
     if (Array.isArray(data.settings)) {
       for (const set of data.settings) {
         await conn.execute(`INSERT INTO settings (business_id, name, motto, address, phone, email, logo_url, header_image_url, footer_image_url, vat_rate, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), email=VALUES(email)`,
-          [set.businessId || set.business_id || null, set.name || null, set.motto || null, set.address || null, set.phone || null, set.email || null, set.logoUrl || set.logo_url || null, set.headerImageUrl || set.header_image_url || null, set.footerImageUrl || set.footer_image_url || null, set.vatRate || set.vat_rate || 0, set.currency || '$']);
+          [set.businessId || set.business_id || null, set.name || null, set.motto || null, set.address || null, set.phone || null, set.email || null, set.logoUrl || set.logo_url || null, set.headerImageUrl || set.header_image_url || null, set.footerImageUrl || set.footer_image_url || null, set.vatRate || set.vat_rate || 0, set.currency || '₦']);
       }
     }
 

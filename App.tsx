@@ -106,6 +106,7 @@ const Layout = ({ onLogout, lastLocation }: { onLogout: () => void; lastLocation
 const App = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isCompanyAdmin, setIsCompanyAdmin] = useState(false);
   const [isActiveBusiness, setIsActiveBusiness] = useState(false);
   const [lastLocation, setLastLocation] = useState<string | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -155,12 +156,33 @@ const App = () => {
           setIsAuthenticated(true);
           setIsSuperAdmin(!!user.is_super_admin);
           setIsActiveBusiness(true);
+          // Determine if this user is the Company Admin (the registering owner).
+          // Company admin = role named 'Admin' OR role with wildcard ('*:*' / '*' / 'x:*') permissions.
+          try {
+            if (user.is_super_admin) {
+              setIsCompanyAdmin(true);
+            } else if (user.businessId && user.roleId) {
+              const roles = await db.roles.getAll(user.businessId);
+              const role = Array.isArray(roles) ? roles.find((r: any) => r.id === user.roleId) : null;
+              const perms = role && role.permissions ? role.permissions : [];
+              const hasWildcard = Array.isArray(perms) && perms.some((p: string) => p === '*:*' || p === '*' || (typeof p === 'string' && p.endsWith(':*')));
+              const isAdminNamed = role && typeof role.name === 'string' && role.name.trim().toLowerCase() === 'admin';
+              setIsCompanyAdmin(!!(hasWildcard || isAdminNamed));
+            } else {
+              setIsCompanyAdmin(false);
+            }
+          } catch (e) {
+            console.warn('[App] Failed to determine company admin status', e);
+            setIsCompanyAdmin(false);
+          }
         } else {
           setIsAuthenticated(false);
+          setIsCompanyAdmin(false);
         }
       } catch (e) {
         console.error('Auth check failed:', e);
         setIsAuthenticated(false);
+        setIsCompanyAdmin(false);
       } finally {
         setIsAuthChecking(false);
       }
@@ -405,7 +427,7 @@ const App = () => {
                    <Route path="inventory/:group" element={<Inventory />} />
                    <Route path="stock" element={<Stock />} />
                    <Route path="suppliers" element={<Suppliers />} />
-                   <Route path="clients" element={<Customers />} />
+                 <Route path="clients" element={isCompanyAdmin ? <Customers /> : <Navigate to="/" />} />
                    <Route path="services/:group" element={<Services />} />
                    <Route path="courses" element={<Courses />} />
                    <Route path="sales-history" element={<SalesHistory />} />
@@ -415,9 +437,9 @@ const App = () => {
                  <Route path="tasks" element={<Tasks />} />
                  <Route path="reports" element={<Reports />} />
                  <Route path="audit-trails" element={<AuditTrails />} />
-                 <Route path="admin" element={<Admin />} />
+                 <Route path="admin" element={isCompanyAdmin ? <Admin /> : <Navigate to="/" />} />
                  <Route path="communications" element={<Communications />} />
-                 <Route path="settings" element={<Settings />} />
+                 <Route path="settings" element={isCompanyAdmin ? <Settings /> : <Navigate to="/" />} />
                  <Route path="categories" element={<CategoriesPage />} />
 
                    {/* Super Admin Routes - Only accessible to super admins */}

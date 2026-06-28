@@ -349,9 +349,22 @@ const db = {
     }
   },
   reports: {
-    getAll: () => authFetch('/api/reports').then(safeJson).catch(() => []),
+    getAll: () => authFetch('/api/reports').then(safeJson).then((rows: any) => {
+      if (!Array.isArray(rows)) return [];
+      return rows.map((r: any) => ({
+        ...r,
+        relatedTaskId: r.relatedTaskId !== undefined ? r.relatedTaskId : (r.related_task_id || null),
+        createdBy: r.createdBy !== undefined ? r.createdBy : (r.created_by || null),
+        createdAt: r.createdAt !== undefined ? r.createdAt : (r.created_at || null),
+        businessId: r.businessId !== undefined ? r.businessId : (r.business_id || null),
+      }));
+    }).catch(() => []),
     add: (r: any) => {
       const body = toSnake(r, { relatedTaskId: 'related_task_id', createdBy: 'created_by', createdAt: 'created_at', businessId: 'business_id' });
+      return authFetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
+    },
+    update: (id: string, r: any) => {
+      const body = toSnake({ ...r, id }, { relatedTaskId: 'related_task_id', createdBy: 'created_by', createdAt: 'created_at', businessId: 'business_id' });
       return authFetch('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
     },
     delete: (id: string) => authFetch(`/api/reports/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)

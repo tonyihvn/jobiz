@@ -4,7 +4,8 @@ import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 import { useBusinessContext } from '../services/BusinessContext';
 import { SaleRecord, Transaction, TransactionType } from '../types';
-import { DollarSign, TrendingUp, TrendingDown, ShoppingBag, BookOpen } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, ShoppingBag, BookOpen, ClipboardList, FileText } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import UserGuideModal from '../components/Shared/UserGuideModal';
 
@@ -33,6 +34,10 @@ const Dashboard = () => {
   const [settings, setSettings] = useState<any>(null);
   const [statsRange, setStatsRange] = useState<'week'|'month'|'year'>('week');
   const [isSuper, setIsSuper] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [showUserGuide, setShowUserGuide] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [guideDismissed, setGuideDismissed] = useState<boolean>(true);
@@ -64,6 +69,35 @@ const Dashboard = () => {
         const uid = currentUser?.id || currentUser?.email || null;
         setCurrentUserId(uid);
         refreshGuideDismissed(uid);
+
+        // Determine admin status (super admin OR role 'Admin' OR wildcard permissions)
+        let adminFlag = superFlag;
+        try {
+          if (!adminFlag && currentUser && currentUser.roleId) {
+            const roles = db.roles && db.roles.getAll ? await db.roles.getAll() : [];
+            const role = Array.isArray(roles) ? roles.find((r: any) => r.id === currentUser.roleId) : null;
+            const roleName = (role?.name || '').toString().toLowerCase();
+            const perms: string[] = Array.isArray(role?.permissions) ? role.permissions : [];
+            if (roleName === 'admin' || perms.includes('*') || perms.includes('*:*')) adminFlag = true;
+          }
+        } catch (re) { /* ignore */ }
+        if (mounted) setIsAdminUser(adminFlag);
+
+        // Load tasks, reports, employees for the new dashboard cards
+        try {
+          const [taskRows, reportRows, empRows] = await Promise.all([
+            db.tasks && db.tasks.getAll ? db.tasks.getAll(selectedBusinessId) : Promise.resolve([]),
+            db.reports && db.reports.getAll ? db.reports.getAll(selectedBusinessId) : Promise.resolve([]),
+            db.employees && db.employees.getAll ? db.employees.getAll(selectedBusinessId) : Promise.resolve([]),
+          ]);
+          if (mounted) {
+            setTasks(Array.isArray(taskRows) ? taskRows : []);
+            setReports(Array.isArray(reportRows) ? reportRows : []);
+            setEmployees(Array.isArray(empRows) ? empRows : []);
+          }
+        } catch (tre) {
+          console.warn('Failed to load tasks/reports for dashboard', tre);
+        }
 
         // Auto-show user guide for new users (no products + no sales) on first login.
         if (!superFlag) {
@@ -330,6 +364,93 @@ const Dashboard = () => {
             {sales.length === 0 && <p className="text-slate-400 text-center py-4">No recent activity.</p>}
           </div>
         </div>
+      </div>
+
+      {/* Tasks & Reports cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {(() => {
+          const uid = currentUserId;
+          const matchUser = (val: any) => uid != null && (String(val) === String(uid));
+          const visibleTasks = isAdminUser
+            ? tasks
+            : tasks.filter((t: any) => matchUser(t.assignedTo ?? t.assigned_to) || matchUser(t.createdBy ?? t.created_by));
+          const visibleReports = isAdminUser
+            ? reports
+            : reports.filter((r: any) => matchUser(r.createdBy ?? r.created_by));
+          const empName = (id: any) => {
+            const e = employees.find((x: any) => String(x.id) === String(id));
+            return e?.name || '';
+          };
+          const taskStatusColor = (s: string) => {
+            const v = (s || '').toLowerCase();
+            if (v.includes('complete')) return 'bg-emerald-100 text-emerald-700';
+            if (v.includes('progress')) return 'bg-amber-100 text-amber-700';
+            return 'bg-slate-100 text-slate-700';
+          };
+          return (
+            <>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-lg bg-indigo-500"><ClipboardList className="w-5 h-5 text-white" /></div>
+                    <h3 className="text-lg font-semibold">My Tasks</h3>
+                    <span className="ml-2 text-xs text-slate-500">{visibleTasks.length} total</span>
+                  </div>
+                  <Link to="/tasks" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View all →</Link>
+                </div>
+                <div className="space-y-3">
+                  {visibleTasks.slice(0, 5).map((t: any) => {
+                    const due = t.dateToComplete || t.date_to_complete;
+                    const assignee = t.assignedTo ?? t.assigned_to;
+                    return (
+                      <div key={t.id} className="flex items-start justify-between p-3 bg-slate-50 rounded-lg gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800 truncate">{t.title || 'Untitled task'}</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {assignee ? `Assigned to ${empName(assignee) || assignee}` : 'Unassigned'}
+                            {due ? ` · Due ${new Date(due).toLocaleDateString()}` : ''}
+                          </p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${taskStatusColor(t.status)}`}>{t.status || 'Pending'}</span>
+                      </div>
+                    );
+                  })}
+                  {visibleTasks.length === 0 && <p className="text-slate-400 text-center py-4">No tasks to show.</p>}
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-lg bg-sky-500"><FileText className="w-5 h-5 text-white" /></div>
+                    <h3 className="text-lg font-semibold">My Reports</h3>
+                    <span className="ml-2 text-xs text-slate-500">{visibleReports.length} total</span>
+                  </div>
+                  <Link to="/reports" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View all →</Link>
+                </div>
+                <div className="space-y-3">
+                  {visibleReports.slice(0, 5).map((r: any) => {
+                    const created = r.createdAt || r.created_at;
+                    const author = r.createdBy ?? r.created_by;
+                    return (
+                      <div key={r.id} className="flex items-start justify-between p-3 bg-slate-50 rounded-lg gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800 truncate">{r.title || 'Untitled report'}</p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {r.category ? `${r.category}` : 'Report'}
+                            {author ? ` · By ${empName(author) || author}` : ''}
+                            {created ? ` · ${new Date(created).toLocaleDateString()}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {visibleReports.length === 0 && <p className="text-slate-400 text-center py-4">No reports to show.</p>}
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

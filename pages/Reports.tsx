@@ -4,7 +4,7 @@ import RichTextEditor from '../components/Shared/RichTextEditor';
 import db from '../services/apiClient';
 import { authFetch } from '../services/auth';
 import { Report, Task } from '../types';
-import { Plus, X, Save, Trash2, FileText, Link, Download, BarChart3 } from 'lucide-react';
+import { Plus, X, Save, Trash2, FileText, Link, Download, BarChart3, Edit2 } from 'lucide-react';
 import { fmt } from '../services/format';
 import { useCurrency } from '../services/CurrencyContext';
 
@@ -35,6 +35,9 @@ const Reports = () => {
   const [selectedAccountHead, setSelectedAccountHead] = useState('');
   const [accountHeads, setAccountHeads] = useState<any[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
 
   useEffect(() => {
     (async () => { await refreshData(); })();
@@ -48,12 +51,45 @@ const Reports = () => {
       setReports(r || []);
       setTasks(t || []);
       setAccountHeads(heads || []);
+      try {
+        const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
+        setCurrentUser(u || null);
+        if (u) {
+          if (u.is_super_admin) setIsAdminUser(true);
+          else if (u.businessId && u.roleId && db.roles && db.roles.getAll) {
+            const roles = await db.roles.getAll(u.businessId);
+            const role = Array.isArray(roles) ? roles.find((rl: any) => rl.id === u.roleId) : null;
+            const perms = role && role.permissions ? role.permissions : [];
+            const wildcard = Array.isArray(perms) && perms.some((p: string) => p === '*:*' || p === '*' || (typeof p === 'string' && p.endsWith(':*')));
+            const named = role && typeof role.name === 'string' && role.name.trim().toLowerCase() === 'admin';
+            setIsAdminUser(!!(wildcard || named));
+          } else setIsAdminUser(false);
+        }
+      } catch (e) { /* ignore */ }
     } catch (e) {
       console.warn('Failed to refresh reports', e);
       setReports([]);
       setTasks([]);
       setAccountHeads([]);
     }
+  };
+
+  const canEditReport = (r: Report) => {
+    if (!currentUser) return false;
+    if (isAdminUser) return true;
+    return String((r as any).createdBy || '') === String(currentUser.id || '');
+  };
+
+  const handleEdit = (r: Report) => {
+    setEditingId(r.id);
+    setNewReport({
+      id: r.id,
+      title: r.title,
+      content: r.content,
+      relatedTaskId: (r as any).relatedTaskId,
+      category: r.category,
+    } as any);
+    setShowModal(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -66,25 +102,31 @@ const Reports = () => {
   const handleSave = async () => {
     if (!newReport.title || !newReport.content) return;
 
-    const currentUser = await (db.auth && db.auth.getCurrentUser ? db.auth.getCurrentUser() : Promise.resolve(null));
+    const user = currentUser || (await (db.auth && db.auth.getCurrentUser ? db.auth.getCurrentUser() : Promise.resolve(null)));
 
     const report: Report = {
-      id: Date.now().toString(),
-      businessId: (currentUser && currentUser.businessId) || '',
+      id: editingId || (newReport.id as string) || Date.now().toString(),
+      businessId: (user && user.businessId) || '',
       title: newReport.title!,
       content: newReport.content!,
       relatedTaskId: newReport.relatedTaskId,
-      createdBy: (currentUser && (currentUser.name || currentUser.email)) || 'Admin',
+      createdBy: (user && (user.name || user.email)) || 'Admin',
       createdAt: new Date().toISOString(),
       category: newReport.category || 'General'
     };
 
     try {
-      if (db.reports && db.reports.add) await db.reports.add(report);
-      else setReports(prev => [report, ...prev]);
-    } catch (e) { console.warn('Save report failed', e); setReports(prev => [report, ...prev]); }
+      if (editingId && db.reports && (db.reports as any).update) {
+        await (db.reports as any).update(editingId, report);
+      } else if (db.reports && db.reports.add) {
+        await db.reports.add(report);
+      } else {
+        setReports(prev => [report, ...prev]);
+      }
+    } catch (e) { console.warn('Save report failed', e); }
     setShowModal(false);
     setNewReport({});
+    setEditingId(null);
     await refreshData();
   };
 
@@ -181,9 +223,18 @@ const Reports = () => {
     {
       header: 'Actions',
       accessor: (item: Report) => (
-        <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded">
-            <Trash2 size={16} />
-        </button>
+        <div className="flex gap-2">
+          {canEditReport(item) && (
+            <button onClick={() => handleEdit(item)} className="text-blue-600 hover:bg-blue-50 p-1 rounded" title="Edit">
+              <Edit2 size={16} />
+            </button>
+          )}
+          {canEditReport(item) && (
+            <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:bg-red-50 p-1 rounded" title="Delete">
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
       ),
       key: 'actions'
     }
@@ -357,8 +408,8 @@ const Reports = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-white p-6 rounded-xl w-full max-w-lg shadow-2xl h-[90vh] flex flex-col">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-slate-800">Create Report</h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+              <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Report' : 'Create Report'}</h3>
+              <button onClick={() => { setShowModal(false); setEditingId(null); setNewReport({}); }} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
             </div>
 
             <div className="space-y-4 overflow-y-auto flex-1 pr-2">

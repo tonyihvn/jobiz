@@ -319,18 +319,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
           // or a namespaced permission like "categories:read" so roles with
           // scoped permissions still see the menu item.
           const isAdminRole = userRole && userRole.name && userRole.name.toLowerCase().includes('admin');
-          const visibleItems = group.items.filter(item => 
-            // Super admin sees everything
-            isSuperAdmin 
-            // Admin role sees all regular items (exclude super admin group items)
-            || (isAdminRole && group.key !== 'super_admin')
-            // Dynamic category-generated pages should be visible to regular users
-            || item.id.startsWith('inv_group_') || item.id.startsWith('svc_group_')
-            // If user has a role (even without specific permissions), show regular items (not super admin items)
-            || (userRole && group.key !== 'super_admin')
-            // Otherwise require a role and permission match (legacy)
-            || (userRole && Array.isArray(userRole.permissions) && userRole.permissions.some((p: string) => p === item.id || p.startsWith(item.id + ':')))
-          );
+          // Items reserved exclusively for the Company Admin (or Super Admin).
+          const adminOnlyItemIds = new Set(['admin', 'clients', 'settings']);
+          const visibleItems = group.items.filter(item => {
+            if (adminOnlyItemIds.has(item.id) && !(isSuperAdmin || isAdminRole)) return false;
+            return (
+              // Super admin sees everything
+              isSuperAdmin 
+              // Admin role sees all regular items (exclude super admin group items)
+              || (isAdminRole && group.key !== 'super_admin')
+              // Dynamic category-generated pages should be visible to regular users
+              || item.id.startsWith('inv_group_') || item.id.startsWith('svc_group_')
+              // If user has a role (even without specific permissions), show regular items (not super admin items)
+              || (userRole && group.key !== 'super_admin')
+              // Otherwise require a role and permission match (legacy)
+              || (userRole && Array.isArray(userRole.permissions) && userRole.permissions.some((p: string) => p === item.id || p.startsWith(item.id + ':')))
+            );
+          });
 
           // Debug logging for sales group
           if (group.key === 'sales' && !isSuperAdmin) {

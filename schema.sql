@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS `business_payments` (
   `payment_type` enum('subscription','one-time') DEFAULT 'subscription',
   `plan_id` varchar(255) DEFAULT NULL,
   `amount` decimal(12,2) NOT NULL,
-  `currency` varchar(10) DEFAULT 'USD',
+  `currency` varchar(10) DEFAULT '₦',
   `card_last_four` varchar(4) DEFAULT NULL,
   `card_brand` varchar(50) DEFAULT NULL,
   `status` enum('pending','approved','rejected','completed') DEFAULT 'pending',

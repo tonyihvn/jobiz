@@ -164,9 +164,26 @@ const Finance = () => {
       setShowHeadModal(true);
   };
 
-  const handleEditEmployee = (item: Employee) => {
+  const handleEditEmployee = (item: any) => {
       setEditingId(item.id);
-      setNewEmp(item);
+      // Normalize server snake_case fields to the form's camelCase shape so all
+      // previously entered values populate the modal inputs.
+      setNewEmp({
+          ...item,
+          roleId: item.roleId || item.role_id || '',
+          passportUrl: item.passportUrl || item.passport_url || '',
+          cvUrl: item.cvUrl || item.cv_url || '',
+          defaultLocationId: item.defaultLocationId || item.default_location_id || '',
+          designation: item.designation || '',
+          department: item.department || '',
+          unit: item.unit || '',
+          notes: item.notes || '',
+          salary: Number(item.salary || 0),
+          accountApproved: typeof item.account_approved !== 'undefined'
+              ? !!Number(item.account_approved)
+              : (typeof item.accountApproved !== 'undefined' ? !!item.accountApproved : true),
+          password: '',
+      } as any);
       setShowEmployeeModal(true);
   };
 
@@ -235,7 +252,8 @@ const Finance = () => {
                 department: newEmp.department || null,
                 unit: newEmp.unit || null,
                 notes: newEmp.notes || null,
-                default_location_id: newEmp.defaultLocationId || newEmp.default_location_id || null
+                default_location_id: newEmp.defaultLocationId || newEmp.default_location_id || null,
+                account_approved: typeof (newEmp as any).accountApproved === 'boolean' ? ((newEmp as any).accountApproved ? 1 : 0) : undefined
         };
         try {
             if (editingId) {
@@ -778,18 +796,33 @@ const Finance = () => {
                      <div className="grid grid-cols-2 gap-4 border-t pt-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Designation</label>
-                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.designation || ''} onChange={e => setNewEmp({...newEmp, designation: e.target.value})} />
+                            <input list="emp-designations" type="text" className="w-full border rounded-lg p-2.5" value={newEmp.designation || ''} onChange={e => setNewEmp({...newEmp, designation: e.target.value})} />
+                            <datalist id="emp-designations">
+                                {Array.from(new Set((employees || []).map((x: any) => x.designation).filter(Boolean))).map((v: any) => (
+                                    <option key={String(v)} value={String(v)} />
+                                ))}
+                            </datalist>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Department</label>
-                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.department || ''} onChange={e => setNewEmp({...newEmp, department: e.target.value})} />
+                            <input list="emp-departments" type="text" className="w-full border rounded-lg p-2.5" value={newEmp.department || ''} onChange={e => setNewEmp({...newEmp, department: e.target.value})} />
+                            <datalist id="emp-departments">
+                                {Array.from(new Set((employees || []).map((x: any) => x.department).filter(Boolean))).map((v: any) => (
+                                    <option key={String(v)} value={String(v)} />
+                                ))}
+                            </datalist>
                         </div>
                      </div>
 
                      <div className="grid grid-cols-2 gap-4 mt-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Unit</label>
-                            <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.unit || ''} onChange={e => setNewEmp({...newEmp, unit: e.target.value})} />
+                            <input list="emp-units" type="text" className="w-full border rounded-lg p-2.5" value={newEmp.unit || ''} onChange={e => setNewEmp({...newEmp, unit: e.target.value})} />
+                            <datalist id="emp-units">
+                                {Array.from(new Set((employees || []).map((x: any) => x.unit).filter(Boolean))).map((v: any) => (
+                                    <option key={String(v)} value={String(v)} />
+                                ))}
+                            </datalist>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Passport Photo</label>
@@ -815,6 +848,20 @@ const Finance = () => {
                             <RichTextEditor value={newEmp.notes || ''} onChange={(v) => setNewEmp(prev => ({...prev, notes: v}))} placeholder="Add internal notes about this employee" />
                         </div>
                      </div>
+
+                     {editingId && (
+                        <div className="border-t pt-4">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    className="w-4 h-4 accent-rose-600"
+                                    checked={(newEmp as any).accountApproved === false}
+                                    onChange={(e) => setNewEmp(prev => ({...(prev as any), accountApproved: !e.target.checked}))}
+                                />
+                                <span className="text-sm font-medium text-slate-700">Deactivate Account <span className="text-xs text-slate-500">(prevents this employee from logging in)</span></span>
+                            </label>
+                        </div>
+                     )}
 
                      <button onClick={handleSaveEmployee} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 mt-4">Save Employee</button>
                 </div>

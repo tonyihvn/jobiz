@@ -2771,18 +2771,19 @@ app.delete('/api/services/:id', authMiddleware, async (req, res) => {
 app.get('/api/employees', authMiddleware, async (req, res) => {
   try {
     const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
+    const cols = 'id, name, role_id, email, phone, default_location_id, is_super_admin, salary, designation, department, unit, notes, passport_url, cv_url, account_approved';
     
     if (req.isSuperAdmin && businessIdFilter) {
       // Super admin with businessId filter
-      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees WHERE business_id = ?', [businessIdFilter]);
+      const [rows] = await pool.execute(`SELECT ${cols} FROM employees WHERE business_id = ?`, [businessIdFilter]);
       res.json(rows);
     } else if (req.isSuperAdmin) {
       // Super admin sees all employees from all companies
-      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees');
+      const [rows] = await pool.execute(`SELECT ${cols} FROM employees`);
       res.json(rows);
     } else {
       // Regular user sees only their company's employees
-      const [rows] = await pool.execute('SELECT id, name, role_id, email, phone, default_location_id, is_super_admin FROM employees WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)', [req.user.id]);
+      const [rows] = await pool.execute(`SELECT ${cols} FROM employees WHERE business_id = (SELECT business_id FROM employees WHERE id = ?)`, [req.user.id]);
       res.json(rows);
     }
   } catch (err) {
@@ -2810,7 +2811,8 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
     const businessId = bizRows[0].business_id;
     const eid = id || Date.now().toString();
     const hashed = password ? await bcrypt.hash(password, 10) : null;
-    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, passport_url, cv_url, designation, department, unit, notes, default_location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), password = IF(VALUES(password) IS NOT NULL, VALUES(password), password), salary = VALUES(salary), passport_url = VALUES(passport_url), cv_url = VALUES(cv_url), designation = VALUES(designation), department = VALUES(department), unit = VALUES(unit), notes = VALUES(notes), default_location_id = VALUES(default_location_id)', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, Number(salary || 0), email, phone, passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id]);
+    // Auto-activate accounts created by an admin: mark email verified and account approved so the new user can log in immediately without an email verification step.
+    await pool.execute('INSERT INTO employees (id, business_id, is_super_admin, name, role_id, password, salary, email, phone, passport_url, cv_url, designation, department, unit, notes, default_location_id, email_verified, email_verified_at, account_approved, account_approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), 1, NOW()) ON DUPLICATE KEY UPDATE name = VALUES(name), role_id = VALUES(role_id), email = VALUES(email), phone = VALUES(phone), password = IF(VALUES(password) IS NOT NULL, VALUES(password), password), salary = VALUES(salary), passport_url = VALUES(passport_url), cv_url = VALUES(cv_url), designation = VALUES(designation), department = VALUES(department), unit = VALUES(unit), notes = VALUES(notes), default_location_id = VALUES(default_location_id), email_verified = 1, email_verified_at = COALESCE(email_verified_at, NOW()), account_approved = 1, account_approved_at = COALESCE(account_approved_at, NOW())', [eid, businessId, is_super_admin ? 1 : 0, name, role_id, hashed, Number(salary || 0), email, phone, passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id]);
     res.json({ success: true, id: eid });
   } catch (err) {
     console.error('POST /api/employees error:', err && err.message ? err.message : err);
@@ -2820,7 +2822,7 @@ app.post('/api/employees', authMiddleware, async (req, res) => {
 
 app.put('/api/employees/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, role_id, email, phone, password, default_location_id, passportUrl, cvUrl, designation, department, unit, notes, salary } = req.body;
+  const { name, role_id, email, phone, password, default_location_id, passportUrl, cvUrl, designation, department, unit, notes, salary, account_approved } = req.body;
   try {
     // If password provided, enforce strong policy
     if (password) {
@@ -2835,10 +2837,11 @@ app.put('/api/employees/:id', authMiddleware, async (req, res) => {
       }
     }
     const hashed = password ? await bcrypt.hash(password, 10) : null;
+    const approvedFlag = (typeof account_approved === 'undefined' || account_approved === null) ? null : (account_approved ? 1 : 0);
     if (hashed) {
-      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, password = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, hashed, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, id, req.user.id]);
+      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, password = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ?, account_approved = COALESCE(?, account_approved) WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, hashed, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, approvedFlag, id, req.user.id]);
     } else {
-      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ? WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, id, req.user.id]);
+      await pool.execute('UPDATE employees SET name = ?, role_id = ?, email = ?, phone = ?, salary = ?, passport_url = ?, cv_url = ?, designation = ?, department = ?, unit = ?, notes = ?, default_location_id = ?, account_approved = COALESCE(?, account_approved) WHERE id = ? AND business_id = (SELECT business_id FROM employees WHERE id = ?)', [name, role_id, email, phone, Number(salary || 0), passportUrl || null, cvUrl || null, designation || null, department || null, unit || null, notes || null, default_location_id, approvedFlag, id, req.user.id]);
     }
     res.json({ success: true });
   } catch (err) {
@@ -2948,6 +2951,36 @@ app.post('/api/reports', authMiddleware, async (req, res) => {
     const id = body.id || Date.now().toString();
     const businessId = await resolveBusinessId(req);
     if (!businessId) return res.status(400).json({ error: 'Business not found for current user' });
+    // If a report with this id already exists, only the creator or an Admin
+    // (role named 'Admin' or with wildcard permissions) may update it.
+    const [existingRows] = await pool.execute('SELECT created_by, business_id FROM reports WHERE id = ?', [id]);
+    if (existingRows && existingRows[0]) {
+      const existing = existingRows[0];
+      if (String(existing.business_id) !== String(businessId)) {
+        return res.status(403).json({ error: 'Not authorized for this business' });
+      }
+      let isAdmin = !!req.isSuperAdmin;
+      if (!isAdmin) {
+        try {
+          const [empRows] = await pool.execute('SELECT role_id FROM employees WHERE id = ?', [req.user.id]);
+          const roleId = empRows && empRows[0] ? empRows[0].role_id : null;
+          if (roleId) {
+            const [roleRows] = await pool.execute('SELECT name, permissions FROM roles WHERE id = ?', [roleId]);
+            const role = roleRows && roleRows[0] ? roleRows[0] : null;
+            if (role) {
+              const isAdminNamed = typeof role.name === 'string' && role.name.trim().toLowerCase() === 'admin';
+              let perms = [];
+              try { perms = role.permissions ? (Array.isArray(role.permissions) ? role.permissions : JSON.parse(role.permissions)) : []; } catch (_) { perms = []; }
+              const hasWildcard = Array.isArray(perms) && perms.some(p => p === '*:*' || p === '*' || (typeof p === 'string' && p.endsWith(':*')));
+              isAdmin = !!(isAdminNamed || hasWildcard);
+            }
+          }
+        } catch (_) { /* ignore */ }
+      }
+      if (!isAdmin && String(existing.created_by) !== String(req.user.id)) {
+        return res.status(403).json({ error: 'Only the creator or an Admin can edit this report' });
+      }
+    }
     await pool.execute('INSERT INTO reports (id, business_id, title, content, related_task_id, created_by, category) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), related_task_id=VALUES(related_task_id), category=VALUES(category)', [id, businessId, body.title || null, body.content || null, body.related_task_id || null, req.user.id, body.category || null]);
     res.json({ success: true, id });
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -868,10 +868,13 @@ return (
                   className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Role</option>
-                  <option value="admin">Admin</option>
-                  <option value="manager">Manager</option>
-                  <option value="staff">Staff</option>
-                  <option value="cashier">Cashier</option>
+                  {details && details.roles && details.roles.length > 0 ? (
+                    details.roles.map((role: any) => (
+                      <option key={role.id} value={role.id}>{role.name}</option>
+                    ))
+                  ) : (
+                    <option value="">No roles available for this company</option>
+                  )}
                 </select>
               </div>
 

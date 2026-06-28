@@ -35,7 +35,7 @@ const POS = () => {
     const { setSymbol } = useCurrency();
     const [products, setProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
-    const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 7.5, currency: 'USD' };
+    const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 7.5, currency: '₦' };
     const [settings, setSettings] = useState<CompanySettings>(defaultSettings);
     const fmtCurrency = useFmtCurrency();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -167,21 +167,28 @@ const POS = () => {
 
     // Load edit data if passed from history pages
     useEffect(() => {
-        const locationState = (window.history.state?.usr || null) as SaleRecord | null;
+        const locationState = (window.history.state?.usr || null) as any;
         if (locationState && locationState.id) {
             setEditingSale(locationState);
             // Deep clone items to avoid mutation issues when editing
             const clonedItems = JSON.parse(JSON.stringify(locationState.items || []));
             setCart(clonedItems);
-            setSelectedCustomer(locationState.customerId || '');
-            setCustomerInput((customers.find(c => c.id === (locationState.customerId || ''))?.name) || '');
+            setSelectedCustomer(locationState.customerId || locationState.customer_id || '');
+            // Use embedded customer name if available, else lookup from customers list
+            const embeddedCustomer = (locationState as any).customer;
+            const fallbackName = embeddedCustomer && embeddedCustomer.name
+                ? embeddedCustomer.name
+                : (customers.find(c => c.id === (locationState.customerId || locationState.customer_id || ''))?.name || '');
+            setCustomerInput(fallbackName || '');
             setOrderDate(new Date(locationState.date).toISOString().split('T')[0]);
-            setIsProforma(locationState.isProforma || false);
-            setProformaTitle(locationState.proformaTitle || 'PROFORMA INVOICE');
-            setPaymentMethod(locationState.paymentMethod || 'Cash');
+            setIsProforma(!!(locationState.isProforma || locationState.is_proforma));
+            setProformaTitle(locationState.proformaTitle || locationState.proforma_title || 'PROFORMA INVOICE');
+            setPaymentMethod(locationState.paymentMethod || locationState.payment_method || 'Cash');
             setParticulars(locationState.particulars || '');
-            if (locationState.deliveryFee && locationState.deliveryFee > 0) {
-                setDelivery({ enabled: true, fee: locationState.deliveryFee, address: '' });
+            const fee = Number(locationState.deliveryFee ?? locationState.delivery_fee ?? 0) || 0;
+            const addr = locationState.deliveryAddress || locationState.delivery_address || '';
+            if (fee > 0 || addr) {
+                setDelivery({ enabled: true, fee, address: addr });
             }
             // Restore amount paid from the saved sale; mark as user-edited so the
             // auto-sync to total doesn't overwrite it.
@@ -198,6 +205,17 @@ const POS = () => {
             }
         }
     }, []);
+
+    // When customers list loads after an edit was initialized, fill in the
+    // customer display name if it wasn't available at first.
+    useEffect(() => {
+        if (!editingSale) return;
+        if (customerInput) return;
+        const cid = (editingSale as any).customerId || (editingSale as any).customer_id;
+        if (!cid) return;
+        const found = customers.find(c => c.id === cid);
+        if (found) setCustomerInput(found.name || '');
+    }, [customers, editingSale]);
 
     // Helper: convert numbers to words (simple implementation, supports up to billions)
     const numberToWords = (amount: number) => {

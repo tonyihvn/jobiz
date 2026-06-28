@@ -214,34 +214,36 @@ const PrintReceipt = () => {
       <div className="bg-gray-100 p-8 flex justify-center min-h-screen overflow-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {/* Thermal Receipt */}
         {receiptType === 'thermal' && (
-          <div id="thermal-receipt" className={`bg-white p-4 ${receiptWidth} printable-receipt`}>
-            <div className={`text-center mb-6 ${is50mm ? 'font-bold' : ''}`}>
-              {settings.logoUrl && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}><img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" style={{ height: `${is50mm ? '40' : settings.logoHeight || 100}px`, maxHeight: `${is50mm ? 40 : settings.logoHeight || 100}px`, width: 'auto', maxWidth: '200px' }} crossOrigin="anonymous" /></div>}
-              <h1 className={`font-bold uppercase tracking-wider ${is50mm ? 'text-sm font-black' : 'text-lg'}`} style={{fontWeight: is50mm ? 900 : 700}}>{settings.name}</h1>
-              <p className={`text-gray-500 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>{settings.address}</p>
-              <p className={`text-gray-500 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>{settings.phone}</p>
-              <p className={`italic mt-1 text-gray-400 ${is50mm ? 'text-[6px] font-bold' : 'text-[10px]'}`}>{settings.motto}</p>
+          <div id="thermal-receipt" className={`bg-white p-1 ${receiptWidth} printable-receipt`}>
+            <div className={`text-center mb-2 ${is50mm ? 'font-bold' : ''}`}>
+              {settings.logoUrl && <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}><img src={getImageUrl(settings.logoUrl) || settings.logoUrl} alt="Logo" style={{ height: `${is50mm ? '50' : settings.logoHeight || 100}px`, maxHeight: `${is50mm ? 50 : settings.logoHeight || 100}px`, width: 'auto', maxWidth: '100%' }} crossOrigin="anonymous" /></div>}
+              <h1 className={`font-bold uppercase tracking-wider ${is50mm ? 'text-lg font-black' : 'text-lg'}`} style={{fontWeight: 900, lineHeight: '1.1'}}>{settings.name}</h1>
+              <p className={`text-gray-600 ${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>{settings.address}</p>
+              <p className={`text-gray-600 ${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>{settings.phone}</p>
+              <p className={`italic text-gray-500 ${is50mm ? 'text-xs font-bold' : 'text-[10px]'}`} style={{margin: '2px 0'}}>{settings.motto}</p>
             </div>
 
-            <div className="border-b border-dashed border-gray-300 my-4"></div>
+            <div className="border-b border-dashed border-gray-400 my-1"></div>
 
-            <div className={`flex justify-between mb-2 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
+            <div className={`flex justify-between ${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>
               <span>Date: {new Date(saleData.date).toLocaleDateString()}</span>
+            </div>
+            <div className={`flex justify-between ${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>
               <span>Time: {new Date(saleData.date).toLocaleTimeString()}</span>
             </div>
-            <div className={`mb-1 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
+            <div className={`${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>
               <div>Receipt #: {saleData.id.slice(-8)}</div>
             </div>
-            <div className={`mb-4 ${is50mm ? 'text-[7px] font-bold' : 'text-xs'}`}>
+            <div className={`${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>
               <div>Cashier: {saleData.cashier}</div>
             </div>
 
-            <table className={`w-full text-left mb-4 ${is50mm ? 'text-sm font-bold' : 'text-xs'}`}>
+            <table className={`w-full text-left ${is50mm ? 'text-base font-bold' : 'text-xs'}`} style={{margin: '2px 0'}}>
               <thead>
-                <tr className="border-b border-gray-200">
-                  <th className={`py-2 ${is50mm ? 'font-black text-sm' : 'font-bold'}`}>Item</th>
-                  {!is50mm && <th className={`py-2 text-right ${is50mm ? 'font-black' : 'font-bold'}`}>Qty</th>}
-                  <th className={`py-2 text-right ${is50mm ? 'font-black text-sm' : 'font-bold'}`} style={{textAlign: 'right'}}>Amt</th>
+                <tr className="border-b border-gray-300">
+                  <th className={`py-1 font-black ${is50mm ? 'text-base' : 'font-bold'}`}>Item</th>
+                  {!is50mm && <th className={`py-1 text-right ${is50mm ? 'font-black' : 'font-bold'}`}>Qty</th>}
+                  <th className={`py-1 text-right font-black ${is50mm ? 'text-base' : 'font-bold'}`} style={{textAlign: 'right'}}>Amt</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,38 +251,38 @@ const PrintReceipt = () => {
                   const enriched = enrichItem(item);
                   const itemAmount = fmtCurrency(Number(item.price) * Number(item.quantity), 2);
                   return (
-                    <tr key={i} className={is50mm ? 'border-b border-gray-100' : ''}>
-                      <td className={`py-2 ${is50mm ? 'font-bold text-sm' : 'font-medium'} align-top`} style={{wordWrap: 'break-word', wordBreak: 'break-word'}}>
-                        <div className={`font-bold ${is50mm ? 'text-sm' : 'text-xs'}`}>{enriched.name || item.name}</div>
-                        {is50mm && <div className={`text-sm font-bold mt-1`}>Qty: {item.quantity}</div>}
+                    <tr key={i} className={is50mm ? 'border-b border-gray-200' : ''}>
+                      <td className={`py-1 font-bold align-top ${is50mm ? 'text-base' : 'font-medium'}`} style={{wordWrap: 'break-word', wordBreak: 'break-word', paddingRight: '4px', width: is50mm ? '70%' : 'auto'}}>
+                        <div className={`font-bold ${is50mm ? 'text-base' : 'text-xs'}`}>{enriched.name || item.name}</div>
+                        {is50mm && <div className={`text-sm font-bold mt-0.5`}>Qty: {item.quantity}</div>}
                         {!is50mm && <div className={`text-[9px] text-gray-400`}>{enriched.unit}</div>}
                       </td>
-                      {!is50mm && <td className={`py-2 text-right font-medium align-top`}>{item.quantity}</td>}
-                      <td className={`py-2 font-medium align-top`} style={{textAlign: 'right', paddingRight: '0'}}>{itemAmount}</td>
+                      {!is50mm && <td className={`py-1 text-right font-medium align-top`}>{item.quantity}</td>}
+                      <td className={`py-1 font-bold align-top`} style={{textAlign: 'right', paddingRight: '0', fontSize: is50mm ? '16px' : 'inherit', width: is50mm ? '30%' : 'auto'}}>{itemAmount}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
 
-            <div className={`border-t border-dashed border-gray-300 my-2 pt-2 space-y-1 ${is50mm ? 'text-sm' : 'text-xs'}`}>
-              <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+            <div className={`border-t border-dashed border-gray-400 my-1 pt-1 space-y-0.5 ${is50mm ? 'text-base' : 'text-xs'}`}>
+              <div className={`flex justify-between ${is50mm ? 'font-black text-base' : 'font-medium'}`}>
                 <span>Subtotal</span>
                 <span>{fmtCurrency(saleData.subtotal, 2)}</span>
               </div>
               {Number(saleData.vat) > 0 && (
-                <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                <div className={`flex justify-between ${is50mm ? 'font-black text-base' : 'font-medium'}`}>
                   <span>VAT ({settings.vatRate}%)</span>
                   <span>{fmtCurrency(saleData.vat, 2)}</span>
                 </div>
               )}
               {Number(saleData.deliveryFee || saleData.delivery_fee) > 0 && (
-                <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                <div className={`flex justify-between ${is50mm ? 'font-black text-base' : 'font-medium'}`}>
                   <span>Delivery Fee</span>
                   <span>{fmtCurrency(Number(saleData.deliveryFee || saleData.delivery_fee), 2)}</span>
                 </div>
               )}
-              <div className={`flex justify-between mt-2 ${is50mm ? 'font-black text-base' : 'text-sm font-bold'}`} style={{fontWeight: is50mm ? 900 : 700}}>
+              <div className={`flex justify-between mt-1 ${is50mm ? 'font-black text-lg' : 'text-sm font-bold'}`} style={{fontWeight: 900, borderTop: '2px solid #1e293b', paddingTop: '4px'}}>
                 <span>TOTAL</span>
                 <span>{fmtCurrency(Number(saleData.total), 2)}</span>
               </div>
@@ -289,11 +291,11 @@ const PrintReceipt = () => {
                 const bal = Number((saleData as any).balance ?? Math.max(0, Number(saleData.total || 0) - paid)) || 0;
                 return (
                   <>
-                    <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-medium'}`}>
+                    <div className={`flex justify-between ${is50mm ? 'font-black text-base' : 'font-medium'}`}>
                       <span>Amount Paid</span>
                       <span>{fmtCurrency(paid, 2)}</span>
                     </div>
-                    <div className={`flex justify-between ${is50mm ? 'font-black text-sm' : 'font-bold'}`} style={{ color: bal > 0 ? '#be123c' : '#047857' }}>
+                    <div className={`flex justify-between ${is50mm ? 'font-black text-base' : 'font-bold'}`} style={{ color: bal > 0 ? '#be123c' : '#047857', fontWeight: 900 }}>
                       <span>Balance</span>
                       <span>{fmtCurrency(bal, 2)}</span>
                     </div>
@@ -302,7 +304,7 @@ const PrintReceipt = () => {
               })()}
             </div>
 
-            <div className={`mt-8 text-center text-gray-400 ${is50mm ? 'text-[6px] font-bold' : 'text-xs'}`}>
+            <div className={`mt-2 text-center text-gray-500 ${is50mm ? 'text-sm font-bold' : 'text-xs'}`} style={{fontWeight: 'bold'}}>
               <p>Thank you for your business!</p>
             </div>
           </div>

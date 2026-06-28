@@ -166,7 +166,7 @@ const SuperAdminPayments = () => {
                   <tr className="hover:bg-slate-50">
                     <td className="px-6 py-4 text-sm text-slate-900 font-medium">{payment.businessName}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{payment.businessEmail}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-slate-900">${payment.amount.toFixed(2)}</td>
+                    <td className="px-6 py-4 text-sm font-semibold text-slate-900">₦{payment.amount.toFixed(2)}</td>
                     <td className="px-6 py-4 text-sm text-slate-600 capitalize">{payment.payment_type}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">
                       {payment.card_brand.toUpperCase()} ••{payment.card_last_four}

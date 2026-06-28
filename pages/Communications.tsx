@@ -20,10 +20,11 @@ const Communications = () => {
             try {
                 const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId) : [];
                 setCategories(cats || []);
-                const groups = Array.from(new Set((cats || []).map((c: any) => c.group).filter(Boolean)));
-                if (groups.length > 0) setSelectedGroup(groups[0]);
                 const custs = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
-                setContacts(Array.isArray(custs) ? custs : []);
+                const contactsArr = Array.isArray(custs) ? custs : [];
+                setContacts(contactsArr);
+                const clientCats = Array.from(new Set(contactsArr.map((c: any) => c.category).filter(Boolean)));
+                if (clientCats.length > 0) setSelectedGroup(String(clientCats[0]));
             } catch (e) { /* ignore */ }
         })();
     }, [selectedBusinessId]);
@@ -121,7 +122,7 @@ const Communications = () => {
                     <label className="flex items-center gap-3 p-3 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                         <input type="radio" name="recipients" checked={recipientType === 'group'} onChange={() => setRecipientType('group')} className="text-brand-600 focus:ring-brand-500" />
                         <div className="flex-1">
-                            <span className="text-sm font-medium">Specific Group</span>
+                            <span className="text-sm font-medium">Client Category</span>
                             {recipientType === 'group' && (
                                 <select 
                                     className="mt-2 w-full text-xs p-2 border rounded"
@@ -129,9 +130,9 @@ const Communications = () => {
                                     onChange={(e) => setSelectedGroup(e.target.value)}
                                 >
                                     {(() => {
-                                        const groups = Array.from(new Set((categories || []).map(c => c.group).filter(Boolean)));
-                                        if (groups.length === 0) return <option value="Membership">Membership</option>;
-                                        return groups.map(g => <option key={g} value={g}>{g}</option>);
+                                        const clientCats = Array.from(new Set((contacts || []).map((c: any) => c.category).filter(Boolean))) as string[];
+                                        if (clientCats.length === 0) return <option value="">No client categories</option>;
+                                        return clientCats.map(g => <option key={g} value={g}>{g}</option>);
                                     })()}
                                 </select>
                             )}

@@ -14,6 +14,7 @@ const Customers = () => {
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<Role | null>(null);
+  const [isSuper, setIsSuper] = useState(false);
 
   useEffect(() => {
         (async () => {
@@ -39,7 +40,14 @@ const Customers = () => {
                 setCustomers(custs || []);
                 if (currentUser && db.roles && db.roles.getAll) {
                     const roles = await db.roles.getAll(selectedBusinessId);
-                    setUserRole(Array.isArray(roles) ? roles.find(r => r.id === currentUser.roleId) || null : null);
+                    const role = Array.isArray(roles) ? roles.find(r => r.id === currentUser.roleId) || null : null;
+                    setUserRole(role);
+                    const wildcard = !!(role && role.permissions && (
+                        role.permissions.includes('*:*') ||
+                        role.permissions.includes('clients:*') ||
+                        role.permissions.some((p: string) => p === '*' || p.endsWith(':*'))
+                    ));
+                    setIsSuper(!!(wildcard || (currentUser && (currentUser.is_super_admin || currentUser.isSuperAdmin))));
                 }
             } catch (e) {
                 console.warn('Failed to load customers', e);
@@ -48,9 +56,11 @@ const Customers = () => {
     }, [businessId, selectedBusinessId]);
 
   const hasPermission = (action: string) => {
-    if (!userRole) return false;
-    // Allow super admin bypass or strictly check permissions
-        return userRole.permissions.includes(`clients:${action}`);
+    if (isSuper) return true;
+    if (!userRole || !userRole.permissions) return false;
+    return userRole.permissions.includes(`clients:${action}`) ||
+        userRole.permissions.includes('clients:*') ||
+        userRole.permissions.includes('*:*');
   };
 
   const handleEdit = (customer: Customer) => {
@@ -157,16 +167,22 @@ const Customers = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-                            <select 
+                            <input
+                                type="text"
+                                list="customer-category-options"
                                 className="w-full border rounded-lg p-2.5 outline-none"
-                                value={newCustomer.category} 
+                                value={newCustomer.category || ''}
                                 onChange={e => setNewCustomer({...newCustomer, category: e.target.value})}
-                            >
-                                <option value="Regular">Regular</option>
-                                <option value="VIP">VIP</option>
-                                <option value="Corporate">Corporate</option>
-                                <option value="Student">Student</option>
-                            </select>
+                                placeholder="Select or type a category"
+                            />
+                            <datalist id="customer-category-options">
+                                {Array.from(new Set([
+                                    'Regular', 'VIP', 'Corporate', 'Student',
+                                    ...((customers || []).map((c: any) => c.category).filter(Boolean) as string[])
+                                ])).map(opt => (
+                                    <option key={opt} value={opt} />
+                                ))}
+                            </datalist>
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
