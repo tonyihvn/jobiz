@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { useLoading } from './LoadingContext';
 import db from './apiClient';
 import { cacheManager, requestDeduplicator } from './cacheManager';
+import { useBusinessContext } from './BusinessContext';
 
 /**
  * Enhanced API wrapper that integrates loading state, caching, and request deduplication
@@ -8,6 +10,15 @@ import { cacheManager, requestDeduplicator } from './cacheManager';
  */
 export const useEnhancedApi = () => {
   const { startLoading, stopLoading, setLoadingMessage } = useLoading();
+  const { selectedBusinessId } = useBusinessContext();
+
+  // Invalidate business-specific cache when business changes to ensure data isolation
+  useEffect(() => {
+    if (selectedBusinessId) {
+      // Clear all caches for this business when switching
+      cacheManager.invalidateBusinessData(selectedBusinessId);
+    }
+  }, [selectedBusinessId]);
 
   /**
    * Wrap any async function with loading state management
@@ -25,24 +36,29 @@ export const useEnhancedApi = () => {
 
   /**
    * Fetch with caching and deduplication for GET-like operations
+   * Properly scopes cache by businessId to prevent multi-tenant data mixing
    */
   const cachedFetch = <T,>(
     cacheKey: string,
     fetcher: () => Promise<T>,
-    message: string = 'Loading data...'
+    message: string = 'Loading data...',
+    customTTL?: number
   ): Promise<T> => {
+    // Scope cache key properly with businessId to prevent cross-tenant pollution
+    const scopedKey = selectedBusinessId ? cacheKey.replace(/_all/, `_b${selectedBusinessId}_all`) : cacheKey;
+    
     // Check cache first
-    const cached = cacheManager.get(cacheKey);
+    const cached = cacheManager.get(scopedKey);
     if (cached) {
       return Promise.resolve(cached);
     }
 
-    // Use deduplicator to avoid simultaneous requests
-    return requestDeduplicator.deduplicate(cacheKey, () => {
+    // Use deduplicator to avoid simultaneous duplicate requests
+    return requestDeduplicator.deduplicate(scopedKey, () => {
       startLoading(message);
       return fetcher()
         .then((data) => {
-          cacheManager.set(cacheKey, data);
+          cacheManager.set(scopedKey, data, customTTL);
           return data;
         })
         .finally(() => {

@@ -53,7 +53,10 @@ export const api = {
   },
 
   products: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/products', businessId)).then(safeJson),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/products?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson);
+    },
     add: (p: any) => {
       const body = toSnake(p, { categoryName: 'category_name', categoryGroup: 'category_group', isService: 'is_service', imageUrl: 'image_url' });
       return authFetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -82,7 +85,10 @@ export const api = {
   },
 
   sales: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/sales', businessId)).then(safeJson).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/sales?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    },
     add: (sale: any) => authFetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson)
   },
 
@@ -94,7 +100,10 @@ export const api = {
   },
 
   services: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/services', businessId)).then(safeJson).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/services?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    },
     add: (s: any) => {
       const body = toSnake(s, { categoryName: 'category_name', categoryGroup: 'category_group', imageUrl: 'image_url' });
       return authFetch('/api/services', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -108,7 +117,10 @@ export const api = {
 
   // Generic placeholders; serverside endpoints may need to be implemented
   customers: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/customers', businessId)).then(safeJson).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/customers?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    },
     add: (c: any) => {
       const body = toSnake(c);
       return authFetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -116,7 +128,10 @@ export const api = {
   },
 
   suppliers: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/suppliers', businessId)).then(safeJson).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/suppliers?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    },
     add: (s: any) => {
       const body = toSnake(s, { contactPerson: 'contact_person' });
       return authFetch('/api/suppliers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson);
@@ -124,7 +139,10 @@ export const api = {
   },
 
   employees: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/employees', businessId)).then(safeJson).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
+      const url = `/api/employees?limit=${limit}&offset=${offset}`;
+      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    },
     add: (e: any) => authFetch('/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) }).then(safeJson),
     update: (id: string, e: any) => authFetch(`/api/employees/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) }).then(safeJson).catch(() => null),
     delete: (id: string) => authFetch(`/api/employees/${id}`, { method: 'DELETE' }).then(safeJson).catch(() => null)
@@ -160,18 +178,19 @@ const db = {
   },
   // Transactions (server implements /api/transactions)
   transactions: {
-    getAll: (businessId?: string) => authFetch(appendBusinessIdToUrl('/api/transactions', businessId)).then(safeJson).then((data: any[]) => 
-      (data || []).map(t => ({
-        ...t,
-        accountHead: t.account_head || t.accountHead,
-        paidBy: t.paid_by || t.paidBy,
-        receivedBy: t.received_by || t.receivedBy,
-        approvedBy: t.approved_by || t.approvedBy,
-        businessId: t.business_id || t.businessId,
-        // Also handle date normalization
-        date: t.date || t.created_at
-      }))
-    ).catch(() => []),
+    getAll: (businessId?: string, limit: number = 50, offset: number = 0) =>
+      authFetch(appendBusinessIdToUrl(`/api/transactions?limit=${limit}&offset=${offset}`, businessId)).then(safeJson).then((data: any[]) => 
+        (data || []).map(t => ({
+          ...t,
+          accountHead: t.account_head || t.accountHead,
+          paidBy: t.paid_by || t.paidBy,
+          receivedBy: t.received_by || t.receivedBy,
+          approvedBy: t.approved_by || t.approvedBy,
+          businessId: t.business_id || t.businessId,
+          // Also handle date normalization
+          date: t.date || t.created_at
+        }))
+      ).catch(() => []),
     add: (t: any) => {
       const body = toSnake(t, { accountHead: 'account_head', paidBy: 'paid_by', receivedBy: 'received_by', approvedBy: 'approved_by', businessId: 'business_id' });
       return authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);

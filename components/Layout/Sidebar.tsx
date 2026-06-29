@@ -295,16 +295,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
               <Settings className="w-5 h-5" />
             </div>
           )}
-          {!collapsed && <div>
-            <h1 className="text-xl font-bold text-white truncate">{isSuperAdmin ? 'Super Admin' : settings.name}</h1>
-            <p className="text-xs text-slate-500 mt-1 truncate">{isSuperAdmin ? selectedBusiness?.name || 'No Business Selected' : settings.motto}</p>
+          {!collapsed && <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold text-white break-words line-clamp-2">{isSuperAdmin ? 'Super Admin' : settings.name}</h1>
+            <p className="text-xs text-slate-500 mt-1 break-words line-clamp-2">{isSuperAdmin ? selectedBusiness?.name || 'No Business Selected' : settings.motto}</p>
           </div>}
         </div>
-        <div>
-          <button onClick={() => onToggle && onToggle()} className="text-slate-400 hover:text-white p-1 rounded" title={collapsed ? 'Expand' : 'Collapse'}>
-            {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          </button>
-        </div>
+        <button onClick={() => onToggle && onToggle()} className="text-slate-400 hover:text-white p-1 rounded flex-shrink-0" title={collapsed ? 'Expand' : 'Collapse'} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+          {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+        </button>
       </div>
 
       {/* Business Switcher for Super Admin */}
@@ -393,6 +391,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onLogout, collapsed = false, onToggle
                     <NavLink
                       key={item.id}
                       to={item.to}
+                      onClick={() => {
+                        // Auto-collapse sidebar on mobile when menu item is clicked
+                        if (window.innerWidth < 768 && !collapsed && onToggle) {
+                          onToggle();
+                        }
+                      }}
                       className={({ isActive }) =>
                         `flex items-center justify-between px-3 py-2 rounded-lg transition-all ${
                           isActive 

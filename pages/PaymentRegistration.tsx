@@ -317,7 +317,7 @@ export default function PaymentRegistration() {
 
             <p className="text-2xl font-bold text-gray-900 mb-2">Bank Transfer</p>
             <p className="text-gray-600 mb-4">You can also send to our bank account and forward the evidence to: <strong>payments@jobiz.ng</strong></p>
-            <p className="text-lg font-bold text-gray-900 mb-4">Gintec Global Services. FCMB. <b>466 511 6017</b></p>
+            <p className="text-lg font-bold text-gray-900 mb-4">Gintec Global Services. Moniepoint. <b>672 992 7159</b></p>
 
             <div className="mt-8">
               <button

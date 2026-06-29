@@ -50,11 +50,11 @@ const SalesHistory = () => {
         (async () => {
             try {
                 console.log('[SalesHistory] Loading data, selectedBusinessId:', selectedBusinessId);
-                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
-                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
-                const sv = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId) : [];
-                const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId) : emptySettings;
-                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
+                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId || undefined) : [];
+                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId || undefined) : [];
+                const sv = db.services && db.services.getAll ? await db.services.getAll(selectedBusinessId || undefined) : [];
+                const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId || undefined) : emptySettings;
+                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId || undefined) : [];
                 const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 
                 console.log('[SalesHistory] Raw API response:', {
@@ -89,7 +89,7 @@ const SalesHistory = () => {
                 let sh: any[] = [];
                 try {
                     console.log('[SalesHistory] Fetching stock history from /api/stock/history...');
-                    const res = await authFetch(appendBusinessIdToUrl('/api/stock/history', selectedBusinessId));
+                    const res = await authFetch(appendBusinessIdToUrl('/api/stock/history', selectedBusinessId || undefined));
                     console.log('[SalesHistory] Stock history response status:', res.status);
                     if (res.ok) {
                         sh = await res.json();
@@ -220,7 +220,7 @@ const SalesHistory = () => {
               product_id: it.product_id || it.id,  // Ensure product_id is always set
               id: it.id || it.product_id,
               name: it.name || (prod ? prod.name : '') || '',
-              description: it.description || prod?.details || prod?.description || '',
+              description: it.description || '',
               unit: it.unit || prod?.unit || 'N/A'
           };
       });
@@ -647,8 +647,8 @@ const SalesHistory = () => {
             if (!selectedSaleForReturn || !returnReason) return;
             try {
                 if (db.sales && db.sales.processReturn) await db.sales.processReturn(selectedSaleForReturn.id, returnReason, products);
-                const s = db.sales && db.sales.getAll ? await db.sales.getAll() : [];
-                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+                const s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId || undefined) : [];
+                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId || undefined) : [];
                 setSales(Array.isArray(s) ? s : []);
                 setProducts(Array.isArray(p) ? p : []);
                 setShowReturnModal(false);
@@ -687,8 +687,8 @@ const SalesHistory = () => {
             if (response.ok && (result.success || result.id)) {
                 alert('Item return processed successfully');
                 // Refresh sales and products data
-                const s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
-                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
+                const s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId || undefined) : [];
+                const p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId || undefined) : [];
                 setSales(Array.isArray(s) ? s : []);
                 setProducts(Array.isArray(p) ? p : []);
                 setShowItemReturnModal(false);
@@ -780,8 +780,8 @@ const SalesHistory = () => {
   // FILTER: Exclude service items (where is_service=1)
   const itemHistory = (() => {
     const items = sales.flatMap(sale =>
-        (sale.items || []).filter(item => !item.is_service).map(item => {
-            const id = item.id || item.product_id;
+        (sale.items || []).filter(item => !item.isService).map(item => {
+            const id = item.id;
             const prod = products.find(p => p.id === id);
             return {
                 ...item,
@@ -789,7 +789,7 @@ const SalesHistory = () => {
                 saleDate: sale.date,
                 saleIsReturn: sale.isReturn,
                 name: item.name || prod?.name || '',
-                categoryGroup: item.categoryGroup || prod?.categoryGroup || prod?.category_group || prod?.group || '',
+                categoryGroup: item.categoryGroup || prod?.categoryGroup || '',
                 price: item.price || prod?.price || 0
             };
         })
@@ -803,7 +803,7 @@ const SalesHistory = () => {
   // Filter sales to only show those with product items (not services)
   const salesWithProducts = (() => {
     return sales.filter(sale => {
-      const hasProductItems = (sale.items || []).some(item => !item.is_service);
+      const hasProductItems = (sale.items || []).some(item => !item.isService);
       return hasProductItems;
     });
   })();
@@ -886,7 +886,7 @@ const SalesHistory = () => {
               .totals-table { min-width: 35%; max-width: 50%; }
               .totals-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; color: #475569; }
               .totals-row.final { border-top: 1px solid #1e293b; padding-top: 8px; font-size: 15px; font-weight: bold; color: #1e293b; }
-              .notes { margin-top: 24px; padding-top: 24px; 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
+              .notes { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; word-break: break-word; overflow-wrap: break-word; }
               .signature-section { margin-top: 40px; width: 100%}
               .signature-line { border-top: 1px solid #1e293b; width: 30%; margin-top: 40px; padding-top: 8px; font-size: 12px; color: #1e293b; font-weight: 500;  }
             </style>

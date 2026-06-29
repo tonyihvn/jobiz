@@ -28,6 +28,7 @@ interface LandingSettings {
   footer?: { text: string; copyrightYear: number };
   navbar?: { companyName: string; whatsappNumber: string; logo?: string };
   background?: { image: string; position: string; repeat: string; size: string; attachment: string; overlay?: boolean; overlayOpacity?: number };
+  carousel?: string[];
 }
 
 const DEFAULT_SETTINGS: LandingSettings = {
@@ -163,10 +164,8 @@ const Landing = () => {
       setSubmitting(false);
     }
   };
-// remove the opacity and transparency from the plancards including the most popular badge and section
-
   const PlanCard: React.FC<{plan: any}> = ({ plan }) => (
-    <div className={`rounded-2xl p-8 border ${plan.recommended ? 'border-brand-500 shadow-2xl bg-slate-50 relative' : 'border-slate-200 bg-slate-50'}`}>
+    <div className={`rounded-2xl p-8 border ${plan.recommended ? 'border-brand-500 shadow-2xl bg-white relative' : 'border-slate-200 bg-white'}`}>
       {plan.recommended && <span className="absolute -top-4 left-1/2 -translate-x-1/2 bg-brand-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wide">Most Popular</span>}
       <h3 className="font-bold text-xl text-slate-900">{plan.name}</h3>
       <div className="my-6">
@@ -257,15 +256,20 @@ const Landing = () => {
       </nav>
 
       {/* Hero */}
-      <section
-        className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden relative"
-        style={settings.hero && settings.hero.backgroundImage ? {
-          backgroundImage: `url(${settings.hero.backgroundImage})`,
-          backgroundSize: settings.hero.backgroundSize || 'cover',
-          backgroundPosition: settings.hero.backgroundPosition || 'center',
-          opacity: ((settings.hero.backgroundOpacity || 100) / 100) * (1 - ((settings.hero.backgroundTransparency || 0) / 100))
-        } : {}}
-      >
+      <section className="pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden relative">
+        {/* Background image layer with opacity */}
+        {settings.hero && settings.hero.backgroundImage && (
+          <div
+            className="absolute inset-0 -z-10"
+            style={{
+              backgroundImage: `url(${settings.hero.backgroundImage})`,
+              backgroundSize: settings.hero.backgroundSize || 'cover',
+              backgroundPosition: settings.hero.backgroundPosition || 'center',
+              opacity: ((settings.hero.backgroundOpacity || 100) / 100) * (1 - ((settings.hero.backgroundTransparency || 0) / 100))
+            }}
+          />
+        )}
+        
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-brand-50 rounded-full blur-3xl opacity-50 -z-10" />
         <div className="max-w-7xl mx-auto px-4 text-center">
           <h1

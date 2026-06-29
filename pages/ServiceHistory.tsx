@@ -32,10 +32,10 @@ const ServiceHistory = () => {
         (async () => {
             try {
                 console.log('[ServiceHistory] Loading data, selectedBusinessId:', selectedBusinessId);
-                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId) : [];
-                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId) : [];
-                const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId) : emptySettings;
-                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId) : [];
+                let s = db.sales && db.sales.getAll ? await db.sales.getAll(selectedBusinessId || undefined) : [];
+                let p = db.products && db.products.getAll ? await db.products.getAll(selectedBusinessId || undefined) : [];
+                const sett = db.settings && db.settings.get ? await db.settings.get(selectedBusinessId || undefined) : emptySettings;
+                let c = db.customers && db.customers.getAll ? await db.customers.getAll(selectedBusinessId || undefined) : [];
                 const u = db.auth && db.auth.getCurrentUser ? await db.auth.getCurrentUser() : null;
                 
                 console.log('[ServiceHistory] Raw API response:', {
@@ -133,12 +133,12 @@ const ServiceHistory = () => {
 
   const enrichItems = (sale: SaleRecord) => {
       return (sale.items || []).map((it: any) => {
-          const prod = products.find(p => p.id === (it.product_id || it.id));
+          const prod = products.find(p => p.id === (it.id));
           return {
               ...it,
-              id: it.id || it.product_id,
+              id: it.id,
               name: it.name || (prod ? prod.name : '') || '',
-              description: it.description || prod?.details || prod?.description || prod?.image_url || '',
+              description: it.description || '',
               unit: it.unit || prod?.unit || 'N/A'
           };
       });
@@ -917,8 +917,8 @@ const ServiceHistory = () => {
     const items: any[] = [];
     for (const s of services) {
         for (const it of enrichItems(s)) {
-            const prod = products.find(p => p.id === (it.product_id || it.id));
-            if (prod && prod.is_service) {
+            const prod = products.find(p => p.id === (it.id));
+            if (prod && prod.isService) {
                 items.push({
                     saleDate: s.date,
                     ...it,

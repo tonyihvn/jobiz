@@ -29,8 +29,8 @@ const Tasks = () => {
   const refreshData = () => {
     (async () => {
       try {
-        const t = db.tasks && db.tasks.getAll ? await db.tasks.getAll(selectedBusinessId) : [];
-        const e = db.employees && db.employees.getAll ? await db.employees.getAll(selectedBusinessId) : [];
+        const t = db.tasks && db.tasks.getAll ? await db.tasks.getAll(selectedBusinessId || '') : [];
+        const e = db.employees && db.employees.getAll ? await db.employees.getAll(selectedBusinessId || '') : [];
         const normTasks = (Array.isArray(t) ? t : []).map((it: any) => ({
           ...it,
           assignedTo: it.assignedTo || it.assigned_to || it.assigned_to_id || '',

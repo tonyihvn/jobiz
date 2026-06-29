@@ -96,7 +96,7 @@ const POS = () => {
     useEffect(() => {
         const init = async () => {
             try {
-            const proms: any[] = [db.products.getAll(selectedBusinessId), db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([]), db.customers.getAll(selectedBusinessId), db.auth.getCurrentUser(), db.categories && db.categories.getAll ? db.categories.getAll(selectedBusinessId) : Promise.resolve([])];
+            const proms: any[] = [db.products.getAll(selectedBusinessId || ''), db.services && db.services.getAll ? db.services.getAll(selectedBusinessId || '') : Promise.resolve([]), db.customers.getAll(selectedBusinessId || ''), db.auth.getCurrentUser(), db.categories && db.categories.getAll ? db.categories.getAll(selectedBusinessId || '') : Promise.resolve([])];
                 // settings may or may not exist on the client proxy
                 if (db.settings && db.settings.get) {
                     proms.splice(3, 0, db.settings.get());
@@ -148,7 +148,7 @@ const POS = () => {
                 // attach to products state via ref-like closure by storing catMap on window for now
                 (window as any).__categoryMap = catMap;
                 // apply settings if available
-                if (db.settings && db.settings.get) {
+                if (db.settings && db.settings.get && selectedBusinessId) {
                     const sett = await db.settings.get(selectedBusinessId);
                     const mergedSettings = { ...defaultSettings, ...(sett || {}) };
                     setSettings(mergedSettings);
@@ -222,7 +222,7 @@ const POS = () => {
         if (!amount && amount !== 0) return '';
         const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
         const tens = ['','', 'Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
-        const scale = (n: number) => {
+        const scale = (n: number): string => {
             if (n < 20) return ones[n];
             if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
             if (n < 1000) return ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + scale(n%100) : '');
@@ -243,7 +243,7 @@ const POS = () => {
 
     const addToCart = async (product: Product) => {
         // Skip stock checks for services - they don't have inventory
-        const isService = product.isService || product.is_service;
+        const isService = product.isService;
         
         // Only stock-tracked groups enforce inventory checks (and only for products, not services)
         const stockTracked = !isService && STOCK_TRACKED_GROUPS.includes(product.categoryGroup as CategoryGroup);
@@ -290,7 +290,7 @@ const POS = () => {
                 const newQty = Math.max(1, qty);
 
                     // Skip stock checks for services - they don't have inventory
-                    const isService = productItem.isService || productItem.is_service;
+                    const isService = productItem.isService;
 
                     // Only enforce stock limits for configured stock-tracked products (not services)
                     const stockTracked = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[productItem.categoryGroup] : (productItem.categoryGroup === 'Food & Drinks'));
@@ -341,14 +341,19 @@ const POS = () => {
     
     // Clean items: ensure each has product_id, quantity, price, and is_service
     const cleanedItems = cart.map(item => ({
-        product_id: (item.product_id || item.id || '').toString().trim(),
-        id: (item.product_id || item.id || '').toString().trim(),
+        product_id: (item.id || '').toString().trim(),
+        id: (item.id || '').toString().trim(),
         quantity: parseFloat(String(item.quantity)) || 0,
         price: parseFloat(String(item.price)) || 0,
-        is_service: item.is_service || item.isService ? 1 : 0,
+        is_service: item.isService ? 1 : 0,
         name: (item.name || '').toString().trim(),
         unit: (item.unit || '').toString().trim(),
-        categoryGroup: item.categoryGroup
+        categoryGroup: item.categoryGroup || '',
+        discount: item.discount || 0,
+        businessId: item.businessId || '',
+        categoryName: item.categoryName || '',
+        stock: item.stock || 0,
+        isService: item.isService || false
     }));
 
     // Validate items - must have non-empty product_id, quantity > 0, price >= 0
@@ -452,7 +457,7 @@ const POS = () => {
                     const loc = sale.locationId || currentUser?.defaultLocationId || settings.defaultLocationId;
                         for (const item of cart) {
                             // Skip stock reduction for services - they don't have inventory
-                            const isService = item.is_service || item.isService;
+                            const isService = item.isService;
                             const shouldTrack = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[item.categoryGroup] : (item.categoryGroup === 'Food & Drinks'));
                             if (shouldTrack) {
                                 try {
@@ -467,8 +472,8 @@ const POS = () => {
                     // Refresh products AND services
                     try {
                       const [refreshedProds, refreshedSvcs] = await Promise.all([
-                        db.products.getAll(selectedBusinessId),
-                        db.services && db.services.getAll ? db.services.getAll(selectedBusinessId) : Promise.resolve([])
+                        db.products.getAll(selectedBusinessId || undefined),
+                        db.services && db.services.getAll ? db.services.getAll(selectedBusinessId || undefined) : Promise.resolve([])
                       ]);
                       const productsOnly = Array.isArray(refreshedProds) ? refreshedProds.filter((p: any) => {
                         const isServiceFlag = typeof p.isService !== 'undefined' ? !!p.isService : (typeof p.is_service !== 'undefined' ? !!p.is_service : false);
