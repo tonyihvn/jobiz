@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { ArrowUpDown, Search, Download } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { ArrowUpDown, Search, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export interface Column<T> {
   header: string;
@@ -61,9 +61,13 @@ const exportToExcel = <T extends Record<string, any>>(data: T[], columns: Column
   }
 };
 
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+
 const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, title, actions }: DataTableProps<T>) => {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -114,6 +118,22 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
     return processed;
   }, [data, filters, sortConfig]);
 
+  // Paginate the processed rows so we never render thousands of DOM nodes at once.
+  const totalRows = processedData.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  // Reset to the first page whenever the underlying data, filters, sort or page size change.
+  useEffect(() => { setPage(1); }, [data, filters, sortConfig, pageSize]);
+
+  const pagedData = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return processedData.slice(start, start + pageSize);
+  }, [processedData, currentPage, pageSize]);
+
+  const firstRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const lastRow = Math.min(currentPage * pageSize, totalRows);
+
   return (
     <div className="bg-white shadow-sm rounded-lg border border-slate-200 overflow-hidden">
       <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
@@ -159,8 +179,8 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
             </tr>
           </thead>
           <tbody>
-            {processedData.length > 0 ? (
-              processedData.map((item, idx) => (
+            {pagedData.length > 0 ? (
+              pagedData.map((item, idx) => (
                 <tr 
                   key={idx} 
                   className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
@@ -183,6 +203,44 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
           </tbody>
         </table>
       </div>
+      {totalRows > 0 && (
+        <div className="p-3 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3 bg-slate-50 text-sm text-slate-600">
+          <div className="flex items-center gap-2">
+            <span>Rows per page:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              {PAGE_SIZE_OPTIONS.map(size => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <span>{firstRow}–{lastRow} of {totalRows}</span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="p-1.5 rounded border border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                title="Previous page"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="px-2">Page {currentPage} of {totalPages}</span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded border border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white"
+                title="Next page"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -22,6 +22,7 @@ const Finance = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [sales, setSales] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [userRole, setUserRole] = useState<Role | null>(null);
     const [settings, setSettings] = useState<any>(null);
@@ -120,9 +121,11 @@ const Finance = () => {
             setSuppliers(supps || []);
             const rls = db.roles && db.roles.getAll ? await db.roles.getAll(selectedBusinessId) : [];
             setRoles(rls || []);
+            const locs = db.locations && db.locations.getAll ? await db.locations.getAll(selectedBusinessId) : [];
+            setLocations(Array.isArray(locs) ? locs : []);
         } catch (e) {
             console.warn('Failed to refresh finance data', e);
-            setTransactions([]); setAccountHeads([]); setEmployees([]); setCustomers([]); setSuppliers([]); setRoles([]);
+            setTransactions([]); setAccountHeads([]); setEmployees([]); setCustomers([]); setSuppliers([]); setRoles([]); setLocations([]);
         }
     };
 
@@ -143,6 +146,43 @@ const Finance = () => {
   };
 
   // --- Deletion Handlers ---
+  const canDeleteTransaction = () => {
+      if (isSuper) return true;
+      if (userRole && userRole.name && String(userRole.name).toLowerCase().includes('admin')) return true;
+      return hasPermission('finance', 'delete') || hasPermission('transactions', 'delete');
+  };
+
+  const canEditTransaction = () => {
+      if (canDeleteTransaction()) return true;
+      return hasPermission('finance', 'create') || hasPermission('finance', 'update') || hasPermission('transactions', 'update');
+  };
+
+  const handleEditTransaction = (item: Transaction) => {
+      setEditingId(item.id);
+      setNewTx({
+          id: item.id,
+          businessId: (item as any).businessId || (item as any).business_id || businessId || '',
+          date: item.date ? new Date(item.date).toISOString() : new Date().toISOString(),
+          type: (item.type as TransactionType) || TransactionType.INFLOW,
+          accountHead: (item as any).accountHead || (item as any).account_head || '',
+          amount: Number(item.amount || 0),
+          particulars: item.particulars || '',
+          paidBy: (item as any).paidBy || (item as any).paid_by || '',
+          receivedBy: (item as any).receivedBy || (item as any).received_by || '',
+          approvedBy: (item as any).approvedBy || (item as any).approved_by || '',
+      });
+      setShowTransactionModal(true);
+  };
+
+  const handleDeleteTransaction = async (id: string) => {
+      if (window.confirm('Delete this transaction record? This action cannot be undone.')) {
+          try {
+              if (db.transactions && (db.transactions as any).delete) await (db.transactions as any).delete(id);
+          } catch (e) { console.warn('Delete transaction failed', e); }
+          await refreshData();
+      }
+  };
+
   const handleDeleteHead = async (id: string) => {
       if(window.confirm('Delete this account head?')) {
           try { if (db.accountHeads && db.accountHeads.delete) await db.accountHeads.delete(id); } catch (e) { console.warn('Delete head failed', e); }
@@ -191,8 +231,8 @@ const Finance = () => {
     const handleSaveTransaction = async () => {
         if (!newTx.amount || !newTx.accountHead || !newTx.date) return;
         const tx: Transaction = {
-                id: Date.now().toString(),
-                businessId: businessId || '',
+                id: editingId || newTx.id || Date.now().toString(),
+                businessId: (newTx as any).businessId || businessId || '',
                 date: newTx.date!,
                 accountHead: newTx.accountHead!,
                 type: newTx.type!,
@@ -205,6 +245,7 @@ const Finance = () => {
         try { if (db.transactions && db.transactions.add) await db.transactions.add(tx); }
         catch (e) { console.warn('Save transaction failed', e); }
         setShowTransactionModal(false);
+        setEditingId(null);
         setNewTx({ type: TransactionType.INFLOW, amount: 0 });
         await refreshData();
     };
@@ -299,6 +340,32 @@ const Finance = () => {
     },
     { header: 'Amount', accessor: (t: Transaction) => <span className="font-mono font-medium">{symbol}{fmt(t.amount,2)}</span>, key: 'amount', sortable: true, filterable: true },
     { header: 'Approved By', accessor: 'approvedBy', key: 'approvedBy', filterable: true },
+    ...((canEditTransaction() || canDeleteTransaction()) ? [{
+        header: 'Actions',
+        key: 'actions',
+        accessor: (t: Transaction) => (
+            <div className="flex items-center gap-1">
+                {canEditTransaction() && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleEditTransaction(t); }}
+                        className="text-brand-600 hover:bg-brand-50 p-1 rounded"
+                        title="Edit transaction"
+                    >
+                        <Edit2 size={16} />
+                    </button>
+                )}
+                {canDeleteTransaction() && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteTransaction(t.id); }}
+                        className="text-red-600 hover:bg-red-50 p-1 rounded"
+                        title="Delete transaction"
+                    >
+                        <Trash2 size={16} />
+                    </button>
+                )}
+            </div>
+        )
+    } as Column<Transaction>] : []),
   ];
 
   const headColumns: Column<AccountHead>[] = [
@@ -404,7 +471,7 @@ const Finance = () => {
               <button 
               onClick={() => {
                   setEditingId(null);
-                  if (activeTab === 'transactions') { setNewTx({ type: TransactionType.INFLOW, amount: 0 }); setShowTransactionModal(true); }
+                  if (activeTab === 'transactions') { setEditingId(null); setNewTx({ type: TransactionType.INFLOW, amount: 0 }); setShowTransactionModal(true); }
                   else if (activeTab === 'heads') { setNewHead({ type: TransactionType.INFLOW }); setShowHeadModal(true); }
                   else { setNewEmp({}); setShowEmployeeModal(true); }
               }}
@@ -645,8 +712,8 @@ const Finance = () => {
          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
             <div className="bg-white p-6 rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold text-slate-800">Record Transaction</h3>
-                    <button onClick={() => setShowTransactionModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+                    <h3 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Transaction' : 'Record Transaction'}</h3>
+                    <button onClick={() => { setShowTransactionModal(false); setEditingId(null); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
                 </div>
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
@@ -706,7 +773,7 @@ const Finance = () => {
                             {employees.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
                         </select>
                     </div>
-                    <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 mt-4">Save Record</button>
+                    <button onClick={handleSaveTransaction} className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold hover:bg-brand-700 mt-4">{editingId ? 'Update Record' : 'Save Record'}</button>
                 </div>
             </div>
          </div>
@@ -791,6 +858,18 @@ const Finance = () => {
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
                         <input type="text" className="w-full border rounded-lg p-2.5" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} />
+                     </div>
+
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Default Location</label>
+                        <select
+                            className="w-full border rounded-lg p-2.5"
+                            value={newEmp.defaultLocationId || (newEmp as any).default_location_id || ''}
+                            onChange={e => setNewEmp({...newEmp, defaultLocationId: e.target.value})}
+                        >
+                            <option value="">Select Location...</option>
+                            {locations.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select>
                      </div>
 
                      <div className="grid grid-cols-2 gap-4 border-t pt-4">

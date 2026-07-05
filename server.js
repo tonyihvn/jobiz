@@ -375,6 +375,21 @@ async function superAdminAuthMiddleware(req, res, next) {
   }
 }
 
+// Helper to parse chunked/pagination params from a request. Values are
+// sanitised to safe integers so they can be inlined into SQL LIMIT/OFFSET
+// (mysql2 prepared statements do not reliably bind LIMIT/OFFSET params).
+function parsePagination(req, defaultLimit = 100, maxLimit = 1000) {
+  const rawLimit = req.query.limit;
+  const rawOffset = req.query.offset;
+  const paginated = typeof rawLimit !== 'undefined' || typeof rawOffset !== 'undefined';
+  let limit = parseInt(rawLimit, 10);
+  let offset = parseInt(rawOffset, 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = defaultLimit;
+  if (limit > maxLimit) limit = maxLimit;
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  return { limit, offset, paginated };
+}
+
 // Helper to resolve business_id for the current request user
 async function resolveBusinessId(req) {
   try {
@@ -1651,19 +1666,9 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
     const businessId = (Array.isArray(bizRows) && bizRows[0]) ? bizRows[0].business_id : null;
     await connection.beginTransaction();
 
-    // Check per-location stock availability for physical items only (skip if all are services or this is a proforma)
-    if (hasPhysicalItems && saleLocation) {
-      for (const item of items) {
-        if (!(item.is_service || item.isService)) {
-          const [stockRows] = await connection.execute('SELECT quantity FROM stock_entries WHERE product_id = ? AND location_id = ? FOR UPDATE', [item.id, saleLocation]);
-          const available = stockRows[0] ? stockRows[0].quantity : 0;
-          if (available < item.quantity) {
-            await connection.rollback();
-            return res.status(400).json({ error: `Insufficient stock for ${item.name} at this location` });
-          }
-        }
-      }
-    }
+    // NOTE: Stock availability is intentionally NOT enforced here. Sales are
+    // allowed even when stock is 0 or negative; the stock simply goes negative
+    // and is corrected once the item is restocked.
 
     // Insert Sale (include business_id and explicit id)
     const saleId = req.body.id || Date.now().toString();
@@ -1729,7 +1734,9 @@ app.post('/api/sales', authMiddleware, async (req, res) => {
       );
 
       if (!(item.is_service || item.isService) && saleLocation) {
-        await connection.execute('UPDATE stock_entries SET quantity = GREATEST(0, quantity - ?) WHERE product_id = ? AND location_id = ?', [item.quantity, item.id, saleLocation]);
+        // Allow stock to go negative so oversold items are restored on restock.
+        // Upsert ensures a row exists even if the product had no stock entry yet.
+        await connection.execute('INSERT INTO stock_entries (id, business_id, product_id, location_id, quantity) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity - ?', [`${saleId}_se_${idx}`, businessId, item.id, saleLocation, -Number(item.quantity), Number(item.quantity)]);
         // Recalculate aggregated stock
         const [sumRows] = await connection.execute('SELECT COALESCE(SUM(quantity),0) as total FROM stock_entries WHERE product_id = ?', [item.id]);
         const totalStock = sumRows[0].total || 0;
@@ -1774,23 +1781,33 @@ app.get('/api/sales', authMiddleware, async (req, res) => {
   try {
     let salesRows;
     const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
-    
+    const { limit, offset } = parsePagination(req);
+
     // Super admin can optionally filter by businessId query param, otherwise sees all
     if (req.isSuperAdmin && businessIdFilter) {
-      [salesRows] = await pool.execute('SELECT * FROM sales WHERE business_id = ? ORDER BY date DESC', [businessIdFilter]);
+      [salesRows] = await pool.execute(`SELECT * FROM sales WHERE business_id = ? ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`, [businessIdFilter]);
     } else if (req.isSuperAdmin) {
-      [salesRows] = await pool.execute('SELECT * FROM sales ORDER BY date DESC');
+      [salesRows] = await pool.execute(`SELECT * FROM sales ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`);
     } else {
       // Regular user sees only their company's sales
-      [salesRows] = await pool.execute('SELECT * FROM sales WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
+      [salesRows] = await pool.execute(`SELECT * FROM sales WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`, [req.user.id]);
     }
-    // Fetch items for each sale
+    // Fetch items for all sales in a single query (avoids N+1 round-trips)
     const sales = Array.isArray(salesRows) ? salesRows : [];
-    const detailed = [];
-    for (const s of sales) {
-      const [items] = await pool.execute('SELECT product_id as id, quantity, price, is_service FROM sale_items WHERE sale_id = ?', [s.id]);
-      detailed.push({ ...s, items: Array.isArray(items) ? items : [] });
+    if (sales.length === 0) return res.json([]);
+    const saleIds = sales.map(s => s.id);
+    const placeholders = saleIds.map(() => '?').join(',');
+    const [allItems] = await pool.execute(
+      `SELECT sale_id, product_id as id, quantity, price, is_service FROM sale_items WHERE sale_id IN (${placeholders})`,
+      saleIds
+    );
+    const itemsBySale = new Map();
+    for (const it of (Array.isArray(allItems) ? allItems : [])) {
+      const list = itemsBySale.get(it.sale_id) || [];
+      list.push({ id: it.id, quantity: it.quantity, price: it.price, is_service: it.is_service });
+      itemsBySale.set(it.sale_id, list);
     }
+    const detailed = sales.map(s => ({ ...s, items: itemsBySale.get(s.id) || [] }));
     res.json(detailed);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2582,7 +2599,8 @@ app.post('/api/stock/increase', authMiddleware, async (req, res) => {
 app.post('/api/stock/decrease', authMiddleware, async (req, res) => {
   const { productId, locationId, qty } = req.body;
   try {
-    await pool.execute('UPDATE stock_entries SET quantity = GREATEST(0, quantity - ?) WHERE product_id = ? AND location_id = ?', [qty, productId, locationId]);
+    // Allow stock to go negative (no GREATEST floor) so oversold items are restored on restock.
+    await pool.execute('UPDATE stock_entries SET quantity = quantity - ? WHERE product_id = ? AND location_id = ?', [qty, productId, locationId]);
     const [sumRows] = await pool.execute('SELECT COALESCE(SUM(quantity),0) as total FROM stock_entries WHERE product_id = ?', [productId]);
     const total = sumRows[0].total || 0;
     await pool.execute('UPDATE products SET stock = ? WHERE id = ?', [total, productId]);
@@ -3252,21 +3270,81 @@ app.delete('/api/roles/:id', authMiddleware, async (req, res) => {
 app.get('/api/transactions', authMiddleware, async (req, res) => {
   try {
     const businessIdFilter = req.query.businessId ? String(req.query.businessId) : null;
-    
+    // Chunked/paginated loading: validated integers inlined to avoid mysql2
+    // prepared-statement LIMIT/OFFSET binding issues.
+    const { limit, offset, paginated } = parsePagination(req);
+
     if (req.isSuperAdmin && businessIdFilter) {
       // Super admin with businessId filter
-      const [rows] = await pool.execute('SELECT * FROM transactions WHERE business_id = ? ORDER BY date DESC', [businessIdFilter]);
+      const [rows] = await pool.execute(`SELECT * FROM transactions WHERE business_id = ? ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`, [businessIdFilter]);
       res.json(rows);
     } else if (req.isSuperAdmin) {
       // Super admin sees all transactions from all companies
-      const [rows] = await pool.execute('SELECT * FROM transactions ORDER BY date DESC');
+      const [rows] = await pool.execute(`SELECT * FROM transactions ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`);
       res.json(rows);
     } else {
       // Regular user sees only their company's transactions
-      const [rows] = await pool.execute('SELECT * FROM transactions WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC', [req.user.id]);
+      const [rows] = await pool.execute(`SELECT * FROM transactions WHERE business_id = (SELECT business_id FROM employees WHERE id = ?) ORDER BY date DESC LIMIT ${limit} OFFSET ${offset}`, [req.user.id]);
       res.json(rows);
     }
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a transaction (Admin only)
+app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Resolve business + admin status for the current user
+    const [empRows] = await pool.execute('SELECT business_id, role_id, is_super_admin FROM employees WHERE id = ?', [req.user.id]);
+    const emp = empRows && empRows[0];
+    if (!emp) return res.status(403).json({ error: 'Employee record not found' });
+    const userBusinessId = emp.business_id;
+
+    // Determine whether the user is an admin (super admin, admin role, or has a
+    // delete permission on finance/transactions).
+    let isAdmin = req.isSuperAdmin || !!emp.is_super_admin;
+    if (!isAdmin && emp.role_id) {
+      const [roleRows] = await pool.execute('SELECT name, permissions FROM roles WHERE id = ? AND business_id = ?', [emp.role_id, userBusinessId]);
+      const role = roleRows && roleRows[0];
+      if (role) {
+        const perms = (() => { try { return JSON.parse(role.permissions || '[]'); } catch { return []; } })();
+        const nameIsAdmin = role.name && String(role.name).toLowerCase().includes('admin');
+        const hasDeletePerm = Array.isArray(perms) && (
+          perms.includes('*:*') ||
+          perms.includes('finance:*') || perms.includes('finance:delete') ||
+          perms.includes('transactions:*') || perms.includes('transactions:delete')
+        );
+        isAdmin = !!(nameIsAdmin || hasDeletePerm);
+      }
+    }
+    if (!isAdmin) return res.status(403).json({ error: 'Forbidden: only an admin can delete transactions' });
+
+    // Verify transaction exists and belongs to the user's business
+    const [txRows] = await pool.execute('SELECT id, business_id FROM transactions WHERE id = ?', [id]);
+    const tx = txRows && txRows[0];
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+    if (!req.isSuperAdmin && tx.business_id !== userBusinessId) {
+      return res.status(403).json({ error: 'Forbidden: cannot delete transaction from a different business' });
+    }
+
+    const result = await pool.execute('DELETE FROM transactions WHERE id = ?', [id]);
+
+    // Audit log
+    try {
+      const aid = Date.now().toString();
+      await pool.execute('INSERT INTO audit_logs (id, business_id, user_id, user_name, action, resource, details) VALUES (?, ?, ?, ?, ?, ?, ?)', [aid, tx.business_id, req.user.id, req.user.email || req.user.id, 'delete', 'transaction', JSON.stringify({ id })]);
+    } catch (e) { /* ignore */ }
+
+    if (result[0] && result[0].affectedRows > 0) {
+      res.json({ id, message: 'Transaction deleted successfully' });
+    } else {
+      res.status(404).json({ error: 'Transaction not found' });
+    }
+  } catch (err) {
+    console.error('[DELETE-TRANSACTIONS] Error:', err && err.message ? err.message : err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -3410,7 +3488,7 @@ app.post('/api/transactions', authMiddleware, async (req, res) => {
     const sqlDate = date ? new Date(date) : new Date();
     // Build params safely (convert undefined -> null) and log for debugging
     const params = [tid, businessId, sqlDate, account_head ?? null, type ?? null, (typeof amount !== 'undefined' ? amount : null), particulars ?? null, paid_by ?? null, received_by ?? null, approved_by ?? null];
-    const txSql = 'INSERT INTO transactions (id, business_id, date, account_head, type, amount, particulars, paid_by, received_by, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), particulars=VALUES(particulars)';
+    const txSql = 'INSERT INTO transactions (id, business_id, date, account_head, type, amount, particulars, paid_by, received_by, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE date=VALUES(date), account_head=VALUES(account_head), type=VALUES(type), amount=VALUES(amount), particulars=VALUES(particulars), paid_by=VALUES(paid_by), received_by=VALUES(received_by), approved_by=VALUES(approved_by)';
     console.log('POST /api/transactions -> sql:', txSql);
     console.log('POST /api/transactions -> params:', params);
     try {
@@ -5066,6 +5144,38 @@ async function runMigrations() {
       }
     } catch (e4) {
       console.warn('Error while checking/adding amount_paid/balance to sales:', e4 && e4.message ? e4.message : e4);
+    }
+    // Ensure performance indexes exist for fast tenant-scoped, date-ordered loading.
+    // Checked via information_schema so it works on both MySQL and MariaDB.
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        const indexes = [
+          { table: 'transactions', name: 'idx_transactions_business_date', cols: '(business_id, date)' },
+          { table: 'sales', name: 'idx_sales_business_date', cols: '(business_id, date)' },
+          { table: 'sale_items', name: 'idx_sale_items_sale', cols: '(sale_id)' },
+          { table: 'customers', name: 'idx_customers_business', cols: '(business_id)' },
+          { table: 'account_heads', name: 'idx_account_heads_business', cols: '(business_id)' },
+          { table: 'audit_logs', name: 'idx_audit_logs_business_ts', cols: '(business_id, timestamp)' },
+        ];
+        for (const ix of indexes) {
+          try {
+            const [r] = await pool.execute(
+              'SELECT COUNT(*) as cnt FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?',
+              [dbName, ix.table, ix.name]
+            );
+            const exists = r && r[0] ? (r[0].cnt || 0) : 0;
+            if (!exists) {
+              await pool.execute(`CREATE INDEX \`${ix.name}\` ON \`${ix.table}\` ${ix.cols}`);
+              console.log(`CREATE INDEX: ${ix.name} on ${ix.table}`);
+            }
+          } catch (ixErr) {
+            console.warn(`Failed to ensure index ${ix.name}:`, ixErr && ixErr.message ? ixErr.message : ixErr);
+          }
+        }
+      }
+    } catch (e5) {
+      console.warn('Error while ensuring performance indexes:', e5 && e5.message ? e5.message : e5);
     }
   } catch (err) {
     console.error('Failed to apply schema.sql:', err.message || err);

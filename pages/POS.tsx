@@ -35,7 +35,7 @@ const POS = () => {
     const { setSymbol } = useCurrency();
     const [products, setProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
-    const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 7.5, currency: '₦' };
+    const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 0, currency: '₦' };
     const [settings, setSettings] = useState<CompanySettings>(defaultSettings);
     const fmtCurrency = useFmtCurrency();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -90,6 +90,16 @@ const POS = () => {
   const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
   const [showReceiptActions, setShowReceiptActions] = useState(true);
   const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
+
+  // Quick-add product from POS search
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [quickProductName, setQuickProductName] = useState('');
+  const [quickProductPrice, setQuickProductPrice] = useState<string>('');
+  const [quickProductSaving, setQuickProductSaving] = useState(false);
+
+  // Buffer for the per-item amount field while the user is typing. The quantity
+  // is only recalculated on blur so the field doesn't snap back mid-edit.
+  const [amountEdits, setAmountEdits] = useState<Record<string, string>>({});
 
     const [searchParams, setSearchParams] = useSearchParams();
 
@@ -148,8 +158,8 @@ const POS = () => {
                 // attach to products state via ref-like closure by storing catMap on window for now
                 (window as any).__categoryMap = catMap;
                 // apply settings if available
-                if (db.settings && db.settings.get && selectedBusinessId) {
-                    const sett = await db.settings.get(selectedBusinessId);
+                if (db.settings && db.settings.get) {
+                    const sett = await db.settings.get(selectedBusinessId || businessId || undefined);
                     const mergedSettings = { ...defaultSettings, ...(sett || {}) };
                     setSettings(mergedSettings);
                     // Update currency context if settings have a currency symbol
@@ -242,29 +252,8 @@ const POS = () => {
     const STOCK_TRACKED_GROUPS = Object.keys((window as any).__categoryMap || {}).filter(g => (window as any).__categoryMap[g]);
 
     const addToCart = async (product: Product) => {
-        // Skip stock checks for services - they don't have inventory
-        const isService = product.isService;
-        
-        // Only stock-tracked groups enforce inventory checks (and only for products, not services)
-        const stockTracked = !isService && STOCK_TRACKED_GROUPS.includes(product.categoryGroup as CategoryGroup);
-        const loc = currentUser?.defaultLocationId || settings.defaultLocationId;
-
-        if (stockTracked && !isProforma) {
-            let available = product.stock;
-            if (loc && db.stock && db.stock.getForProduct) {
-              try {
-                const stockData = await db.stock.getForProduct(product.id);
-                // stockData is an array of stock_entries — find the location
-                const entry = Array.isArray(stockData) ? stockData.find((s: any) => s.location_id === (loc || s.location_id) || s.locationId === loc) : null;
-                if (entry) available = entry.quantity;
-              } catch (e) { /* ignore */ }
-            }
-            if ((available || 0) <= 0) {
-                alert('Out of Stock at your location!');
-                return;
-            }
-        }
-
+        // Sales are allowed even when stock is 0 or negative. Stock is permitted
+        // to go negative and is corrected on restock, so there is no stock gating.
         setCart(prev => {
             const existing = prev.find(item => item.id === product.id);
             if (existing) {
@@ -283,29 +272,12 @@ const POS = () => {
     };
 
             const setQuantity = async (id: string, qty: number) => {
-                const productItem = products.find(p => p.id === id);
                 const current = cart.find(i => i.id === id);
-                if (!current || !productItem) return;
+                if (!current) return;
                 if (!Number.isFinite(qty)) return;
-                const newQty = Math.max(1, qty);
-
-                    // Skip stock checks for services - they don't have inventory
-                    const isService = productItem.isService;
-
-                    // Only enforce stock limits for configured stock-tracked products (not services)
-                    const stockTracked = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[productItem.categoryGroup] : (productItem.categoryGroup === 'Food & Drinks'));
-                if (stockTracked && (currentUser?.defaultLocationId || settings.defaultLocationId) && db.stock && db.stock.getForProduct) {
-                        try {
-                            const stockData = await db.stock.getForProduct(id);
-                            const entry = Array.isArray(stockData) ? stockData.find((s: any) => s.location_id === (currentUser.defaultLocationId || s.location_id) || s.locationId === currentUser.defaultLocationId) : null;
-                            const available = entry ? entry.quantity : (productItem.stock || 0);
-                            if (!isProforma && newQty > available) {
-                                alert('Insufficient Stock!');
-                                return;
-                            }
-                        } catch (e) { /* ignore */ }
-                }
-
+                // Allow fractional quantities (e.g. 1.2) capped at 2 decimal places.
+                // Stock is allowed to go negative, so no availability check is done.
+                const newQty = Math.round((qty > 0 ? qty : 1) * 100) / 100;
                 setCart(prev => prev.map(item => item.id === id ? { ...item, quantity: newQty } : item));
             };
 
@@ -319,8 +291,72 @@ const POS = () => {
     setCart(prev => prev.filter(item => item.id !== id));
   };
 
+  // Open the quick-add-product modal, pre-filled with the current search text.
+  const openQuickAdd = () => {
+      setQuickProductName(searchTerm.trim());
+      setQuickProductPrice('');
+      setShowAddProductModal(true);
+  };
+
+  // Create a new product (with "General" group/category), save it, and add it to the cart.
+  const saveQuickProduct = async () => {
+      const name = quickProductName.trim();
+      const price = parseFloat(quickProductPrice);
+      if (!name) { alert('Please enter a product name'); return; }
+      if (!Number.isFinite(price) || price < 0) { alert('Please enter a valid amount'); return; }
+      setQuickProductSaving(true);
+      try {
+          // Ensure a "General" category exists for this business.
+          try {
+              const cats = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId || businessId || undefined) : [];
+              const hasGeneral = Array.isArray(cats) && cats.some((c: any) => String(c.group || '').toLowerCase() === 'general');
+              if (!hasGeneral && db.categories && db.categories.add) {
+                  await db.categories.add({ id: 'cat_general_' + Date.now().toString(), businessId: businessId || '', name: 'General', categoryGroup: 'General', isProduct: true, description: '' });
+              }
+          } catch (e) { console.warn('Failed ensuring General category', e); }
+
+          const newProduct: any = {
+              id: 'prod_' + Date.now().toString(),
+              businessId: businessId || '',
+              name,
+              categoryName: 'General',
+              categoryGroup: 'General',
+              price,
+              stock: 0,
+              unit: 'pcs',
+              isService: false,
+              imageUrl: ''
+          };
+          const created = db.products && db.products.add ? await db.products.add(newProduct) : null;
+          const newId = (created && (created.id || created.insertId)) ? String(created.id || created.insertId) : newProduct.id;
+          const productForCart = { ...newProduct, id: newId } as Product;
+
+          // Update local products list and refresh category tabs / map.
+          setProducts(prev => [productForCart, ...prev]);
+          try {
+              const cats2 = db.categories && db.categories.getAll ? await db.categories.getAll(selectedBusinessId || businessId || undefined) : [];
+              setCategoriesState(cats2 || []);
+              const catMap: Record<string, boolean> = {};
+              if (Array.isArray(cats2)) for (const c of cats2) catMap[c.group] = typeof c.is_product !== 'undefined' ? !!c.is_product : (typeof c.isProduct !== 'undefined' ? !!c.isProduct : true);
+              (window as any).__categoryMap = catMap;
+          } catch (e) { /* ignore */ }
+
+          // Add the new product to the cart and reset the modal.
+          setCart(prev => [...prev, { ...productForCart, quantity: 1, discount: 0 }]);
+          setShowAddProductModal(false);
+          setSearchTerm('');
+          setQuickProductName('');
+          setQuickProductPrice('');
+      } catch (e) {
+          console.warn('Failed to quick-add product', e);
+          alert('Failed to add product. Please try again.');
+      } finally {
+          setQuickProductSaving(false);
+      }
+  };
+
   const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const vatRate = settings.vatRate ? settings.vatRate / 100 : 0;
+  const vatRate = Number(settings.vatRate) > 0 ? Number(settings.vatRate) / 100 : 0;
   const vat = subtotal * vatRate;
   const deliveryFee = delivery.enabled ? delivery.fee : 0;
   const total = subtotal + vat + deliveryFee;
@@ -454,21 +490,8 @@ const POS = () => {
             
             // Reduce Stock ONLY if NOT Proforma and NOT editing (to avoid double-counting)
             if (!isProforma && !editingSale) {
-                    const loc = sale.locationId || currentUser?.defaultLocationId || settings.defaultLocationId;
-                        for (const item of cart) {
-                            // Skip stock reduction for services - they don't have inventory
-                            const isService = item.isService;
-                            const shouldTrack = !isService && ((window as any).__categoryMap ? !!(window as any).__categoryMap[item.categoryGroup] : (item.categoryGroup === 'Food & Drinks'));
-                            if (shouldTrack) {
-                                try {
-                                    if (db.stock && db.stock.decrease) {
-                                    await db.stock.decrease(item.id, loc, item.quantity);
-                                    }
-                                } catch (e) {
-                                    console.warn('Failed to decrease stock for', item.id, e);
-                                }
-                            }
-                        }
+                    // Stock is decremented server-side within the sale transaction
+                    // (and is allowed to go negative), so we only refresh here.
                     // Refresh products AND services
                     try {
                       const [refreshedProds, refreshedSvcs] = await Promise.all([
@@ -962,6 +985,17 @@ const POS = () => {
                 </button>
             ))}
         </div>
+        {filteredProducts.length === 0 && searchTerm.trim() !== '' && (
+            <div className="mt-4 text-center bg-white border border-dashed border-slate-300 rounded-xl p-6">
+                <p className="text-slate-500 text-sm mb-3">No products match "<span className="font-semibold">{searchTerm}</span>".</p>
+                <button
+                    onClick={openQuickAdd}
+                    className="inline-flex items-center gap-2 bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-700"
+                >
+                    <Plus className="w-4 h-4" /> Add "{searchTerm.trim()}" as a new product
+                </button>
+            </div>
+        )}
       </div>
 
     {/* Cart (Right) */}
@@ -1065,7 +1099,7 @@ const POS = () => {
                             <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><Minus className="w-3 h-3"/></button>
                             <input
                                 type="number"
-                                min={1}
+                                min={0}
                                 step="any"
                                 inputMode="decimal"
                                 value={item.quantity}
@@ -1098,8 +1132,39 @@ const POS = () => {
                             <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><Plus className="w-3 h-3"/></button>
                         </div>
                         <div className="text-right">
-                             <p className="font-semibold text-sm">{fmtCurrency(Number(item.price) * Number(item.quantity),2)}</p>
-                             <button onClick={() => removeItem(item.id)} className="text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] hover:underline">Remove</button>
+                             <input
+                                type="number"
+                                step="0.01"
+                                min={0}
+                                inputMode="decimal"
+                                value={amountEdits[item.id] !== undefined ? amountEdits[item.id] : Number((Number(item.price) * Number(item.quantity)).toFixed(2))}
+                                onFocus={e => {
+                                    // Start an edit buffer seeded with the current amount.
+                                    setAmountEdits(prev => ({ ...prev, [item.id]: String(Number((Number(item.price) * Number(item.quantity)).toFixed(2))) }));
+                                    e.currentTarget.select();
+                                }}
+                                onChange={e => {
+                                    // Only track the raw text while typing; do NOT recalc quantity yet.
+                                    const raw = e.target.value;
+                                    setAmountEdits(prev => ({ ...prev, [item.id]: raw }));
+                                }}
+                                onBlur={e => {
+                                    // Commit: derive quantity from the entered amount, capped at 2 decimals.
+                                    const amount = parseFloat(e.target.value);
+                                    const price = Number(item.price) || 0;
+                                    if (Number.isFinite(amount) && price > 0) {
+                                        const q = Math.round((amount / price) * 100) / 100;
+                                        setQuantity(item.id, q > 0 ? q : 1);
+                                    }
+                                    setAmountEdits(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                                }}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+                                }}
+                                aria-label={`Amount for ${item.name}`}
+                                className="w-24 text-right text-sm font-semibold border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                             />
+                             <button onClick={() => removeItem(item.id)} className="block ml-auto mt-0.5 text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] hover:underline">Remove</button>
                         </div>
                     </div>
                 ))
@@ -1222,6 +1287,60 @@ const POS = () => {
             )}
         </div>
       </div>
+        </div>
+      )}
+
+      {/* Quick Add Product Modal */}
+      {showAddProductModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
+          <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Add New Product</h3>
+              <button onClick={() => setShowAddProductModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">This creates a product under the <span className="font-semibold">General</span> group and category.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
+                <input
+                  type="text"
+                  className="w-full border rounded-lg p-2.5 text-sm"
+                  value={quickProductName}
+                  onChange={e => setQuickProductName(e.target.value)}
+                  placeholder="e.g. Bottled Water"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Amount / Price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  inputMode="decimal"
+                  className="w-full border rounded-lg p-2.5 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  value={quickProductPrice}
+                  onChange={e => setQuickProductPrice(e.target.value)}
+                  placeholder="0.00"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowAddProductModal(false)}
+                className="flex-1 bg-slate-100 text-slate-700 py-2.5 rounded-lg font-medium hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveQuickProduct}
+                disabled={quickProductSaving}
+                className="flex-1 bg-brand-600 text-white py-2.5 rounded-lg font-bold hover:bg-brand-700 disabled:opacity-50"
+              >
+                {quickProductSaving ? 'Saving...' : 'Save & Add to Cart'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>

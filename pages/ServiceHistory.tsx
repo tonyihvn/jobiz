@@ -286,7 +286,7 @@ const ServiceHistory = () => {
                       </div>
                       ${Number(sale.vat || 0) > 0 ? `
                       <div class="totals-row">
-                        <span>VAT (${settings.vatRate || 7.5}%)</span>
+                        <span>VAT (${settings.vatRate || (Number(sale.subtotal || 0) > 0 ? Number((Number(sale.vat || 0) / Number(sale.subtotal || 0) * 100).toFixed(1)) : 0)}%)</span>
                         <span>${symbol}${Number(sale.vat || 0).toFixed(2)}</span>
                       </div>
                       ` : ''}
@@ -455,7 +455,7 @@ const ServiceHistory = () => {
                     </div>
                     ${Number(sale.vat) > 0 ? `
                     <div class="totals-row">
-                      <span>VAT (${settings.vatRate || 7.5}%)</span>
+                      <span>VAT (${settings.vatRate || (Number(sale.subtotal || 0) > 0 ? Number((Number(sale.vat || 0) / Number(sale.subtotal || 0) * 100).toFixed(1)) : 0)}%)</span>
                       <span>${symbol}${Number(sale.vat).toFixed(2)}</span>
                     </div>
                     ` : ''}

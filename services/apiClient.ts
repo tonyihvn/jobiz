@@ -85,9 +85,27 @@ export const api = {
   },
 
   sales: {
-    getAll: (businessId?: string, limit: number = 50, offset: number = 0) => {
-      const url = `/api/sales?limit=${limit}&offset=${offset}`;
-      return authFetch(appendBusinessIdToUrl(url, businessId)).then(safeJson).catch(() => []);
+    getAll: async (businessId?: string, limit?: number, offset: number = 0) => {
+      // If an explicit limit is provided, return a single page (true pagination).
+      if (typeof limit === 'number') {
+        const url = appendBusinessIdToUrl(`/api/sales?limit=${limit}&offset=${offset}`, businessId);
+        return authFetch(url).then(safeJson).catch(() => []);
+      }
+      // Otherwise load the full dataset in indexed chunks to keep each query light.
+      const CHUNK = 500;
+      let all: any[] = [];
+      let off = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const url = appendBusinessIdToUrl(`/api/sales?limit=${CHUNK}&offset=${off}`, businessId);
+        let page: any[] = [];
+        try { page = await authFetch(url).then(safeJson); } catch { break; }
+        if (!Array.isArray(page) || page.length === 0) break;
+        all = all.concat(page);
+        if (page.length < CHUNK) break;
+        off += CHUNK;
+      }
+      return all;
     },
     add: (sale: any) => authFetch('/api/sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sale) }).then(safeJson)
   },
@@ -178,23 +196,43 @@ const db = {
   },
   // Transactions (server implements /api/transactions)
   transactions: {
-    getAll: (businessId?: string, limit: number = 50, offset: number = 0) =>
-      authFetch(appendBusinessIdToUrl(`/api/transactions?limit=${limit}&offset=${offset}`, businessId)).then(safeJson).then((data: any[]) => 
-        (data || []).map(t => ({
-          ...t,
-          accountHead: t.account_head || t.accountHead,
-          paidBy: t.paid_by || t.paidBy,
-          receivedBy: t.received_by || t.receivedBy,
-          approvedBy: t.approved_by || t.approvedBy,
-          businessId: t.business_id || t.businessId,
-          // Also handle date normalization
-          date: t.date || t.created_at
-        }))
-      ).catch(() => []),
+    getAll: async (businessId?: string, limit?: number, offset: number = 0) => {
+      const mapTx = (data: any[]) => (data || []).map(t => ({
+        ...t,
+        accountHead: t.account_head || t.accountHead,
+        paidBy: t.paid_by || t.paidBy,
+        receivedBy: t.received_by || t.receivedBy,
+        approvedBy: t.approved_by || t.approvedBy,
+        businessId: t.business_id || t.businessId,
+        // Also handle date normalization
+        date: t.date || t.created_at
+      }));
+      // If an explicit limit is provided, return a single page (true pagination).
+      if (typeof limit === 'number') {
+        const url = appendBusinessIdToUrl(`/api/transactions?limit=${limit}&offset=${offset}`, businessId);
+        return authFetch(url).then(safeJson).then(mapTx).catch(() => []);
+      }
+      // Otherwise load the full dataset in indexed chunks to keep each query light.
+      const CHUNK = 500;
+      let all: any[] = [];
+      let off = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const url = appendBusinessIdToUrl(`/api/transactions?limit=${CHUNK}&offset=${off}`, businessId);
+        let page: any[] = [];
+        try { page = await authFetch(url).then(safeJson); } catch { break; }
+        if (!Array.isArray(page) || page.length === 0) break;
+        all = all.concat(page);
+        if (page.length < CHUNK) break;
+        off += CHUNK;
+      }
+      return mapTx(all);
+    },
     add: (t: any) => {
       const body = toSnake(t, { accountHead: 'account_head', paidBy: 'paid_by', receivedBy: 'received_by', approvedBy: 'approved_by', businessId: 'business_id' });
       return authFetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(safeJson).catch(() => null);
-    }
+    },
+    delete: (id: string) => authFetch(`/api/transactions/${id}`, { method: 'DELETE' }).then(safeJson)
   },
   // Suppliers compatibility on db (adds delete/update/save helpers)
   suppliers: {
