@@ -7,6 +7,14 @@ export interface Column<T> {
   key: string;
   sortable?: boolean;
   filterable?: boolean;
+  /** Plain value used for CSV export (avoids exporting React elements as "[object Object]"). */
+  exportValue?: (item: T) => string | number;
+  /** When true, the sum of this column (over the filtered rows) is shown in the table footer. */
+  summable?: boolean;
+  /** Numeric extractor used when summing. Falls back to exportValue, then the raw field value. */
+  sumValue?: (item: T) => number;
+  /** Formats the computed sum for display (e.g. adds a currency symbol). */
+  sumFormatter?: (sum: number) => React.ReactNode;
 }
 
 interface DataTableProps<T> {
@@ -28,19 +36,27 @@ const exportToExcel = <T extends Record<string, any>>(data: T[], columns: Column
     data.forEach(row => {
       const values = keys.map(key => {
         const col = columns.find(c => c.key === key);
-        let val = row[key];
-        
-        if (col && typeof col.accessor === 'function') {
+        let val: any;
+
+        if (col && typeof col.exportValue === 'function') {
+          // Prefer an explicit plain-text/number export value.
+          val = col.exportValue(row);
+        } else if (col && typeof col.accessor === 'function') {
           val = col.accessor(row);
-          // Remove HTML if present
           if (typeof val === 'string') {
+            // Remove HTML if present
             val = val.replace(/<[^>]*>/g, '');
+          } else if (val !== null && typeof val === 'object') {
+            // React element / object cannot be exported as text — skip it.
+            val = '';
           }
+        } else {
+          val = row[key];
         }
-        
-        val = String(val || '');
-        // Escape quotes and wrap if contains comma
-        return val.includes(',') ? `"${val.replace(/"/g, '""')}"` : val;
+
+        val = (val === null || typeof val === 'undefined') ? '' : String(val);
+        // Escape quotes and wrap if it contains a comma, quote or newline
+        return (val.includes(',') || val.includes('"') || val.includes('\n')) ? `"${val.replace(/"/g, '""')}"` : val;
       });
       csv += values.join(',') + '\n';
     });
@@ -134,6 +150,24 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
   const firstRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const lastRow = Math.min(currentPage * pageSize, totalRows);
 
+  // Sum of "summable" columns computed over the currently filtered rows.
+  const summableColumns = columns.filter(c => c.summable);
+  const columnSums = useMemo(() => {
+    const sums: Record<string, number> = {};
+    for (const col of summableColumns) {
+      let s = 0;
+      for (const item of processedData) {
+        let n: number;
+        if (col.sumValue) n = Number(col.sumValue(item));
+        else if (col.exportValue) n = Number(col.exportValue(item));
+        else n = Number((item as any)[col.key]);
+        if (Number.isFinite(n)) s += n;
+      }
+      sums[col.key] = s;
+    }
+    return sums;
+  }, [processedData, columns]);
+
   return (
     <div className="bg-white shadow-sm rounded-lg border border-slate-200 overflow-hidden">
       <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
@@ -201,6 +235,21 @@ const DataTable = <T extends Record<string, any>>({ data, columns, onRowClick, t
               </tr>
             )}
           </tbody>
+          {summableColumns.length > 0 && totalRows > 0 && (
+            <tfoot className="bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-800">
+              <tr>
+                {columns.map((col, i) => {
+                  if (col.summable) {
+                    const s = columnSums[col.key] || 0;
+                    return <td key={col.key} className="p-3 font-mono">{col.sumFormatter ? col.sumFormatter(s) : s}</td>;
+                  }
+                  // Show a label in the first non-summable column.
+                  if (i === 0) return <td key={col.key} className="p-3">Total ({totalRows})</td>;
+                  return <td key={col.key} className="p-3"></td>;
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       {totalRows > 0 && (

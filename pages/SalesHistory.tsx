@@ -708,6 +708,14 @@ const SalesHistory = () => {
     { header: 'Receipt #', accessor: (s) => s.id.slice(-8), key: 'id' },
     { header: 'Date', accessor: (s) => new Date(s.date).toLocaleString(), key: 'date', sortable: true },
     { header: 'Type', accessor: (s) => s.isReturn ? 'Return' : s.isProforma ? 'Proforma' : 'Sale', key: 'isReturn' },
+    {
+      header: 'Payment',
+      accessor: (s) => (s as any).paymentMethod || (s as any).payment_method || 'N/A',
+      exportValue: (s) => (s as any).paymentMethod || (s as any).payment_method || 'N/A',
+      key: 'paymentMethod',
+      sortable: true,
+      filterable: true
+    },
     { 
       header: 'Customer', 
       accessor: (s) => {
@@ -722,9 +730,14 @@ const SalesHistory = () => {
           </div>
         );
       }, 
+      exportValue: (s) => {
+        const custId = (s as any).customerId || (s as any).customer_id;
+        const customer = custId ? customers.find(c => c.id === custId || String(c.id) === String(custId)) : null;
+        return customer ? (customer.name || 'N/A') : 'Walk-in';
+      },
       key: 'customerId' 
     },
-    { header: 'Total', accessor: (s) => <span className={s.isReturn ? 'text-rose-600' : ''}>{symbol}{fmt(s.total,2)}</span>, key: 'total', sortable: true },
+    { header: 'Total', accessor: (s) => <span className={s.isReturn ? 'text-rose-600' : ''}>{symbol}{fmt(s.total,2)}</span>, exportValue: (s) => Number(s.total || 0), summable: true, sumValue: (s) => Number(s.total || 0), sumFormatter: (sum) => `${symbol}${fmt(sum, 2)}`, key: 'total', sortable: true },
     { 
         header: 'Documents', 
         accessor: (s) => (
@@ -738,6 +751,7 @@ const SalesHistory = () => {
                  </button>
             </div>
         ), 
+        exportValue: () => '',
         key: 'docs' 
     },
     { 
