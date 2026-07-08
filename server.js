@@ -2572,12 +2572,26 @@ app.post('/api/stock/increase', authMiddleware, async (req, res) => {
     // Only allow business users to add stock to their locations
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0].business_id;
-    // Upsert: if exists, increase, otherwise insert
-    await pool.execute('INSERT INTO stock_entries (id, business_id, product_id, location_id, quantity) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)', [Date.now().toString(), businessId, productId, locationId, qty]);
+    
+    // Upsert: Try UPDATE first (for existing records), then INSERT if no rows affected
+    const [updateResult] = await pool.execute(
+      'UPDATE stock_entries SET quantity = quantity + ?, id = id WHERE business_id = ? AND product_id = ? AND location_id = ?',
+      [qty, businessId, productId, locationId]
+    );
+    
+    if (updateResult.affectedRows === 0) {
+      // No existing record, so insert a new one
+      await pool.execute(
+        'INSERT INTO stock_entries (id, business_id, product_id, location_id, quantity) VALUES (?, ?, ?, ?, ?)',
+        [Date.now().toString(), businessId, productId, locationId, qty]
+      );
+    }
+    
     // Update aggregated product.stock
     const [sumRows] = await pool.execute('SELECT COALESCE(SUM(quantity),0) as total FROM stock_entries WHERE product_id = ?', [productId]);
     const total = sumRows[0].total || 0;
     await pool.execute('UPDATE products SET stock = ? WHERE id = ?', [total, productId]);
+    
     // Record history
     try {
       const sid = Date.now().toString();
@@ -5145,6 +5159,75 @@ async function runMigrations() {
     } catch (e4) {
       console.warn('Error while checking/adding amount_paid/balance to sales:', e4 && e4.message ? e4.message : e4);
     }
+    
+    // Ensure UNIQUE constraint on stock_entries (business_id, product_id, location_id)
+    // This prevents duplicate stock records per location. If duplicates exist, consolidate them.
+    try {
+      const dbName = process.env.DB_NAME || null;
+      if (dbName) {
+        // Check if constraint already exists
+        const [constraintRows] = await pool.execute(
+          `SELECT COUNT(*) as cnt FROM information_schema.TABLE_CONSTRAINTS 
+           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'stock_entries' 
+           AND CONSTRAINT_TYPE = 'UNIQUE' AND CONSTRAINT_NAME = 'uk_stock_location'`,
+          [dbName]
+        );
+        const constraintExists = constraintRows && constraintRows[0] ? (constraintRows[0].cnt || 0) : 0;
+        
+        if (!constraintExists) {
+          try {
+            // Check for duplicates - if any exist, consolidate them first
+            const [dupRows] = await pool.execute(`
+              SELECT business_id, product_id, location_id, COUNT(*) as cnt
+              FROM stock_entries
+              GROUP BY business_id, product_id, location_id
+              HAVING COUNT(*) > 1
+            `);
+            
+            if (dupRows && dupRows.length > 0) {
+              console.log(`Found ${dupRows.length} duplicate stock entries. Consolidating...`);
+              
+              // For each duplicate group, sum the quantities and keep only one record
+              for (const dup of dupRows) {
+                try {
+                  // Get all entries for this group and sum quantities
+                  const [entries] = await pool.execute(`
+                    SELECT id, quantity FROM stock_entries
+                    WHERE business_id = ? AND product_id = ? AND location_id = ?
+                    ORDER BY id DESC
+                  `, [dup.business_id, dup.product_id, dup.location_id]);
+                  
+                  if (entries && entries.length > 1) {
+                    const totalQty = entries.reduce((sum, e) => sum + Number(e.quantity || 0), 0);
+                    const keepId = entries[0].id;
+                    
+                    // Delete all but the first one
+                    const deleteIds = entries.slice(1).map(e => e.id);
+                    const placeholders = deleteIds.map(() => '?').join(',');
+                    await pool.execute(`DELETE FROM stock_entries WHERE id IN (${placeholders})`, deleteIds);
+                    
+                    // Update the kept one with total quantity
+                    await pool.execute(`UPDATE stock_entries SET quantity = ? WHERE id = ?`, [totalQty, keepId]);
+                    console.log(`Consolidated ${entries.length} entries for ${dup.product_id} @ location ${dup.location_id} (total qty: ${totalQty})`);
+                  }
+                } catch (consolidateErr) {
+                  console.warn(`Failed to consolidate duplicate stock entry:`, consolidateErr && consolidateErr.message ? consolidateErr.message : consolidateErr);
+                }
+              }
+            }
+            
+            // Now add the UNIQUE constraint
+            await pool.execute(`ALTER TABLE stock_entries ADD UNIQUE KEY uk_stock_location (business_id, product_id, location_id)`);
+            console.log(`CREATE UNIQUE CONSTRAINT: uk_stock_location on stock_entries`);
+          } catch (alterErr) {
+            console.warn(`Failed to add UNIQUE constraint on stock_entries:`, alterErr && alterErr.message ? alterErr.message : alterErr);
+          }
+        }
+      }
+    } catch (e6) {
+      console.warn('Error while ensuring stock_entries uniqueness:', e6 && e6.message ? e6.message : e6);
+    }
+    
     // Ensure performance indexes exist for fast tenant-scoped, date-ordered loading.
     // Checked via information_schema so it works on both MySQL and MariaDB.
     try {
