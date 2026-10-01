@@ -8,6 +8,8 @@ import { Product, CartItem, SaleRecord, CategoryGroup, Customer, CompanySettings
 import { Plus, Minus, Trash2, Printer, Save, Search, X, User, Info } from 'lucide-react';
 import { useContextBusinessId } from '../services/useContextBusinessId';
 import { useBusinessContext } from '../services/BusinessContext';
+import { usePOSTab } from '../services/POSTabContext';
+import { POSTabBar } from '../components/Shared/POSTabBar';
 
 // Simple Icon component for empty state
 const EmptyCartIcon = ({ size, className }: { size: number, className?: string }) => (
@@ -30,6 +32,10 @@ const EmptyCartIcon = ({ size, className }: { size: number, className?: string }
 );
 
 const POS = () => {
+    // Tab management
+    const { tabs, activeTabId, updateTab, getActiveTab, addTab } = usePOSTab();
+    const activeTab = getActiveTab();
+
     const { businessId } = useContextBusinessId();
     const { selectedBusinessId } = useBusinessContext();
     const { setSymbol } = useCurrency();
@@ -38,14 +44,16 @@ const POS = () => {
     const defaultSettings: CompanySettings = { businessId: '', name: '', motto: '', address: '', phone: '', email: '', logoUrl: '', vatRate: 0, currency: '₦' };
     const [settings, setSettings] = useState<CompanySettings>(defaultSettings);
     const fmtCurrency = useFmtCurrency();
-  const [cart, setCart] = useState<CartItem[]>([]);
+  
+    // Initialize component state from active tab
+    const [cart, setCart] = useState<CartItem[]>([]);
     const [currentUser, setCurrentUser] = useState<any>(null);
   
-        // Search & Filter
+    // Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
-        const [selectedCategory, setSelectedCategory] = useState<string>('Products');
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const cartRef = useRef<HTMLDivElement>(null);
+    const [selectedCategory, setSelectedCategory] = useState<string>('Products');
+    const searchInputRef = useRef<HTMLInputElement>(null);
+    const cartRef = useRef<HTMLDivElement>(null);
 
     // Derived category tabs (from products)
     const [categoriesState, setCategoriesState] = React.useState<any[]>([]);
@@ -68,40 +76,76 @@ const POS = () => {
         return tabs;
     }, [categoriesState, products]);
 
-  // Order Details
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
-  const [customerInput, setCustomerInput] = useState<string>('');
-  const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
-  const [isProforma, setIsProforma] = useState(false);
-  const [showProformaInfo, setShowProformaInfo] = useState(false);
-  const [proformaTitle, setProformaTitle] = useState('PROFORMA INVOICE');
-  const [paymentMethod, setPaymentMethod] = useState('Cash');
-  const [particulars, setParticulars] = useState('');
-  const [delivery, setDelivery] = useState({ enabled: false, fee: 0, address: '' });
+    // Order Details - initialize from tab or defaults
+    const [selectedCustomer, setSelectedCustomer] = useState<string>(activeTab?.selectedCustomer || '');
+    const [customerInput, setCustomerInput] = useState<string>(activeTab?.customerInput || '');
+    const [orderDate, setOrderDate] = useState<string>(activeTab?.orderDate || new Date().toISOString().split('T')[0]);
+    const [isProforma, setIsProforma] = useState<boolean>(activeTab?.isProforma || false);
+    const [showProformaInfo, setShowProformaInfo] = useState(false);
+    const [proformaTitle, setProformaTitle] = useState<string>(activeTab?.proformaTitle || 'PROFORMA INVOICE');
+    const [paymentMethod, setPaymentMethod] = useState<string>(activeTab?.paymentMethod || 'Cash');
+    const [particulars, setParticulars] = useState<string>(activeTab?.particulars || '');
+    const [delivery, setDelivery] = useState<any>(activeTab?.delivery || { enabled: false, fee: 0, address: '' });
 
-  // Amount paid by customer (defaults to Total). Track whether the user has
-  // manually changed it so we can keep auto-syncing to total until they do.
-  const [amountPaid, setAmountPaid] = useState<number>(0);
-  const [amountPaidEdited, setAmountPaidEdited] = useState<boolean>(false);
+    // Amount paid by customer
+    const [amountPaid, setAmountPaid] = useState<number>(activeTab?.amountPaid || 0);
+    const [amountPaidEdited, setAmountPaidEdited] = useState<boolean>(activeTab?.amountPaidEdited || false);
 
-  // UI State
-  const [lastSale, setLastSale] = useState<SaleRecord | null>(null);
-  const [showReceipt, setShowReceipt] = useState(false);
-  const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
-  const [showReceiptActions, setShowReceiptActions] = useState(true);
-  const [editingSale, setEditingSale] = useState<SaleRecord | null>(null);
+    // UI State
+    const [lastSale, setLastSale] = useState<SaleRecord | null>(null);
+    const [showReceipt, setShowReceipt] = useState(false);
+    const [receiptType, setReceiptType] = useState<'thermal' | 'a4'>('thermal');
+    const [showReceiptActions, setShowReceiptActions] = useState(true);
+    const [editingSale, setEditingSale] = useState<SaleRecord | null>(activeTab?.editingSale || null);
 
-  // Quick-add product from POS search
-  const [showAddProductModal, setShowAddProductModal] = useState(false);
-  const [quickProductName, setQuickProductName] = useState('');
-  const [quickProductPrice, setQuickProductPrice] = useState<string>('');
-  const [quickProductSaving, setQuickProductSaving] = useState(false);
+    // Quick-add product from POS search
+    const [showAddProductModal, setShowAddProductModal] = useState(false);
+    const [quickProductName, setQuickProductName] = useState('');
+    const [quickProductPrice, setQuickProductPrice] = useState<string>('');
+    const [quickProductSaving, setQuickProductSaving] = useState(false);
 
-  // Buffer for the per-item amount field while the user is typing. The quantity
-  // is only recalculated on blur so the field doesn't snap back mid-edit.
-  const [amountEdits, setAmountEdits] = useState<Record<string, string>>({});
+    // Buffer for the per-item amount field while the user is typing
+    const [amountEdits, setAmountEdits] = useState<Record<string, string>>(activeTab?.amountEdits || {});
 
     const [searchParams, setSearchParams] = useSearchParams();
+
+    // Sync component state to active tab
+    useEffect(() => {
+        if (!activeTab) return;
+        updateTab(activeTab.id, {
+            cart,
+            selectedCustomer,
+            customerInput,
+            orderDate,
+            isProforma,
+            proformaTitle,
+            paymentMethod,
+            particulars,
+            delivery,
+            amountPaid,
+            amountPaidEdited,
+            editingSale,
+            amountEdits,
+        });
+    }, [cart, selectedCustomer, customerInput, orderDate, isProforma, proformaTitle, paymentMethod, particulars, delivery, amountPaid, amountPaidEdited, editingSale, amountEdits, activeTab, updateTab]);
+
+    // Load state from active tab when it changes
+    useEffect(() => {
+        if (!activeTab) return;
+        setCart(activeTab.cart || []);
+        setSelectedCustomer(activeTab.selectedCustomer || '');
+        setCustomerInput(activeTab.customerInput || '');
+        setOrderDate(activeTab.orderDate || new Date().toISOString().split('T')[0]);
+        setIsProforma(activeTab.isProforma || false);
+        setProformaTitle(activeTab.proformaTitle || 'PROFORMA INVOICE');
+        setPaymentMethod(activeTab.paymentMethod || 'Cash');
+        setParticulars(activeTab.particulars || '');
+        setDelivery(activeTab.delivery || { enabled: false, fee: 0, address: '' });
+        setAmountPaid(activeTab.amountPaid || 0);
+        setAmountPaidEdited(activeTab.amountPaidEdited || false);
+        setEditingSale(activeTab.editingSale || null);
+        setAmountEdits(activeTab.amountEdits || {});
+    }, [activeTab?.id]); // Only update when tab ID changes
 
     useEffect(() => {
         const init = async () => {
@@ -801,6 +845,7 @@ const POS = () => {
 
     return (
     <>
+      <POSTabBar />
       {showReceipt && lastSale ? (
         <div className="w-full h-[calc(100vh-2rem)] overflow-auto bg-slate-100 p-4 flex flex-col">
           {/* Action Buttons - Hidden on Print */}

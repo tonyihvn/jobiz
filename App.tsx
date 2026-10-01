@@ -40,6 +40,7 @@ import db from './services/apiClient';
 import { CurrencyProvider } from './services/CurrencyContext';
 import { BusinessProvider } from './services/BusinessContext';
 import { LoadingProvider } from './services/LoadingContext';
+import { POSTabProvider } from './services/POSTabContext';
 import LoadingOverlay from './components/Shared/LoadingOverlay';
 import QuickCreateItemModal from './components/Shared/QuickCreateItemModal';
 import { Business } from './types';
@@ -423,7 +424,7 @@ const App = () => {
             }>
                    {/* Index Route - Redirect super admin to dashboard */}
                    <Route index element={isSuperAdmin ? <SuperAdminDashboard onLogout={handleLogout} /> : <Dashboard />} />
-                   <Route path="pos" element={<POS />} />
+                   <Route path="pos" element={<POSTabProvider><POS /></POSTabProvider>} />
                    <Route path="inventory/:group" element={<Inventory />} />
                    <Route path="stock" element={<Stock />} />
                    <Route path="suppliers" element={<Suppliers />} />

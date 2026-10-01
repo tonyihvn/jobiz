@@ -144,18 +144,3 @@ if ($status.Status -eq "Running") {
 
 Write-Host ""
 pause
-    Write-Host "=====================================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Service Name: $serviceName" -ForegroundColor White
-    Write-Host "Status: Running" -ForegroundColor Green
-    Write-Host "Startup: Automatic" -ForegroundColor White
-    Write-Host ""
-    Write-Host "The backend will start automatically when Windows boots." -ForegroundColor White
-    Write-Host ""
-} else {
-    Write-Host "[WARNING] Service may not be running" -ForegroundColor Yellow
-    Write-Host "Check logs\service.log for errors" -ForegroundColor Yellow
-}
-
-Write-Host ""
-pause
