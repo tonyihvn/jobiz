@@ -188,17 +188,29 @@ export function authFetch(input: RequestInfo, init: RequestInit = {}) {
   const headers = init.headers ? new Headers(init.headers as any) : new Headers();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const target = withBase(input);
-  
+
   // Create unique request ID to ensure start/stop match
   const requestId = Math.random().toString(36).substring(7) + '_' + Date.now();
-  
+
   // Start loading
   globalLoadingManager.start('Loading data...', requestId);
-  
+
   // Execute fetch and handle loading state
   return fetch(target, { ...init, headers })
     .then(response => {
       globalLoadingManager.stop(requestId);
+
+      // Handle 401 (Unauthorized) - token expired or invalid
+      if (response.status === 401) {
+        console.warn('[Auth] Received 401 Unauthorized - token may be expired');
+        logout();
+
+        // Redirect to login
+        if (typeof window !== 'undefined') {
+          window.location.href = '/#/login';
+        }
+      }
+
       return response;
     })
     .catch(error => {

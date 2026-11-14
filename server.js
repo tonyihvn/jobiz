@@ -610,7 +610,7 @@ app.post('/api/login', async (req, res) => {
     }
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role_id }, process.env.JWT_SECRET || 'change-me', { expiresIn: '8h' });
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role_id }, process.env.JWT_SECRET || 'change-me', { expiresIn: '7d' });
     res.json({ success: true, token, user: { id: user.id, name: user.name, role_id: user.role_id, email: user.email } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3386,11 +3386,6 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
     
     // Normalize column names to frontend expectations
     const r = settingsRows[0];
-    console.log('GET /api/settings fetched raw data:', {
-      business_id: r.business_id,
-      open_receipts_in_same_window: r.open_receipts_in_same_window,
-      thermal_printer_width: r.thermal_printer_width
-    });
     
     let landing = null;
     try { landing = r.landing_content ? JSON.parse(r.landing_content) : null; } catch (e) { landing = r.landing_content || null; }
@@ -3436,10 +3431,6 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
       openReceiptsInSameWindow: r.open_receipts_in_same_window || 0,
       thermalPrinterWidth: r.thermal_printer_width || '80mm'
     };
-    console.log('GET /api/settings returning:', {
-      openReceiptsInSameWindow: out.openReceiptsInSameWindow,
-      thermalPrinterWidth: out.thermalPrinterWidth
-    });
     res.json(out);
   } catch (err) {
     console.error('Error fetching settings:', err.message);
@@ -3450,10 +3441,6 @@ app.get('/api/settings', authMiddleware, async (req, res) => {
 app.post('/api/settings', authMiddleware, async (req, res) => {
   try {
     const data = req.body || {};
-    console.log('POST /api/settings received data:', JSON.stringify({
-      openReceiptsInSameWindow: data.openReceiptsInSameWindow,
-      thermalPrinterWidth: data.thermalPrinterWidth
-    }));
     
     const [bizRows] = await pool.execute('SELECT business_id FROM employees WHERE id = ?', [req.user.id]);
     const businessId = bizRows[0] ? bizRows[0].business_id : null;

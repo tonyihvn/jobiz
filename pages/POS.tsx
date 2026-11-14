@@ -109,24 +109,36 @@ const POS = () => {
 
     const [searchParams, setSearchParams] = useSearchParams();
 
-    // Sync component state to active tab
+    // Sync component state to active tab (debounced to avoid infinite loops)
+    const syncTimerRef = useRef<NodeJS.Timeout>();
     useEffect(() => {
         if (!activeTab) return;
-        updateTab(activeTab.id, {
-            cart,
-            selectedCustomer,
-            customerInput,
-            orderDate,
-            isProforma,
-            proformaTitle,
-            paymentMethod,
-            particulars,
-            delivery,
-            amountPaid,
-            amountPaidEdited,
-            editingSale,
-            amountEdits,
-        });
+
+        // Clear previous timer
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+
+        // Debounce the sync to prevent infinite loops
+        syncTimerRef.current = setTimeout(() => {
+            updateTab(activeTab.id, {
+                cart,
+                selectedCustomer,
+                customerInput,
+                orderDate,
+                isProforma,
+                proformaTitle,
+                paymentMethod,
+                particulars,
+                delivery,
+                amountPaid,
+                amountPaidEdited,
+                editingSale,
+                amountEdits,
+            });
+        }, 300); // 300ms debounce
+
+        return () => {
+            if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        };
     }, [cart, selectedCustomer, customerInput, orderDate, isProforma, proformaTitle, paymentMethod, particulars, delivery, amountPaid, amountPaidEdited, editingSale, amountEdits, activeTab, updateTab]);
 
     // Load state from active tab when it changes
